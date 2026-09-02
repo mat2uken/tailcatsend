@@ -229,34 +229,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     // Receive incoming stream from Mobile
                     while let Some(msg_res) = ws_receiver.next().await {
-                        if let Ok(Message::Text(text)) = msg_res {
-                            if let Ok(payload) = serde_json::from_str::<RelayPayload>(&text) {
-                                match payload.msg_type.as_str() {
-                                     "text" => {
-                                        if let Some(incoming_text) = payload.text {
-                                            let w = app_weak_relay.clone();
-                                            let inc_t = incoming_text.clone();
-                                            let s_id = short_sess_for_relay.clone();
-                                            let _ = slint::invoke_from_event_loop(move || {
-                                                if let Some(app) = w.upgrade() {
-                                                    app.set_screen_index(3);
-                                                    app.set_peer_name("Mobile Client (iPhone / Web)".into());
-                                                    app.set_derp_info("tailcat.dev (Active Mesh)".into());
-                                                    app.set_edge_relay_info("Cloudflare Workers (DO)".into());
-                                                    let display_sess = if s_id.len() >= 12 {
-                                                        format!("{}...", &s_id[..12])
-                                                    } else {
-                                                        s_id.clone()
-                                                    };
-                                                    app.set_session_info(display_sess.into());
-                                                    let new_log = format!("[Mobile]: {}\n{}", inc_t, app.get_received_message_log());
-                                                    app.set_received_message_log(new_log.into());
-                                                    app.set_last_received_text(inc_t.into());
-                                                    app.set_status_text("Received message from Mobile!".into());
-                                                }
-                                            });
+                        match msg_res {
+                            Ok(Message::Text(text)) => {
+                                info!("📥 [Desktop WS Recv] Got message: {}", text);
+                                println!("📥 [Desktop WS Recv] Got message: {}", text);
+                                if let Ok(payload) = serde_json::from_str::<RelayPayload>(&text) {
+                                    match payload.msg_type.as_str() {
+                                         "text" => {
+                                            if let Some(incoming_text) = payload.text {
+                                                info!("✉️ [Desktop] Received text from Peer: {}", incoming_text);
+                                                let w = app_weak_relay.clone();
+                                                let inc_t = incoming_text.clone();
+                                                let s_id = short_sess_for_relay.clone();
+                                                let _ = slint::invoke_from_event_loop(move || {
+                                                    if let Some(app) = w.upgrade() {
+                                                        app.set_screen_index(3);
+                                                        app.set_peer_name("iPhone / Peer Device".into());
+                                                        app.set_derp_info("tailcat.dev (Active Mesh)".into());
+                                                        app.set_edge_relay_info("Cloudflare Workers (DO)".into());
+                                                        let display_sess = if s_id.len() >= 12 {
+                                                            format!("{}...", &s_id[..12])
+                                                        } else {
+                                                            s_id.clone()
+                                                        };
+                                                        app.set_session_info(display_sess.into());
+                                                        let new_log = format!("[iPhone]: {}\n{}", inc_t, app.get_received_message_log());
+                                                        app.set_received_message_log(new_log.into());
+                                                        app.set_last_received_text(inc_t.into());
+                                                        app.set_status_text("Received message from iPhone!".into());
+                                                    }
+                                                });
+                                            }
                                         }
-                                    }
                                     "file_start" => {
                                         let file_id = payload.file_id.unwrap_or_default();
                                         let filename = payload.filename.unwrap_or_else(|| "received_file.bin".to_string());
@@ -381,13 +385,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                             }
                         }
+                        _ => {}
                     }
                 }
-                Err(e) => {
-                    error!("Failed to connect desktop host to Edge Relay: {}", e);
-                }
             }
-        });
+            Err(e) => {
+                error!("Failed to connect desktop host to Edge Relay: {}", e);
+            }
+        }
+    });
     });
 
     // Clipboard Copy Handler
