@@ -1,0 +1,32 @@
+[package]
+name = "tailsend-ios"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+tailsend-protocol = { workspace = true }
+tailsend-transport-api = { workspace = true }
+tailsend-platform-api = { workspace = true }
+tailsend-transfer = { workspace = true }
+tailsend-core = { workspace = true }
+tailsend-qr = { workspace = true }
+tailsend-ui-controller = { workspace = true }
+
+slint = { workspace = true, features = ["backend-winit", "renderer-skia", "renderer-femtovg"] }
+
+tokio = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+rand = { workspace = true }
+image = { workspace = true }
+tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
+
+[build-dependencies]
+slint-build = { version = "1.17.1" }

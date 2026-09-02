@@ -1,0 +1,33 @@
+name: TailSend
+options:
+  bundleIdPrefix: dev.tailsend
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  TailSend:
+    type: application
+    platform: iOS
+    sources:
+      - path: TailSend
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: dev.tailsend.app
+      INFOPLIST_FILE: TailSend/Info.plist
+      SWIFT_OBJC_BRIDGING_HEADER: TailSend/TailSend-Bridging-Header.h
+      SWIFT_VERSION: "5.0"
+      ONLY_ACTIVE_ARCH: YES
+      ARCHS:
+        - arm64
+      LIBRARY_SEARCH_PATHS:
+        - $(SRCROOT)/../../target/aarch64-apple-ios-sim/release
+        - $(SRCROOT)/../../target/aarch64-apple-ios/release
+      OTHER_LDFLAGS:
+        - -ltailsend_ios
+        - -framework UIKit
+        - -framework Metal
+        - -framework QuartzCore
+        - -framework CoreGraphics
+        - -framework CoreText
+        - -framework Security
+        - -framework Foundation
+        - -lresolv
+        - -lc++

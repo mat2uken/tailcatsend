@@ -20,6 +20,12 @@ dist/pkg/
 progress_active_screenshot.png
 mobile_updated_actions_screenshot.png
 mobile_screenshot.png
+ios_simulator_screenshot.png
 qr_code.png
 test_*.bin
 test_*.mp4
+
+# iOS build artifacts
+build/
+*.xcodeproj/
+DerivedData/
