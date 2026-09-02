@@ -192,6 +192,7 @@
     </div>
 
     <canvas id="canvas"></canvas>
+    <input type="file" id="global-file-picker" style="position:fixed;top:-1000px;left:-1000px;opacity:0;pointer-events:none;" />
 
     <script type="module">
         const statusEl = document.getElementById("status");
@@ -521,6 +522,9 @@
             if (window.updateSlintTransferState) {
                 window.updateSlintTransferState(true, false, "Connecting P2P...", file.name, `0.0 MB / ${totalMB} MB`, 0.0, "Connecting...");
             }
+            if (window.updateSlintStatusText) {
+                window.updateSlintStatusText(`Connecting file transfer: ${file.name}`);
+            }
 
             try {
                 const conn = await window.tailcatDial({
@@ -529,7 +533,10 @@
                     derpMapURL: "https://tailcat.dev/derpmap.json"
                 });
 
-                updateHUD(true, "Sending to PC...", file.name, `0.0 MB / ${totalMB} MB`, 0.1, "Transferring...");
+                updateHUD(true, "Sending to macOS...", file.name, `0.0 MB / ${totalMB} MB`, 0.1, "Transferring...");
+                if (window.updateSlintStatusText) {
+                    window.updateSlintStatusText(`Transferring ${file.name}...`);
+                }
                 
                 // 1. Send filename header
                 const header = new TextEncoder().encode(`NAME:${file.name}\n`);
@@ -559,7 +566,7 @@
                     const speedMBs = elapsedSec > 0 ? ((transferredBytes / 1048576) / elapsedSec).toFixed(1) + " MB/s" : "Calculating...";
                     const bytesText = `${(transferredBytes / 1048576).toFixed(1)} MB / ${totalMB} MB`;
 
-                    updateHUD(true, "Sending to PC...", file.name, bytesText, progress, speedMBs);
+                    updateHUD(true, "Sending to macOS...", file.name, bytesText, progress, speedMBs);
                     if (window.updateSlintTransferState) {
                         window.updateSlintTransferState(true, false, "Sending...", file.name, bytesText, progress, speedMBs);
                     }
@@ -569,31 +576,52 @@
                     }
                 }
 
-                await conn.closeWrite();
+                try {
+                    await conn.closeWrite();
+                } catch (e) {
+                    console.warn("closeWrite warning:", e);
+                }
                 conn.close();
 
                 updateHUD(false, "Transfer Complete!", file.name, `${totalMB} MB`, 1.0, "", true);
                 if (window.updateSlintTransferState) {
                     window.updateSlintTransferState(false, true, "[Completed] Transfer Successful!", file.name, `${totalMB} MB`, 1.0, "Saved");
                 }
+                if (window.updateSlintStatusText) {
+                    window.updateSlintStatusText(`Delivered ${file.name} (${totalMB} MB) to macOS!`);
+                }
                 console.log("✅ [TailSend Web] File successfully delivered to Mac via Tailcat P2P!");
             } catch (err) {
                 console.error("[TailSend Web] Failed to send file via Tailcat P2P:", err);
                 alert("File transfer error: " + (err.message || err));
                 updateHUD(false, "Transfer Failed", file.name, "0.0 MB", 0.0, "Error");
+                if (window.updateSlintTransferState) {
+                    window.updateSlintTransferState(false, false, "Transfer Failed", file.name, "0.0 MB", 0.0, "Error");
+                }
+                if (window.updateSlintStatusText) {
+                    window.updateSlintStatusText("Transfer Error: " + (err.message || err));
+                }
             }
         };
 
-        window.triggerFilePicker = function() {
-            const input = document.createElement("input");
-            input.type = "file";
-            input.onchange = async (e) => {
-                const file = e.target.files[0];
+        const fileInputEl = document.getElementById("global-file-picker");
+        if (fileInputEl) {
+            fileInputEl.onchange = async (e) => {
+                const file = e.target.files && e.target.files[0];
                 if (file) {
+                    console.log("[TailSend Web] File chosen:", file.name, file.size);
                     await window.sendTailcatFileChunked(file);
+                    fileInputEl.value = "";
                 }
             };
-            input.click();
+        }
+
+        window.triggerFilePicker = function() {
+            console.log("[TailSend Web] triggerFilePicker called");
+            const input = document.getElementById("global-file-picker");
+            if (input) {
+                input.click();
+            }
         };
 
         async function initTailcatEngine() {
