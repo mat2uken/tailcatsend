@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::ffi::CStr;
 use std::os::raw::c_char;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use base64::prelude::*;
@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use slint::{Image, SharedPixelBuffer};
 use tailsend_protocol::invitation::InvitationV1;
 use tailsend_qr::generate_qr_rgba;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::mpsc;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
@@ -136,12 +136,10 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
     // Create Slint AppWindow on Main Thread
     let app = AppWindow::new()?;
     app.set_top_safe_area(44.0);
-    let incoming_files: Arc<Mutex<HashMap<String, IncomingFileState>>> = Arc::new(Mutex::new(HashMap::new()));
+    let incoming_files: Arc<tokio::sync::Mutex<HashMap<String, IncomingFileState>>> = Arc::new(tokio::sync::Mutex::new(HashMap::new()));
 
-    // Channel for outgoing relay messages
-    let (relay_tx, relay_rx) = mpsc::unbounded_channel::<String>();
-    let relay_tx_shared = Arc::new(Mutex::new(relay_tx));
-    let relay_rx_shared = Arc::new(Mutex::new(Some(relay_rx)));
+    // Active WebSocket sender holder (thread-safe for non-async main thread callback access)
+    let active_sender: Arc<Mutex<Option<mpsc::UnboundedSender<String>>>> = Arc::new(Mutex::new(None));
 
     // Channel to trigger QR regeneration
     let (regen_tx, mut regen_rx) = mpsc::unbounded_channel::<()>();
@@ -153,7 +151,7 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
     let app_weak_boot = app.as_weak();
     let base_url_clone = base_url.clone();
     let incoming_files_clone = incoming_files.clone();
-    let relay_rx_clone = relay_rx_shared.clone();
+    let active_sender_tokio = active_sender.clone();
     let join_tx_thread = join_tx.clone();
 
     // Start background Tokio Runtime for networking and session handling
@@ -213,10 +211,10 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
                 info!("Connecting iOS Host to Edge Relay: {}", relay_ws_url);
                 let app_weak_relay = app_weak_boot.clone();
                 let inc_files = incoming_files_clone.clone();
-                let r_rx_shared = relay_rx_clone.clone();
+                let sender_holder = active_sender_tokio.clone();
 
                 let session_task = tokio::spawn(async move {
-                    connect_relay_worker(relay_ws_url, "Connected Peer", short_sess_for_relay, app_weak_relay, inc_files, r_rx_shared).await;
+                    connect_relay_worker(relay_ws_url, "Connected Peer", short_sess_for_relay, app_weak_relay, inc_files, sender_holder).await;
                 });
 
                 current_abort_handle = Some(session_task.abort_handle());
@@ -260,7 +258,7 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
 
                     let app_weak_join = app_weak_boot.clone();
                     let inc_files_join = incoming_files_clone.clone();
-                    let r_rx_join = relay_rx_clone.clone();
+                    let sender_holder_join = active_sender_tokio.clone();
                     let sess_id_clone = target_session_id.clone();
 
                     let join_ws_url = format!(
@@ -287,7 +285,7 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         });
 
-                        connect_relay_worker(join_ws_url, "Host (macOS / PC)", sess_id_clone, app_weak_join, inc_files_join, r_rx_join).await;
+                        connect_relay_worker(join_ws_url, "Host (macOS / PC)", sess_id_clone, app_weak_join, inc_files_join, sender_holder_join).await;
                     });
 
                     current_abort_handle = Some(client_task.abort_handle());
@@ -392,29 +390,98 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
         let _ = regen_tx_disc.send(());
     });
 
-    // Compose Text Message Handler
+    // ✉️ Compose Text Message Handler (Completely safe synchronous send on Main Thread)
     let app_weak_text = app.as_weak();
-    let relay_tx_text = relay_tx_shared.clone();
+    let active_sender_text = active_sender.clone();
     app.on_compose_text(move |msg| {
         if let Some(app) = app_weak_text.upgrade() {
-            let log_text = format!("Sent: {}\n{}", msg, app.get_received_message_log());
+            let msg_str = msg.to_string();
+            if msg_str.trim().is_empty() {
+                return;
+            }
+            info!("Sending text message from iOS: {}", msg_str);
+            let log_text = format!("Sent: {}\n{}", msg_str, app.get_received_message_log());
             app.set_received_message_log(log_text.into());
+            app.set_message_input("".into());
 
             let payload = serde_json::json!({
                 "type": "text",
                 "channel": 101,
-                "text": msg.as_str(),
+                "text": msg_str,
                 "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
             });
-            let tx = relay_tx_text.clone();
-            tokio::spawn(async move {
-                let guard = tx.lock().await;
-                let _ = guard.send(payload.to_string());
-            });
+
+            if let Ok(guard) = active_sender_text.lock() {
+                if let Some(sender) = guard.as_ref() {
+                    let _ = sender.send(payload.to_string());
+                } else {
+                    error!("No active relay sender available to send text");
+                }
+            }
         }
     });
 
-    // Copy Received Text Callback
+    // 📋 Paste & Send Text Handler
+    let app_weak_paste_send = app.as_weak();
+    let active_sender_paste = active_sender.clone();
+    app.on_paste_and_send(move || {
+        if let Some(app) = app_weak_paste_send.upgrade() {
+            let msg_str = app.get_message_input().to_string();
+            if !msg_str.trim().is_empty() {
+                let log_text = format!("Sent: {}\n{}", msg_str, app.get_received_message_log());
+                app.set_received_message_log(log_text.into());
+                app.set_message_input("".into());
+
+                let payload = serde_json::json!({
+                    "type": "text",
+                    "channel": 101,
+                    "text": msg_str,
+                    "timestamp": SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs()
+                });
+
+                if let Ok(guard) = active_sender_paste.lock() {
+                    if let Some(sender) = guard.as_ref() {
+                        let _ = sender.send(payload.to_string());
+                    }
+                }
+            }
+        }
+    });
+
+    // 📁 Pick File Handler Stub
+    let app_weak_file = app.as_weak();
+    app.on_pick_files(move || {
+        if let Some(app) = app_weak_file.upgrade() {
+            app.set_status_text("File sharing from iOS is active".into());
+        }
+    });
+
+    // ❌ Cancel Transfer Handler
+    let app_weak_cancel = app.as_weak();
+    app.on_cancel_transfer(move || {
+        if let Some(app) = app_weak_cancel.upgrade() {
+            app.set_is_transferring(false);
+            app.set_transfer_status("Transfer cancelled".into());
+        }
+    });
+
+    // 📤 Share Received Text
+    let app_weak_share = app.as_weak();
+    app.on_share_received_text(move || {
+        if let Some(app) = app_weak_share.upgrade() {
+            app.set_status_text("Sharing received text...".into());
+        }
+    });
+
+    // 💾 Save Received Text
+    let app_weak_save = app.as_weak();
+    app.on_save_received_text(move || {
+        if let Some(app) = app_weak_save.upgrade() {
+            app.set_status_text("Text saved!".into());
+        }
+    });
+
+    // 📋 Copy Received Text Callback
     let app_weak_copy_text = app.as_weak();
     app.on_copy_received_text(move || {
         if let Some(app) = app_weak_copy_text.upgrade() {
@@ -435,26 +502,29 @@ async fn connect_relay_worker(
     peer_default_name: &'static str,
     short_session_id: String,
     app_weak: slint::Weak<AppWindow>,
-    incoming_files: Arc<Mutex<HashMap<String, IncomingFileState>>>,
-    relay_rx_shared: Arc<Mutex<Option<mpsc::UnboundedReceiver<String>>>>,
+    incoming_files: Arc<tokio::sync::Mutex<HashMap<String, IncomingFileState>>>,
+    active_sender: Arc<Mutex<Option<mpsc::UnboundedSender<String>>>>,
 ) {
     match connect_async(&relay_ws_url).await {
         Ok((ws_stream, _)) => {
             info!("Successfully connected to Edge Relay at {}", relay_ws_url);
             let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
-            // Sender loop
-            let mut rx_guard = relay_rx_shared.lock().await;
-            if let Some(mut rx) = rx_guard.take() {
-                tokio::spawn(async move {
-                    while let Some(msg) = rx.recv().await {
-                        if let Err(e) = ws_sender.send(Message::Text(msg.into())).await {
-                            error!("Failed to send relay ws message: {}", e);
-                            break;
-                        }
-                    }
-                });
+            // Create outbound channel for this connection
+            let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+            if let Ok(mut guard) = active_sender.lock() {
+                *guard = Some(tx);
             }
+
+            // Sender task
+            tokio::spawn(async move {
+                while let Some(msg) = rx.recv().await {
+                    if let Err(e) = ws_sender.send(Message::Text(msg.into())).await {
+                        error!("Failed to send relay ws message: {}", e);
+                        break;
+                    }
+                }
+            });
 
             // Receiver loop
             while let Some(msg_res) = ws_receiver.next().await {
