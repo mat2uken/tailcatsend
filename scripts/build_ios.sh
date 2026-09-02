@@ -23,9 +23,11 @@ if [ "$MODE" = "sim" ]; then
       -sdk "$SDK_PATH" \
       -import-objc-header apps/ios/TailSend/TailSend-Bridging-Header.h \
       apps/ios/TailSend/main.swift \
+      apps/ios/TailSend/QRScannerViewController.swift \
       -L target/aarch64-apple-ios-sim/release \
       -ltailsend_ios \
       -framework UIKit \
+      -framework AVFoundation \
       -framework Metal \
       -framework QuartzCore \
       -framework CoreGraphics \

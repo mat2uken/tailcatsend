@@ -26,6 +26,7 @@ targets:
       OTHER_LDFLAGS:
         - -ltailsend_ios
         - -framework UIKit
+        - -framework AVFoundation
         - -framework Metal
         - -framework QuartzCore
         - -framework CoreGraphics
