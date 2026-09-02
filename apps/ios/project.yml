@@ -21,10 +21,13 @@ targets:
         - arm64
       "LIBRARY_SEARCH_PATHS[sdk=iphoneos*]":
         - $(SRCROOT)/../../target/aarch64-apple-ios/release
+        - $(SRCROOT)/../..
       "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]":
         - $(SRCROOT)/../../target/aarch64-apple-ios-sim/release
-      OTHER_LDFLAGS:
+        - $(SRCROOT)/../..
+      "OTHER_LDFLAGS[sdk=iphoneos*]":
         - -ltailsend_ios
+        - -ltailcat_ios
         - -framework UIKit
         - -framework AVFoundation
         - -framework Metal
@@ -33,5 +36,20 @@ targets:
         - -framework CoreText
         - -framework Security
         - -framework Foundation
+        - -framework Network
+        - -lresolv
+        - -lc++
+      "OTHER_LDFLAGS[sdk=iphonesimulator*]":
+        - -ltailsend_ios
+        - -ltailcat_ios_sim
+        - -framework UIKit
+        - -framework AVFoundation
+        - -framework Metal
+        - -framework QuartzCore
+        - -framework CoreGraphics
+        - -framework CoreText
+        - -framework Security
+        - -framework Foundation
+        - -framework Network
         - -lresolv
         - -lc++

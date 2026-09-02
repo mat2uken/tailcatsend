@@ -27,7 +27,6 @@ serde_json = { workspace = true }
 image = { workspace = true }
 base64 = { workspace = true }
 futures = { workspace = true }
-tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
 
 [build-dependencies]
 slint-build = { version = "1.17.1" }

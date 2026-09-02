@@ -3,10 +3,12 @@ target/
 **/*.rs.bk
 Cargo.lock
 
-# Go binaries
+# Go binaries & static archives
 tailcat_daemon
 tailcat_daemon.exe
 *.exe
+libtailcat*.a
+libtailcat*.h
 
 # Node / JS
 node_modules/

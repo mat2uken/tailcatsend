@@ -3,6 +3,7 @@ package main
 /*
 #include <stdint.h>
 #include <stddef.h>
+#include <string.h>
 
 typedef uint64_t tc_handle_t;
 
