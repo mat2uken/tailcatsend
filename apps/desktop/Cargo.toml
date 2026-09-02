@@ -1,0 +1,33 @@
+[package]
+name = "tailsend-desktop"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "tailsend"
+path = "src/main.rs"
+
+[dependencies]
+tailsend-core = { workspace = true }
+tailsend-protocol = { workspace = true }
+tailsend-transport-api = { workspace = true }
+tailsend-platform-api = { workspace = true }
+tailsend-transfer = { workspace = true, features = ["tokio-runtime"] }
+tailsend-ui-controller = { workspace = true }
+tailsend-qr = { workspace = true }
+slint = { workspace = true }
+tokio = { workspace = true }
+env_logger = { workspace = true }
+log = { workspace = true }
+rfd = "0.15"
+arboard = "3.4"
+rand = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+image = { workspace = true }
+base64 = { workspace = true }
+futures = { workspace = true }
+tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
+
+[build-dependencies]
+slint-build = { version = "1.17.1" }

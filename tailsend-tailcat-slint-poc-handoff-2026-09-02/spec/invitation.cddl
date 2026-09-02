@@ -1,0 +1,25 @@
+; TailSend invitation format v1
+; Encoded as canonical CBOR, then base64url without padding, and placed in
+; the URL fragment as #i=<encoded>.
+;
+; Integer map keys are used to keep the QR payload compact.
+; The implementation additionally limits canonical CBOR to 1024 bytes and the
+; complete QR URL to 1500 ASCII bytes.
+
+invitation = invitation-v1
+
+invitation-v1 = {
+  1: 1,                 ; format_version
+  2: 1,                 ; protocol_major
+  3: uint,              ; protocol_minor
+  4: tailcat-address,   ; creator listener ConnBlob, starts with "tc"
+  5: session-id,        ; CSPRNG 128-bit
+  6: invite-secret,     ; CSPRNG 256-bit
+  7: timestamp,         ; issued_at, Unix seconds
+  8: timestamp          ; expires_at, Unix seconds
+}
+
+tailcat-address = tstr
+session-id = bstr .size 16
+invite-secret = bstr .size 32
+timestamp = uint

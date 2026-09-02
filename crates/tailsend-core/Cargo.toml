@@ -1,0 +1,22 @@
+[package]
+name = "tailsend-core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tailsend-protocol = { workspace = true }
+tailsend-transport-api = { workspace = true }
+tailsend-platform-api = { workspace = true }
+tailsend-transfer = { workspace = true }
+tailsend-qr = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+serde = { workspace = true }
+log = { workspace = true }
+rand = { workspace = true }
+getrandom = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }

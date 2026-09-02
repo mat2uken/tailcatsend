@@ -1,0 +1,158 @@
+; TailSend control protocol v1
+; Each message is encoded as canonical CBOR and prefixed by u32 big-endian
+; payload length. Maximum payload length is 1 MiB.
+
+control-message = {
+  1: 1,                    ; protocol_major
+  2: uint,                 ; protocol_minor
+  3: message-type,
+  4: session-id,
+  5: uint,                 ; sequence number
+  ? 6: id-16,              ; request/transfer/correlation id
+  ? 7: message-body
+}
+
+message-type =
+    1   ; client_hello
+  / 2   ; server_hello
+  / 3   ; session_ready
+  / 4   ; session_ready_ack
+  / 5   ; ping
+  / 6   ; pong
+  / 7   ; goodbye
+  / 8   ; error
+  / 20  ; text_offer
+  / 21  ; text_decision
+  / 22  ; text_result
+  / 30  ; file_offer
+  / 31  ; file_decision
+  / 32  ; file_item_result
+  / 33  ; transfer_complete
+  / 34  ; transfer_result
+  / 35  ; transfer_cancel
+
+message-body =
+    client-hello
+  / server-hello
+  / session-ready
+  / ping-pong
+  / goodbye
+  / error-body
+  / text-offer
+  / decision
+  / result
+  / file-offer
+  / file-item-result
+  / transfer-cancel
+
+client-hello = {
+  1: nonce-32,
+  2: tailcat-address,
+  3: peer-info,
+  4: capabilities,
+  5: proof-32
+}
+
+server-hello = {
+  1: nonce-32,
+  2: tailcat-address,
+  3: peer-info,
+  4: capabilities,
+  5: proof-32
+}
+
+session-ready = {
+  ? 1: tstr
+}
+
+ping-pong = {
+  1: uint                  ; monotonic token or timestamp
+}
+
+goodbye = {
+  ? 1: uint,               ; reason code
+  ? 2: tstr
+}
+
+error-body = {
+  1: uint,                 ; stable error code
+  ? 2: tstr                ; bounded user-safe detail
+}
+
+text-offer = {
+  1: uint,                 ; byte length
+  2: uint,                 ; character count
+  3: tstr                  ; preview, <= 256 scalars
+}
+
+decision = {
+  1: bool,                 ; accepted
+  ? 2: uint,               ; reason code
+  ? 3: tstr
+}
+
+result = {
+  1: bool,
+  ? 2: uint,
+  ? 3: tstr
+}
+
+file-offer = {
+  1: [1*128 file-item],
+  2: uint                  ; checked total size
+}
+
+file-item = {
+  1: uint,                 ; item_id, u32 range
+  2: tstr,                 ; sanitized base name
+  3: uint,                 ; size, u64 range
+  ? 4: tstr,               ; MIME hint
+  ? 5: int                 ; modified Unix milliseconds
+}
+
+file-item-result = {
+  1: uint,                 ; item_id
+  2: bool,
+  ? 3: uint,
+  ? 4: tstr
+}
+
+transfer-cancel = {
+  1: uint,                 ; reason code
+  ? 2: tstr
+}
+
+peer-info = {
+  1: tstr,                 ; display name
+  2: platform,
+  3: runtime-kind,
+  4: tstr,                 ; app version
+  ? 5: browser-family
+}
+
+platform = 1 / 2 / 3 / 4 / 5 / 6 / 255
+; 1 web, 2 windows, 3 macos, 4 android, 5 ios, 6 linux, 255 unknown
+
+runtime-kind = 1 / 2
+; 1 native, 2 browser
+
+browser-family = 1 / 2 / 3 / 4 / 255
+; 1 chrome, 2 edge, 3 safari, 4 firefox, 255 other
+
+capabilities = {
+  1: bool,                 ; text
+  2: bool,                 ; files
+  3: bool,                 ; directories
+  4: bool,                 ; transfer resume
+  5: uint,                 ; max text bytes
+  6: uint,                 ; max control frame bytes
+  7: uint,                 ; max files per offer
+  8: uint,                 ; max filename bytes
+  9: bool                  ; streaming receive
+}
+
+session-id = bstr .size 16
+id-16 = bstr .size 16
+nonce-32 = bstr .size 32
+proof-32 = bstr .size 32
+tailcat-address = tstr

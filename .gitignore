@@ -1,0 +1,23 @@
+# Rust build artifacts
+target/
+**/*.rs.bk
+Cargo.lock
+
+# Go binaries
+tailcat_daemon.exe
+*.exe
+
+# Node / JS
+node_modules/
+dist/pkg/
+*.log
+
+# Cloudflare Wrangler
+.wrangler/
+
+# Temporary test artifacts
+progress_active_screenshot.png
+mobile_updated_actions_screenshot.png
+mobile_screenshot.png
+qr_code.png
+test_*.bin

@@ -1,0 +1,19 @@
+[package]
+name = "tailsend-transfer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tailsend-protocol = { workspace = true }
+tailsend-transport-api = { workspace = true }
+tailsend-platform-api = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+bytes = { workspace = true }
+futures = { workspace = true }
+log = { workspace = true }
+tokio = { workspace = true, optional = true }
+
+[features]
+default = []
+tokio-runtime = ["dep:tokio"]

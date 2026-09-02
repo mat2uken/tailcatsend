@@ -1,0 +1,8 @@
+[package]
+name = "tailsend-qr"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+qrcode = { workspace = true }
+thiserror = { workspace = true }

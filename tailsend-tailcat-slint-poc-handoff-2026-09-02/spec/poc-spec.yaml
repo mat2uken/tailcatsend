@@ -1,0 +1,182 @@
+schema_version: 1
+project:
+  working_name: TailSend
+  document_date: 2026-09-02
+  purpose: >-
+    QR invitationを起点に、NativeまたはWebの2 PeerがTailcatで一時接続し、
+    Slint共通UIからテキストとファイルを双方向転送するPoC。
+
+pinned_dependencies:
+  tailcat:
+    repository: https://github.com/tailscale/tailcat
+    commit: 4a25a91e0337252a4d16e097b03cf3cbb92c20cd
+    go_version: 1.27.0
+    license: BSD-3-Clause
+  slint:
+    initial_version: 1.17.1
+    note: 実装開始時に取得可能性とMSRVを確認し、変更時はADRを残す
+  derp_map_url: https://tailcat.dev/derpmap.json
+
+platforms:
+  p0:
+    native:
+      - windows
+      - macos
+      - android
+      - ios
+    web:
+      required:
+        - chrome_desktop
+        - edge_desktop
+        - chrome_android
+      compatibility:
+        - safari_macos
+        - safari_ios
+  future:
+    - linux_native
+
+startup:
+  no_invitation: create_session
+  with_invitation: join_session
+  qr_target: https_web_url
+  native_qr_scanner: false
+  native_deep_link_join: false
+  note: P0のQR読取先はWeb。CoreはJoinSession APIを共通で持つ。
+
+session:
+  both_peers_start_listener: true
+  creator_role_persists_after_handshake: false
+  max_authenticated_peers: 1
+  max_active_transfers: 1
+  persistent_pairing: false
+  background_receive: false
+  keys: ephemeral
+  invite_lifetime_seconds: 600
+  handshake_timeout_seconds: 15
+  control_port: 100
+  text_port: 101
+  file_port: 102
+  reserved_directory_port: 103
+
+invitation:
+  transport: url_fragment
+  parameter: i
+  encoding:
+    payload: canonical_cbor
+    outer: base64url_without_padding
+  fields:
+    - format_version
+    - protocol_major
+    - protocol_minor
+    - host_tailcat_address
+    - session_id_16_bytes
+    - invite_secret_32_bytes
+    - issued_at_unix_seconds
+    - expires_at_unix_seconds
+  maximum_cbor_bytes: 1024
+  maximum_encoded_payload_bytes: 1300
+  maximum_qr_url_bytes: 1500
+  single_use_after_authenticated_handshake: true
+
+security:
+  application_authentication: hmac_sha256
+  qr_contains_private_key: false
+  log_secrets: false
+  clear_fragment_after_parse: true
+  receive_requires_acceptance: true
+  reject_data_before_acceptance: true
+  maximum_unauthenticated_connections: 4
+
+protocol:
+  major: 1
+  minor: 0
+  control_framing: u32be_length_plus_canonical_cbor
+  maximum_control_frame_bytes: 1048576
+  text:
+    maximum_bytes: 1048576
+    requires_offer: true
+    uses_separate_stream: true
+  files:
+    maximum_items_per_offer: 128
+    maximum_filename_utf8_bytes: 1024
+    explicit_maximum_file_size: null
+    sequential_items: true
+    chunk_size_bytes: 65536
+    resume: false
+    application_hash: false
+    exact_byte_count_required: true
+    temporary_sink_then_commit: true
+
+cloudflare:
+  service: workers_static_assets
+  stores_sessions: false
+  stores_files: false
+  worker_relay: false
+  pwa_required: false
+  deployment_origin_is_used_in_invites: true
+
+ui:
+  toolkit: slint
+  shared_native_web: true
+  technical_role_names_hidden: true
+  screens:
+    - boot
+    - invite_qr
+    - joining
+    - connected
+    - incoming_offer
+    - transfer_progress
+    - disconnected
+    - error
+  local_send_protocol_compatibility: false
+  local_send_ux_inspiration: true
+
+p0_features:
+  - web_host_and_web_joiner
+  - native_host_and_web_joiner
+  - symmetric_peer_after_handshake
+  - invitation_qr
+  - invitation_link_copy
+  - bidirectional_text
+  - bidirectional_files
+  - receive_accept_or_reject
+  - progress
+  - cancel
+  - bounded_streaming_io
+  - cloudflare_static_deployment
+
+p1_features:
+  - folder_transfer
+  - transfer_resume
+  - persistent_pairing
+  - operating_system_share_in
+  - operating_system_share_out
+  - native_deep_links
+  - native_qr_scanner
+  - transfer_history_persistence
+  - quick_save
+  - concurrent_transfers
+  - self_hosted_derp
+
+acceptance_gates:
+  - id: web_symmetric_session
+    required: true
+    description: 2 browser contextsがQR invitation相当で接続し双方向textとfileを転送
+  - id: native_desktop_web
+    required: true
+    description: Windows/macOS NativeとWebが同じUI flowで双方向転送
+  - id: large_file
+    required: true
+    description: NativeとChrome/Edge desktop間で1GiB、bounded memory、hash一致
+  - id: android_foreground
+    required: true
+    description: Android実機foregroundでWebとのtextと10MiB file双方向
+  - id: ios_foreground
+    required: true
+    description: iOS実機foregroundでWebとのtextと10MiB file双方向
+  - id: safari_compatibility
+    required: true
+    description: Safari macOS/iOSで接続、text、小〜中容量fileを検証し制約を記録
+  - id: cloudflare_static_only
+    required: true
+    description: Cloudflareにsession、secret、fileを保存せず公開URLでsmoke test

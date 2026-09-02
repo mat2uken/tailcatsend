@@ -1,0 +1,35 @@
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: no-referrer
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'; connect-src 'self' https://tailcat.dev wss://*.tailscale.com wss://*.derp.tailscale.com wss://* ws://*; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; frame-ancestors 'none';
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/assets/*.wasm.gz
+  Content-Type: application/gzip
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/pkg/*.wasm.gz
+  Content-Type: application/gzip
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/assets/*.js
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/pkg/*.js
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/assets/*.wasm
+  Content-Type: application/wasm
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/pkg/*.wasm
+  Content-Type: application/wasm
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/index.html
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/version.json
+  Cache-Control: no-store
