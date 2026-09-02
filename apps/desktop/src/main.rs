@@ -68,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let base_url = if args.len() > 1 {
         args[1].clone()
     } else {
-        "https://tailsend-poc.mat2uken.workers.dev".to_string()
+        std::env::var("TAILSEND_WEB_URL").unwrap_or_else(|_| "https://tailsend.pages.dev".to_string())
     };
 
     let app = AppWindow::new()?;
