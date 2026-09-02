@@ -74,142 +74,166 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = AppWindow::new()?;
     let app_weak = app.as_weak();
 
+    // Show window immediately so user sees UI instantly
+    app.set_screen_index(0);
+    app.set_status_text("Starting Tailcat WireGuard Mesh (Tokyo Region 304)...".into());
+    app.show()?;
+
     // Store target peer Tailcat address for outgoing P2P transfers
     let target_peer_addr: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
     let _target_peer_addr_clone = target_peer_addr.clone();
+
+    // Store host address for invite regeneration
+    let host_addr_shared = Arc::new(Mutex::new(String::new()));
+    let host_addr_shared_init = host_addr_shared.clone();
 
     // IPC channel to communicate with Tailcat daemon
     let (ipc_tx, mut ipc_rx) = mpsc::unbounded_channel::<DaemonCommand>();
     let ipc_tx_clone = ipc_tx.clone();
 
-    // Find and spawn native Tailcat daemon
-    let daemon_bin_name = if cfg!(windows) {
-        "tailcat_daemon.exe"
-    } else {
-        "tailcat_daemon"
-    };
-
-    let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf()));
-
-    let candidates = [
-        exe_dir.as_ref().map(|d| d.join(daemon_bin_name)),
-        Some(current_dir.join(daemon_bin_name)),
-        Some(current_dir.join("target").join("release").join(daemon_bin_name)),
-        Some(current_dir.join("target").join("debug").join(daemon_bin_name)),
-        Some(current_dir.join("tailcat").join(daemon_bin_name)),
-        Some(PathBuf::from(format!("./{}", daemon_bin_name))),
-    ];
-
-    let daemon_path = candidates
-        .into_iter()
-        .flatten()
-        .find(|p| p.is_file())
-        .unwrap_or_else(|| PathBuf::from(daemon_bin_name));
-
-    info!("Spawning Tailcat native daemon from path: {}", daemon_path.display());
-
-    let mut child = Command::new(&daemon_path)
-        .arg("-derp=https://tailcat.dev/derpmap.json")
-        .arg("-ipc-port=49152")
-        .arg("-v")
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .unwrap_or_else(|e| panic!("Failed to spawn Tailcat daemon at {}: {}", daemon_path.display(), e));
-
-    let stdout = child.stdout.take().expect("Failed to get stdout of daemon");
-    let mut reader = BufReader::new(stdout).lines();
-
-    // Read initial ready event from daemon
-    let mut real_host_address = String::new();
-    while let Ok(Some(line)) = reader.next_line().await {
-        info!("[tailcat-daemon] {}", line);
-        if let Ok(ev) = serde_json::from_str::<DaemonEvent>(&line) {
-            if ev.event == "ready" {
-                if let Some(addr) = ev.address {
-                    real_host_address = addr;
-                    break;
-                }
-            }
-        }
-    }
-
-    if real_host_address.is_empty() {
-        real_host_address = "tc-fallback-ephemeral-address".to_string();
-    }
-
-    info!("⚡ Acquired Tailcat Native ConnBlob: {}", real_host_address);
-    println!("⚡ Local Tailcat WireGuard Address: {}\n", real_host_address);
-
-    // Generate Invitation and QR Code
-    let mut session_id = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut session_id);
-    let mut invite_secret = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut invite_secret);
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-
-    let invitation = InvitationV1::new(real_host_address.clone(), session_id, invite_secret, now, 600);
-    let invite_url = invitation.to_qr_url(&base_url).unwrap_or_default();
-    let session_token = invitation.to_base64url().unwrap_or_default();
-
-    info!("Generated Tailcat QR Invitation: {}", invite_url);
-
-    if let Ok(qr) = generate_qr_rgba(&invite_url, 236) {
-        let _ = image::save_buffer_with_format(
-            "qr_code.png",
-            &qr.rgba_pixels,
-            qr.width,
-            qr.height,
-            image::ColorType::Rgba8,
-            image::ImageFormat::Png,
-        );
-
-        let mut pixel_buffer = SharedPixelBuffer::new(qr.width, qr.height);
-        pixel_buffer.make_mut_bytes().copy_from_slice(&qr.rgba_pixels);
-
-        let slint_qr_img = Image::from_rgba8(pixel_buffer);
-        app.set_qr_code_image(slint_qr_img);
-        app.set_has_qr_image(true);
-        app.set_invite_url(invite_url.into());
-        app.set_screen_index(1);
-        app.set_status_text("Scan QR with iPhone to Connect (Direct P2P)".into());
-        app.set_expires_secs(600);
-        app.set_can_disconnect(true);
-        app.set_can_send(true);
-        app.set_peer_name("Waiting for Peer...".into());
-        app.set_derp_info("tailcat.dev (WireGuard P2P)".into());
-        app.set_edge_relay_info("Pure Tailcat Mesh (No Relay)".into());
-        let display_sess = if session_token.len() >= 12 {
-            format!("{}...", &session_token[..12])
-        } else {
-            session_token.clone()
-        };
-        app.set_session_info(display_sess.into());
-    }
-
-    // Connect to Daemon IPC Port
-    tokio::spawn(async move {
-        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-        if let Ok(mut stream) = TcpStream::connect("127.0.0.1:49152").await {
-            info!("Connected to Tailcat daemon local IPC");
-            while let Some(cmd) = ipc_rx.recv().await {
-                if let Ok(data) = serde_json::to_vec(&cmd) {
-                    let _ = stream.write_all(&data).await;
-                    let _ = stream.write_all(b"\n").await;
-                }
-            }
-        }
-    });
-
-    // Listen for incoming Tailcat events from Daemon stdout
-    let app_weak_daemon = app_weak.clone();
+    // Find and spawn native Tailcat daemon in background
+    let app_weak_boot = app_weak.clone();
+    let base_url_boot = base_url.clone();
     let target_peer_addr_daemon = target_peer_addr.clone();
+
     tokio::spawn(async move {
+        let daemon_bin_name = if cfg!(windows) {
+            "tailcat_daemon.exe"
+        } else {
+            "tailcat_daemon"
+        };
+
+        let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf()));
+
+        let candidates = [
+            exe_dir.as_ref().map(|d| d.join(daemon_bin_name)),
+            Some(current_dir.join(daemon_bin_name)),
+            Some(current_dir.join("target").join("release").join(daemon_bin_name)),
+            Some(current_dir.join("target").join("debug").join(daemon_bin_name)),
+            Some(current_dir.join("tailcat").join(daemon_bin_name)),
+            Some(PathBuf::from(format!("./{}", daemon_bin_name))),
+        ];
+
+        let daemon_path = candidates
+            .into_iter()
+            .flatten()
+            .find(|p| p.is_file())
+            .unwrap_or_else(|| PathBuf::from(daemon_bin_name));
+
+        info!("Spawning Tailcat native daemon from path: {}", daemon_path.display());
+
+        let mut child = Command::new(&daemon_path)
+            .arg("-derp=https://tailcat.dev/derpmap.json")
+            .arg("-ipc-port=49152")
+            .arg("-v")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap_or_else(|e| panic!("Failed to spawn Tailcat daemon at {}: {}", daemon_path.display(), e));
+
+        let stdout = child.stdout.take().expect("Failed to get stdout of daemon");
+        let mut reader = BufReader::new(stdout).lines();
+
+        // Read initial ready event from daemon
+        let mut real_host_address = String::new();
+        while let Ok(Some(line)) = reader.next_line().await {
+            info!("[tailcat-daemon] {}", line);
+            if let Ok(ev) = serde_json::from_str::<DaemonEvent>(&line) {
+                if ev.event == "ready" {
+                    if let Some(addr) = ev.address {
+                        real_host_address = addr;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if real_host_address.is_empty() {
+            real_host_address = "tc-fallback-ephemeral-address".to_string();
+        }
+
+        if let Ok(mut guard) = host_addr_shared_init.lock() {
+            *guard = real_host_address.clone();
+        }
+
+        info!("⚡ Acquired Tailcat Native ConnBlob: {}", real_host_address);
+        println!("⚡ Local Tailcat WireGuard Address: {}\n", real_host_address);
+
+        // Generate Invitation and QR Code
+        let mut session_id = [0u8; 16];
+        rand::thread_rng().fill_bytes(&mut session_id);
+        let mut invite_secret = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut invite_secret);
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let invitation = InvitationV1::new(real_host_address.clone(), session_id, invite_secret, now, 600);
+        let invite_url = invitation.to_qr_url(&base_url_boot).unwrap_or_default();
+        let session_token = invitation.to_base64url().unwrap_or_default();
+
+        info!("Generated Tailcat QR Invitation: {}", invite_url);
+
+        if let Ok(qr) = generate_qr_rgba(&invite_url, 236) {
+            let _ = image::save_buffer_with_format(
+                "qr_code.png",
+                &qr.rgba_pixels,
+                qr.width,
+                qr.height,
+                image::ColorType::Rgba8,
+                image::ImageFormat::Png,
+            );
+
+            let mut pixel_buffer = SharedPixelBuffer::new(qr.width, qr.height);
+            pixel_buffer.make_mut_bytes().copy_from_slice(&qr.rgba_pixels);
+
+            let w_init = app_weak_boot.clone();
+            let inv_u = invite_url.clone();
+            let sess_t = session_token.clone();
+
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(app) = w_init.upgrade() {
+                    let slint_qr_img = Image::from_rgba8(pixel_buffer);
+                    app.set_qr_code_image(slint_qr_img);
+                    app.set_has_qr_image(true);
+                    app.set_invite_url(inv_u.into());
+                    app.set_screen_index(1);
+                    app.set_status_text("Scan QR with Phone to Connect (Direct P2P)".into());
+                    app.set_expires_secs(600);
+                    app.set_can_disconnect(true);
+                    app.set_can_send(true);
+                    app.set_peer_name("Waiting for Peer...".into());
+                    app.set_derp_info("tailcat.dev (WireGuard P2P)".into());
+                    app.set_edge_relay_info("Pure Tailcat Mesh (No Relay)".into());
+                    let display_sess = if sess_t.len() >= 12 {
+                        format!("{}...", &sess_t[..12])
+                    } else {
+                        sess_t.clone()
+                    };
+                    app.set_session_info(display_sess.into());
+                }
+            });
+        }
+
+        // Connect to Daemon IPC Port
+        tokio::spawn(async move {
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            if let Ok(mut stream) = TcpStream::connect("127.0.0.1:49152").await {
+                info!("Connected to Tailcat daemon local IPC");
+                while let Some(cmd) = ipc_rx.recv().await {
+                    if let Ok(data) = serde_json::to_vec(&cmd) {
+                        let _ = stream.write_all(&data).await;
+                        let _ = stream.write_all(b"\n").await;
+                    }
+                }
+            }
+        });
+
+        // Listen for incoming Tailcat events from Daemon stdout
+        let app_weak_daemon = app_weak_boot.clone();
         while let Ok(Some(line)) = reader.next_line().await {
             info!("[tailcat-event] {}", line);
             if let Ok(ev) = serde_json::from_str::<DaemonEvent>(&line) {
@@ -357,10 +381,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Regenerate Invite Handler
     let app_weak_regen = app_weak.clone();
-    let host_addr_for_regen = real_host_address.clone();
+    let host_addr_for_regen = host_addr_shared.clone();
     let base_url_for_regen = base_url.clone();
     app.on_regenerate_invite(move || {
         if let Some(app) = app_weak_regen.upgrade() {
+            let host_address = host_addr_for_regen.lock().unwrap().clone();
+            if host_address.is_empty() {
+                return;
+            }
             let mut session_id = [0u8; 16];
             rand::thread_rng().fill_bytes(&mut session_id);
             let mut invite_secret = [0u8; 32];
@@ -371,7 +399,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .unwrap()
                 .as_secs();
 
-            let invitation = InvitationV1::new(host_addr_for_regen.clone(), session_id, invite_secret, now, 600);
+            let invitation = InvitationV1::new(host_address, session_id, invite_secret, now, 600);
             let invite_url = invitation.to_qr_url(&base_url_for_regen).unwrap_or_default();
             let session_token = invitation.to_base64url().unwrap_or_default();
 
