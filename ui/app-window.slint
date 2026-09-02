@@ -30,9 +30,10 @@ export component AppWindow inherits Window {
     in-out property <string> received_message_log: "";
     in-out property <string> last_received_text: "";
 
-    in-out property <string> derp_info: "tailcat.dev (Auto-Mesh)";
+    in-out property <string> derp_info: "tailcat.dev (Active Mesh)";
     in-out property <string> edge_relay_info: "Cloudflare Workers (DO)";
-    in-out property <string> session_info: "";
+    in-out property <string> session_info: "session-active";
+    in-out property <length> top_safe_area: 0px;
 
     callback copy_invite();
     callback regenerate_invite();
@@ -46,7 +47,10 @@ export component AppWindow inherits Window {
     callback copy_received_text();
 
     VerticalLayout {
-        padding: 14px;
+        padding-left: 14px;
+        padding-right: 14px;
+        padding-bottom: 14px;
+        padding-top: 14px + root.top_safe_area;
         spacing: 12px;
         alignment: start;
 
