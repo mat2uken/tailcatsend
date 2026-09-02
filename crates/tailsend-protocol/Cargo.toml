@@ -1,0 +1,17 @@
+[package]
+name = "tailsend-protocol"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ciborium = { workspace = true }
+serde = { workspace = true }
+serde_bytes = { workspace = true }
+sha2 = { workspace = true }
+hmac = { workspace = true }
+base64 = { workspace = true }
+subtle = { workspace = true }
+rand = { workspace = true }
+getrandom = { workspace = true }
+thiserror = { workspace = true }
+bytes = { workspace = true }

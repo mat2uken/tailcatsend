@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>TailSend — Direct P2P Transfer</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #0f172a;
+            color: #f8fafc;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        canvas, #canvas {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            max-width: 100vw !important;
+            max-height: 100vh !important;
+            display: block !important;
+            touch-action: none;
+            background-color: #0f172a;
+        }
+        #loader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            transition: opacity 0.3s ease-out;
+        }
+        .spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid rgba(99, 102, 241, 0.2);
+            border-top: 4px solid #6366f1;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .title {
+            font-size: 24px;
+            font-weight: 700;
+            color: #ffffff;
+            margin-bottom: 8px;
+            letter-spacing: -0.5px;
+        }
+        .status {
+            font-size: 14px;
+            color: #94a3b8;
+            max-width: 85%;
+            text-align: center;
+            line-height: 1.4;
+        }
+
+        /* Floating Real-Time Transfer HUD Overlay */
+        #transfer-hud {
+            position: fixed;
+            bottom: 24px;
+            left: 16px;
+            right: 16px;
+            background: rgba(15, 39, 68, 0.95);
+            border: 1.5px solid #38bdf8;
+            border-radius: 14px;
+            padding: 14px 16px;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            z-index: 90;
+            display: none;
+            flex-direction: column;
+            gap: 8px;
+            transition: all 0.3s ease-in-out;
+        }
+        #transfer-hud.completed {
+            background: rgba(6, 78, 59, 0.95) !important;
+            border-color: #10b981 !important;
+        }
+        .hud-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+            font-weight: 700;
+        }
+        .hud-status {
+            color: #38bdf8;
+        }
+        #transfer-hud.completed .hud-status {
+            color: #34d399 !important;
+        }
+        .hud-percent {
+            color: #60a5fa;
+            font-size: 14px;
+        }
+        #transfer-hud.completed .hud-percent {
+            color: #6ee7b7 !important;
+        }
+        .hud-file {
+            font-size: 12px;
+            color: #f8fafc;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .hud-bar-bg {
+            width: 100%;
+            height: 8px;
+            background: #1e293b;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .hud-bar-fill {
+            width: 0%;
+            height: 100%;
+            background: linear-gradient(90deg, #38bdf8 0%, #3b82f6 100%);
+            border-radius: 4px;
+            transition: width 0.1s ease-out;
+        }
+        #transfer-hud.completed .hud-bar-fill {
+            background: linear-gradient(90deg, #34d399 0%, #10b981 100%) !important;
+        }
+        .hud-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 11px;
+            color: #94a3b8;
+        }
+    </style>
+    <script src="./assets/wasm_exec.js"></script>
+</head>
+<body>
+    <div id="loader">
+        <div class="spinner"></div>
+        <div class="title">TailSend</div>
+        <div class="status" id="status">Loading...</div>
+    </div>
+
+    <!-- Floating Native Progress HUD -->
+    <div id="transfer-hud">
+        <div class="hud-header">
+            <span class="hud-status" id="hud-status">Sending...</span>
+            <span class="hud-percent" id="hud-percent">0%</span>
+        </div>
+        <div class="hud-file" id="hud-file">filename.mp4</div>
+        <div class="hud-bar-bg">
+            <div class="hud-bar-fill" id="hud-bar-fill"></div>
+        </div>
+        <div class="hud-footer">
+            <span id="hud-bytes">0.0 MB / 0.0 MB</span>
+            <span id="hud-speed">0.0 MB/s</span>
+        </div>
+    </div>
+
+    <canvas id="canvas"></canvas>
+
+    <script type="module">
+        const statusEl = document.getElementById("status");
+        const loaderEl = document.getElementById("loader");
+        const hudEl = document.getElementById("transfer-hud");
+        const hudStatusEl = document.getElementById("hud-status");
+        const hudPercentEl = document.getElementById("hud-percent");
+        const hudFileEl = document.getElementById("hud-file");
+        const hudBarFillEl = document.getElementById("hud-bar-fill");
+        const hudBytesEl = document.getElementById("hud-bytes");
+        const hudSpeedEl = document.getElementById("hud-speed");
+        const BUILD_TIMESTAMP = Date.now();
+
+        window.lastReceivedMessage = "";
+
+        function updateStatus(msg) {
+            if (statusEl) statusEl.textContent = msg;
+            console.log("[TailSend Loader]", msg);
+        }
+
+        function hideLoader() {
+            if (loaderEl) {
+                loaderEl.style.opacity = "0";
+                setTimeout(() => {
+                    if (loaderEl && loaderEl.parentNode) {
+                        loaderEl.parentNode.removeChild(loaderEl);
+                    }
+                }, 300);
+            }
+        }
+
+        let hudDismissTimer = null;
+        function updateHUD(visible, status, filename, bytesText, progress, speed, isComplete = false) {
+            if (!hudEl) return;
+            if (hudDismissTimer) {
+                clearTimeout(hudDismissTimer);
+                hudDismissTimer = null;
+            }
+
+            if (visible) {
+                hudEl.classList.remove("completed");
+                hudEl.style.display = "flex";
+                if (hudStatusEl) hudStatusEl.textContent = status;
+                if (hudPercentEl) hudPercentEl.textContent = Math.round(progress * 100) + "%";
+                if (hudFileEl) hudFileEl.textContent = filename;
+                if (hudBarFillEl) hudBarFillEl.style.width = Math.min(100, Math.round(progress * 100)) + "%";
+                if (hudBytesEl) hudBytesEl.textContent = bytesText;
+                if (hudSpeedEl) hudSpeedEl.textContent = speed;
+            } else if (isComplete) {
+                hudEl.classList.add("completed");
+                if (hudStatusEl) hudStatusEl.textContent = "[Completed] Transfer Successful!";
+                if (hudPercentEl) hudPercentEl.textContent = "100%";
+                if (hudBarFillEl) hudBarFillEl.style.width = "100%";
+                if (hudSpeedEl) hudSpeedEl.textContent = "Saved";
+
+                hudDismissTimer = setTimeout(() => {
+                    if (hudEl) {
+                        hudEl.style.display = "none";
+                        hudEl.classList.remove("completed");
+                    }
+                }, 3500);
+            } else {
+                hudEl.style.display = "none";
+            }
+        }
+
+        async function fetchAndDecompressWasm(url) {
+            const cacheBustedUrl = url.includes("?") ? `${url}&_cb=${BUILD_TIMESTAMP}` : `${url}?_cb=${BUILD_TIMESTAMP}`;
+            const response = await fetch(cacheBustedUrl, { cache: "no-store" });
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status} while fetching ${cacheBustedUrl}`);
+            }
+            if (typeof DecompressionStream !== "undefined") {
+                const decompressedStream = response.body.pipeThrough(new DecompressionStream("gzip"));
+                return new Response(decompressedStream, {
+                    headers: { "Content-Type": "application/wasm" }
+                });
+            } else {
+                return response;
+            }
+        }
+
+        const CHUNK_SIZE = 64 * 1024; // 64 KiB
+        let incomingFile = null;
+
+        // Connect to Cloudflare Edge Relay
+        function connectRelayWebSocket() {
+            const hash = window.location.hash;
+            let sessionId = "session-default";
+            const match = hash.match(/i=([^&]+)/);
+            if (match) {
+                sessionId = match[1].slice(0, 32);
+            }
+
+            const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+            const host = window.location.host || "tailsend-poc.mat2uken.workers.dev";
+            const relayUrl = `${protocol}//${host}/relay?session=${encodeURIComponent(sessionId)}&role=client`;
+            console.log("[TailSend Web] Connecting to Edge Relay:", relayUrl);
+
+            try {
+                const ws = new WebSocket(relayUrl);
+                ws.onopen = () => console.log("[TailSend Web] Connected to Edge Relay!");
+                ws.onmessage = async (event) => {
+                    try {
+                        const msg = JSON.parse(event.data);
+                        handleIncomingRelayMessage(msg);
+                    } catch (e) {
+                        console.error("[TailSend Web] Error parsing message:", e);
+                    }
+                };
+                ws.onerror = (e) => console.error("[TailSend Web] Relay WS Error:", e);
+                ws.onclose = () => {
+                    console.log("[TailSend Web] Relay WS closed, reconnecting in 2s...");
+                    setTimeout(connectRelayWebSocket, 2000);
+                };
+                window.relayWs = ws;
+            } catch (err) {
+                console.error("[TailSend Web] Failed to init relay WS:", err);
+            }
+        }
+        connectRelayWebSocket();
+
+        // Handle Incoming Messages from PC Host (PC ➔ Mobile)
+        function handleIncomingRelayMessage(msg) {
+            if (msg.type === "text") {
+                console.log("[TailSend Web] Incoming text from PC:", msg.text);
+                window.lastReceivedMessage = msg.text;
+                if (window.onIncomingTextMessageSlint) {
+                    window.onIncomingTextMessageSlint(msg.text);
+                }
+            } else if (msg.type === "file_start") {
+                console.log("[TailSend Web] Receiving file from PC:", msg.filename, msg.totalBytes);
+                incomingFile = {
+                    fileId: msg.fileId,
+                    filename: msg.filename,
+                    totalBytes: msg.totalBytes,
+                    totalChunks: msg.totalChunks,
+                    chunks: [],
+                    receivedBytes: 0,
+                    startTime: performance.now()
+                };
+                const totalMB = (msg.totalBytes / 1048576).toFixed(1);
+                updateHUD(true, "Receiving from PC...", msg.filename, `0.0 MB / ${totalMB} MB`, 0.0, "Starting...");
+                if (window.updateSlintTransferState) {
+                    window.updateSlintTransferState(true, false, "Receiving from PC...", msg.filename, `0.0 MB / ${totalMB} MB`, 0.0, "Starting...");
+                }
+            } else if (msg.type === "file_chunk" && incomingFile && incomingFile.fileId === msg.fileId) {
+                const binary = atob(msg.data);
+                const bytes = new Uint8Array(binary.length);
+                for (let i = 0; i < binary.length; i++) {
+                    bytes[i] = binary.charCodeAt(i);
+                }
+                incomingFile.chunks.push(bytes);
+                incomingFile.receivedBytes += bytes.length;
+
+                const progress = incomingFile.totalBytes > 0 ? (incomingFile.receivedBytes / incomingFile.totalBytes) : 0;
+                const elapsedSec = (performance.now() - incomingFile.startTime) / 1000;
+                const speedMBs = elapsedSec > 0 ? ((incomingFile.receivedBytes / 1048576) / elapsedSec).toFixed(1) + " MB/s" : "";
+                const bytesText = `${(incomingFile.receivedBytes / 1048576).toFixed(1)} MB / ${(incomingFile.totalBytes / 1048576).toFixed(1)} MB`;
+
+                updateHUD(true, "Receiving from PC...", incomingFile.filename, bytesText, progress, speedMBs);
+                if (window.updateSlintTransferState) {
+                    window.updateSlintTransferState(true, false, "Receiving...", incomingFile.filename, bytesText, progress, speedMBs);
+                }
+            } else if (msg.type === "file_complete" && incomingFile && incomingFile.fileId === msg.fileId) {
+                console.log("[TailSend Web] File complete, triggering automatic download:", incomingFile.filename);
+                const blob = new Blob(incomingFile.chunks, { type: "application/octet-stream" });
+                const blobUrl = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = blobUrl;
+                a.download = incomingFile.filename;
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(blobUrl);
+                }, 1000);
+
+                updateHUD(false, "Download Complete!", incomingFile.filename, `${(incomingFile.totalBytes / 1048576).toFixed(1)} MB`, 1.0, "", true);
+                if (window.updateSlintTransferState) {
+                    window.updateSlintTransferState(false, true, "[Completed] Download Successful!", incomingFile.filename, `${(incomingFile.totalBytes / 1048576).toFixed(1)} MB`, 1.0, "Saved");
+                }
+                if (window.onFileReceivedCompleteSlint) {
+                    window.onFileReceivedCompleteSlint(incomingFile.filename, incomingFile.totalBytes);
+                }
+                incomingFile = null;
+            }
+        }
+
+        // Send Text Message
+        window.sendTailcatTextMessage = function(text) {
+            if (window.relayWs && window.relayWs.readyState === 1) {
+                window.relayWs.send(JSON.stringify({
+                    type: "text",
+                    channel: 101,
+                    text: text,
+                    timestamp: Date.now()
+                }));
+            }
+        };
+
+        // Paste & Send from Clipboard
+        window.triggerPasteAndSend = async function() {
+            try {
+                let text = "";
+                if (navigator.clipboard && navigator.clipboard.readText) {
+                    text = await navigator.clipboard.readText();
+                }
+                if (!text) {
+                    text = prompt("Paste text to send to PC:") || "";
+                }
+                if (text) {
+                    window.sendTailcatTextMessage(text);
+                    if (window.onTextSentSlint) {
+                        window.onTextSentSlint(text);
+                    }
+                }
+            } catch (err) {
+                console.warn("[TailSend Clipboard] Could not read directly, using prompt:", err);
+                const text = prompt("Paste text to send to PC:");
+                if (text) {
+                    window.sendTailcatTextMessage(text);
+                    if (window.onTextSentSlint) {
+                        window.onTextSentSlint(text);
+                    }
+                }
+            }
+        };
+
+        // OS Share Sheet (Web Share API)
+        window.triggerShareText = async function(text) {
+            const shareContent = text || window.lastReceivedMessage || "TailSend Content";
+            if (navigator.share) {
+                try {
+                    await navigator.share({
+                        title: "TailSend Received Text",
+                        text: shareContent
+                    });
+                    console.log("[TailSend Share] Successfully shared via OS Share Sheet");
+                    return;
+                } catch (err) {
+                    if (err.name !== "AbortError") {
+                        console.error("[TailSend Share Error]", err);
+                    }
+                }
+            }
+            // Fallback: Copy to clipboard and alert
+            window.triggerCopyText(shareContent);
+        };
+
+        // Save Text as File (.txt)
+        window.triggerSaveText = function(text) {
+            const content = text || window.lastReceivedMessage || "TailSend Content";
+            const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            const now = new Date();
+            const dateStr = now.toISOString().replace(/[-:T]/g, "").slice(0, 14);
+            a.href = url;
+            a.download = `tailsend_text_${dateStr}.txt`;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }, 1000);
+        };
+
+        // Copy Text to Clipboard
+        window.triggerCopyText = async function(text) {
+            const content = text || window.lastReceivedMessage || "";
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(content);
+                    alert("Text copied to clipboard!");
+                } else {
+                    const ta = document.createElement("textarea");
+                    ta.value = content;
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand("copy");
+                    document.body.removeChild(ta);
+                    alert("Text copied to clipboard!");
+                }
+            } catch (e) {
+                alert("Failed to copy text: " + e);
+            }
+        };
+
+        // Send Large File in 64 KiB Slices with 60fps Frame Synchronization (Mobile ➔ PC)
+        window.sendTailcatFileChunked = async function(file) {
+            console.log("[TailSend Web] Starting on-demand chunked streaming for:", file.name, file.size, "bytes");
+            const fileId = "file-" + Math.random().toString(36).substring(2, 10);
+            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+            const totalMB = (file.size / 1048576).toFixed(1);
+
+            updateHUD(true, "Sending to PC...", file.name, `0.0 MB / ${totalMB} MB`, 0.0, "Starting...");
+            if (window.updateSlintTransferState) {
+                window.updateSlintTransferState(true, false, "Sending to PC...", file.name, `0.0 MB / ${totalMB} MB`, 0.0, "Starting...");
+            }
+
+            // 1. Send file_start
+            window.relayWs.send(JSON.stringify({
+                type: "file_start",
+                channel: 102,
+                fileId: fileId,
+                filename: file.name,
+                totalBytes: file.size,
+                totalChunks: totalChunks,
+                timestamp: Date.now()
+            }));
+
+            const startTime = performance.now();
+            let transferredBytes = 0;
+
+            // 2. Stream chunk-by-chunk using file.slice with frame render yield
+            for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+                if (window.isTransferCancelled) {
+                    window.relayWs.send(JSON.stringify({ type: "file_cancel", fileId: fileId }));
+                    break;
+                }
+
+                while (window.relayWs.bufferedAmount > 256 * 1024) {
+                    await new Promise(r => setTimeout(r, 10));
+                }
+
+                const start = chunkIdx * CHUNK_SIZE;
+                const end = Math.min(start + CHUNK_SIZE, file.size);
+                const blobSlice = file.slice(start, end);
+                const arrayBuffer = await blobSlice.arrayBuffer();
+
+                let binary = "";
+                const bytes = new Uint8Array(arrayBuffer);
+                for (let i = 0; i < bytes.byteLength; i++) {
+                    binary += String.fromCharCode(bytes[i]);
+                }
+                const b64Chunk = btoa(binary);
+
+                window.relayWs.send(JSON.stringify({
+                    type: "file_chunk",
+                    channel: 102,
+                    fileId: fileId,
+                    chunkIndex: chunkIdx,
+                    data: b64Chunk
+                }));
+
+                transferredBytes = end;
+                const progress = transferredBytes / file.size;
+                const elapsedSec = (performance.now() - startTime) / 1000;
+                const speedMBs = elapsedSec > 0 ? ((transferredBytes / 1048576) / elapsedSec).toFixed(1) + " MB/s" : "Calculating...";
+                const bytesText = `${(transferredBytes / 1048576).toFixed(1)} MB / ${totalMB} MB`;
+
+                // Update both DOM HUD and Slint WASM State
+                updateHUD(true, "Sending to PC...", file.name, bytesText, progress, speedMBs);
+                if (window.updateSlintTransferState) {
+                    window.updateSlintTransferState(true, false, "Sending...", file.name, bytesText, progress, speedMBs);
+                }
+
+                // Yield to browser rendering pipeline every few chunks for silky smooth 60fps UI
+                if (chunkIdx % 4 === 0) {
+                    await new Promise(r => requestAnimationFrame(r));
+                }
+            }
+
+            // 3. Send file_complete
+            window.relayWs.send(JSON.stringify({
+                type: "file_complete",
+                channel: 102,
+                fileId: fileId
+            }));
+
+            updateHUD(false, "Transfer Complete!", file.name, `${totalMB} MB`, 1.0, "", true);
+            if (window.updateSlintTransferState) {
+                window.updateSlintTransferState(false, true, "[Completed] Transfer Successful!", file.name, `${totalMB} MB`, 1.0, "Saved");
+            }
+        };
+
+        window.triggerFilePicker = function() {
+            const input = document.createElement("input");
+            input.type = "file";
+            input.onchange = async (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    await window.sendTailcatFileChunked(file);
+                }
+            };
+            input.click();
+        };
+
+        async function init() {
+            try {
+                updateStatus("Loading Tailcat WireGuard P2P engine...");
+                const go = new Go();
+                const tailcatResponse = await fetchAndDecompressWasm("./assets/tailcat.wasm.gz");
+                const { instance } = await WebAssembly.instantiateStreaming(tailcatResponse, go.importObject);
+                go.run(instance);
+                updateStatus("Tailcat WireGuard engine ready");
+
+                updateStatus("Initializing Slint UI runtime...");
+                const moduleUrl = `./pkg/tailsend_web.js?_cb=${BUILD_TIMESTAMP}`;
+                const { default: initWasm, run_app } = await import(moduleUrl);
+                const slintResponse = await fetchAndDecompressWasm("./pkg/tailsend_web_bg.wasm.gz");
+                await initWasm(slintResponse);
+
+                updateStatus("Launching TailSend interface...");
+                try {
+                    if (typeof run_app === "function") {
+                        run_app();
+                    }
+                } catch (e) {
+                    if (e && (e.message?.includes("Using exceptions for control flow") || String(e).includes("Using exceptions for control flow"))) {
+                        console.log("[TailSend Loader] Expected winit control flow yield, proceeding.");
+                    } else {
+                        throw e;
+                    }
+                }
+
+                hideLoader();
+            } catch (err) {
+                console.error("[TailSend Bootstrap Error]", err);
+                updateStatus(`Error: ${err.message || err}`);
+                const spinner = document.querySelector(".spinner");
+                if (spinner) spinner.style.borderTopColor = "#ef4444";
+            }
+        }
+
+        window.addEventListener("DOMContentLoaded", init);
+    </script>
+</body>
+</html>

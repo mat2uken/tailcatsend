@@ -1,0 +1,373 @@
+import { Button, VerticalBox, HorizontalBox, LineEdit, ProgressIndicator } from "std-widgets.slint";
+
+export component AppWindow inherits Window {
+    title: "TailSend — Direct P2P Transfer";
+    background: #0f172a;
+    default-font-size: 14px;
+    min-width: 320px;
+    min-height: 520px;
+
+    in-out property <int> screen_index: 0; // 0: Boot, 1: Invite, 2: Joining, 3: Connected
+    in-out property <string> status_text: "Initializing TailSend...";
+    in-out property <string> peer_name: "PC Host";
+    in-out property <string> invite_url: "";
+    in-out property <int> expires_secs: 600;
+    in-out property <bool> can_disconnect: false;
+    in-out property <bool> can_send: true;
+
+    in-out property <image> qr_code_image;
+    in-out property <bool> has_qr_image: false;
+
+    in-out property <string> transfer_status: "Ready for Transfer";
+    in-out property <string> transfer_filename: "";
+    in-out property <string> transfer_bytes_text: "0.0 MB / 0.0 MB";
+    in-out property <string> transfer_speed: "";
+    in-out property <float> transfer_progress: 0.0;
+    in-out property <bool> is_transferring: false;
+    in-out property <bool> transfer_completed: false;
+
+    in-out property <string> message_input: "Hello from Mobile Device!";
+    in-out property <string> received_message_log: "";
+    in-out property <string> last_received_text: "";
+
+    callback copy_invite();
+    callback regenerate_invite();
+    callback disconnect();
+    callback compose_text(string);
+    callback paste_and_send();
+    callback pick_files();
+    callback cancel_transfer();
+    callback share_received_text();
+    callback save_received_text();
+    callback copy_received_text();
+
+    VerticalLayout {
+        padding: 14px;
+        spacing: 12px;
+        alignment: start;
+
+        // Top Navigation Header
+        HorizontalLayout {
+            alignment: space-between;
+            Text {
+                text: "TailSend";
+                font-size: 22px;
+                font-weight: 800;
+                color: #38bdf8;
+            }
+            if root.can_disconnect : Button {
+                text: "Disconnect";
+                clicked => { root.disconnect(); }
+            }
+        }
+
+        // Screen 0: Booting / Connecting to DERP
+        if root.screen_index == 0 : Rectangle {
+            background: #1e293b;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: #334155;
+
+            VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+                alignment: center;
+                Text {
+                    text: root.status_text;
+                    horizontal-alignment: center;
+                    font-size: 15px;
+                    font-weight: 600;
+                    color: #f8fafc;
+                }
+                ProgressIndicator {
+                    indeterminate: true;
+                    height: 6px;
+                }
+            }
+        }
+
+        // Screen 1: Invite (QR Code Waiting)
+        if root.screen_index == 1 : Rectangle {
+            background: #1e293b;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: #334155;
+
+            VerticalLayout {
+                padding: 16px;
+                spacing: 12px;
+                alignment: center;
+
+                Text {
+                    text: "Scan QR Code with Phone";
+                    horizontal-alignment: center;
+                    font-size: 16px;
+                    font-weight: 700;
+                    color: #f8fafc;
+                }
+
+                Rectangle {
+                    width: 236px;
+                    height: 236px;
+                    background: #ffffff;
+                    border-radius: 10px;
+
+                    if root.has_qr_image : Image {
+                        source: root.qr_code_image;
+                        width: 228px;
+                        height: 228px;
+                        image-fit: contain;
+                    }
+                    if !root.has_qr_image : VerticalLayout {
+                        alignment: center;
+                        Text {
+                            text: "Generating QR Code...";
+                            horizontal-alignment: center;
+                            font-size: 14px;
+                            color: #0f172a;
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 8px;
+                    Button {
+                        text: "Copy Invite Link";
+                        primary: true;
+                        clicked => { root.copy_invite(); }
+                    }
+                    Button {
+                        text: "Regenerate";
+                        clicked => { root.regenerate_invite(); }
+                    }
+                }
+
+                Text {
+                    text: "Expires in: " + (root.expires_secs / 60) + "m " + (root.expires_secs - (root.expires_secs / 60) * 60) + "s";
+                    horizontal-alignment: center;
+                    font-size: 12px;
+                    color: #94a3b8;
+                }
+
+                Text {
+                    text: root.status_text;
+                    horizontal-alignment: center;
+                    font-size: 13px;
+                    color: #38bdf8;
+                }
+            }
+        }
+
+        // Screen 2: Joining / Verifying Invite
+        if root.screen_index == 2 : Rectangle {
+            background: #1e293b;
+            border-radius: 12px;
+            border-width: 1px;
+            border-color: #334155;
+
+            VerticalLayout {
+                padding: 24px;
+                spacing: 16px;
+                alignment: center;
+                Text {
+                    text: "Connecting to Peer...";
+                    horizontal-alignment: center;
+                    font-size: 16px;
+                    font-weight: 700;
+                    color: #f8fafc;
+                }
+                Text {
+                    text: root.status_text;
+                    horizontal-alignment: center;
+                    font-size: 13px;
+                    color: #38bdf8;
+                }
+                ProgressIndicator {
+                    indeterminate: true;
+                    height: 6px;
+                }
+            }
+        }
+
+        // Screen 3: Connected Home (Active WireGuard P2P Session)
+        if root.screen_index == 3 : VerticalLayout {
+            spacing: 12px;
+
+            // Connection Status Banner
+            Rectangle {
+                background: #1e3a8a;
+                border-radius: 10px;
+                border-width: 1px;
+                border-color: #3b82f6;
+                height: 44px;
+
+                HorizontalLayout {
+                    alignment: center;
+                    Text {
+                        text: "[Connected] " + root.peer_name;
+                        font-size: 14px;
+                        font-weight: 700;
+                        color: #93c5fd;
+                    }
+                }
+            }
+
+            // Message & File Actions Card
+            Rectangle {
+                background: #1e293b;
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: #334155;
+
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 10px;
+                    Text {
+                        text: "Send Text or File:";
+                        font-size: 14px;
+                        font-weight: 700;
+                        color: #f8fafc;
+                    }
+                    msg_input := LineEdit {
+                        text: root.message_input;
+                        placeholder-text: "Type a message...";
+                        edited => { root.message_input = self.text; }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Button {
+                            text: "Send Text";
+                            primary: true;
+                            clicked => {
+                                root.compose_text(root.message_input);
+                            }
+                        }
+                        Button {
+                            text: "Paste & Send";
+                            clicked => { root.paste_and_send(); }
+                        }
+                    }
+                    Button {
+                        text: "Pick File (Photos/Videos)";
+                        clicked => { root.pick_files(); }
+                    }
+                }
+            }
+
+            // Permanent Transfer Progress Card with Clear Completion Feedback
+            Rectangle {
+                background: root.transfer_completed ? #064e3b : (root.is_transferring ? #0f2744 : #1e293b);
+                border-radius: 12px;
+                border-width: (root.transfer_completed || root.is_transferring) ? 1.5px : 1px;
+                border-color: root.transfer_completed ? #10b981 : (root.is_transferring ? #38bdf8 : #334155);
+
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 8px;
+
+                    HorizontalLayout {
+                        alignment: space-between;
+                        Text {
+                            text: root.transfer_status;
+                            font-size: 14px;
+                            font-weight: 700;
+                            color: root.transfer_completed ? #34d399 : (root.is_transferring ? #38bdf8 : #94a3b8);
+                        }
+                        Text {
+                            text: Math.round(root.transfer_progress * 100) + "%";
+                            font-size: 14px;
+                            font-weight: 700;
+                            color: root.transfer_completed ? #6ee7b7 : (root.is_transferring ? #60a5fa : #64748b);
+                        }
+                    }
+
+                    if root.transfer_filename != "" : HorizontalLayout {
+                        alignment: space-between;
+                        Text {
+                            text: root.transfer_filename;
+                            font-size: 12px;
+                            color: #f8fafc;
+                        }
+                        Text {
+                            text: root.transfer_bytes_text;
+                            font-size: 12px;
+                            color: #94a3b8;
+                        }
+                    }
+
+                    ProgressIndicator {
+                        progress: root.transfer_progress;
+                        height: 8px;
+                    }
+
+                    HorizontalLayout {
+                        alignment: space-between;
+                        Text {
+                            text: root.transfer_speed;
+                            font-size: 12px;
+                            color: #94a3b8;
+                        }
+                        if root.is_transferring : Button {
+                            text: "Cancel";
+                            clicked => { root.cancel_transfer(); }
+                        }
+                    }
+                }
+            }
+
+            // Message & Transfer History Card with Share / Save / Copy Actions
+            if root.received_message_log != "" : Rectangle {
+                background: #1e293b;
+                border-radius: 12px;
+                border-width: 1px;
+                border-color: #334155;
+
+                VerticalLayout {
+                    padding: 14px;
+                    spacing: 8px;
+                    HorizontalLayout {
+                        alignment: space-between;
+                        Text {
+                            text: "Activity & Received Log:";
+                            font-size: 13px;
+                            font-weight: 700;
+                            color: #94a3b8;
+                        }
+                    }
+                    Rectangle {
+                        background: #0f172a;
+                        border-radius: 8px;
+                        border-width: 1px;
+                        border-color: #334155;
+                        min-height: 60px;
+
+                        VerticalLayout {
+                            padding: 10px;
+                            Text {
+                                text: root.received_message_log;
+                                font-size: 13px;
+                                color: #f8fafc;
+                            }
+                        }
+                    }
+                    HorizontalLayout {
+                        spacing: 6px;
+                        Button {
+                            text: "Share to App";
+                            clicked => { root.share_received_text(); }
+                        }
+                        Button {
+                            text: "Save as .txt";
+                            clicked => { root.save_received_text(); }
+                        }
+                        Button {
+                            text: "Copy Text";
+                            clicked => { root.copy_received_text(); }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

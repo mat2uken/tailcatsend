@@ -1,0 +1,14 @@
+[package]
+name = "tailsend-ui-controller"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tailsend-core = { workspace = true }
+tailsend-protocol = { workspace = true }
+tailsend-platform-api = { workspace = true }
+tailsend-qr = { workspace = true }
+slint = { workspace = true }
+log = { workspace = true }
+futures = { workspace = true }
+async-trait = { workspace = true }
