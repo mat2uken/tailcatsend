@@ -1,13 +1,13 @@
 # TailSend Cloudflare-backed Real Tailcat Desktop Launcher
 $ErrorActionPreference = "Stop"
 
-$cloudflareUrl = "https://tailsend-poc.mat2uken.workers.dev"
+$cloudflareUrl = "https://tailsend.pages.dev"
 
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "     TailSend (Tailcat + Slint) Cloudflare P2P Host       " -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host "Cloudflare Host: $cloudflareUrl" -ForegroundColor Green
-Write-Host "Tailcat DERP:    https://tailcat.dev/derpmap.json" -ForegroundColor Green
+Write-Host "Cloudflare Pages: $cloudflareUrl" -ForegroundColor Green
+Write-Host "Tailcat DERP:     https://tailcat.dev/derpmap.json" -ForegroundColor Green
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 Write-Host "`n>>> Starting TailSend Native Desktop Host..." -ForegroundColor Yellow
@@ -18,4 +18,4 @@ Write-Host "3. スマホのブラウザでWeb版がCloudflareから高速読み�
 Write-Host "4. テキスト送信やファイル送信をお試しください。" -ForegroundColor White
 Write-Host ""
 
-& ".\target\debug\tailsend.exe" "$cloudflareUrl"
+& ".\target\release\tailsend.exe" "$cloudflareUrl"

@@ -39,7 +39,7 @@ if (-not (Test-Path $DaemonExe)) {
 # ------------------------------------------------------------------------------
 Write-Host "1. Starting Windows TailSend Host..." -ForegroundColor Yellow
 $HostProc = Start-Process -FilePath $HostExe `
-    -ArgumentList "https://tailsend-poc.mat2uken.workers.dev" `
+    -ArgumentList "https://tailsend.pages.dev" `
     -RedirectStandardOutput $HostLog `
     -RedirectStandardError $HostErrLog `
     -PassThru
