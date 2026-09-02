@@ -34,11 +34,13 @@ type DaemonMessage struct {
 }
 
 type CommandMessage struct {
-	Action  string `json:"action"`
-	Address string `json:"address,omitempty"`
-	Port    uint16 `json:"port,omitempty"`
-	Handle  uint64 `json:"handle,omitempty"`
-	Text    string `json:"text,omitempty"`
+	Action   string `json:"action"`
+	Address  string `json:"address,omitempty"`
+	Port     uint16 `json:"port,omitempty"`
+	Handle   uint64 `json:"handle,omitempty"`
+	Text     string `json:"text,omitempty"`
+	Filename string `json:"filename,omitempty"`
+	Path     string `json:"path,omitempty"`
 }
 
 var (
@@ -261,8 +263,80 @@ func (d *Daemon) handleIPCClient(conn net.Conn) {
 
 		case "dial":
 			go d.handleDial(conn, cmd)
+
+		case "send_text":
+			go d.handleSendText(conn, cmd)
+
+		case "send_file":
+			go d.handleSendFile(conn, cmd)
 		}
 	}
+}
+
+func (d *Daemon) handleSendText(ipcConn net.Conn, cmd CommandMessage) {
+	priv := key.NewNode()
+	cl := &tailcat.Client{
+		Server:     tailcat.ConnBlob(cmd.Address),
+		Key:        priv,
+		Logf:       logger.Discard,
+		DERPMapURL: *derpMapURL,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	conn, err := cl.DialTCPPort(ctx, 101)
+	if err != nil {
+		cl.Close()
+		res, _ := json.Marshal(DaemonMessage{Event: "error", Error: err.Error()})
+		ipcConn.Write(append(res, '\n'))
+		return
+	}
+	defer conn.Close()
+	defer cl.Close()
+
+	_, _ = conn.Write([]byte(cmd.Text))
+	res, _ := json.Marshal(DaemonMessage{Event: "send_text_success", Text: cmd.Text})
+	ipcConn.Write(append(res, '\n'))
+}
+
+func (d *Daemon) handleSendFile(ipcConn net.Conn, cmd CommandMessage) {
+	fileData, err := os.ReadFile(cmd.Path)
+	if err != nil {
+		res, _ := json.Marshal(DaemonMessage{Event: "error", Error: err.Error()})
+		ipcConn.Write(append(res, '\n'))
+		return
+	}
+
+	priv := key.NewNode()
+	cl := &tailcat.Client{
+		Server:     tailcat.ConnBlob(cmd.Address),
+		Key:        priv,
+		Logf:       logger.Discard,
+		DERPMapURL: *derpMapURL,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+
+	conn, err := cl.DialTCPPort(ctx, 102)
+	if err != nil {
+		cl.Close()
+		res, _ := json.Marshal(DaemonMessage{Event: "error", Error: err.Error()})
+		ipcConn.Write(append(res, '\n'))
+		return
+	}
+	defer conn.Close()
+	defer cl.Close()
+
+	header := fmt.Sprintf("NAME:%s\n", cmd.Filename)
+	_, _ = conn.Write([]byte(header))
+	_, _ = conn.Write(fileData)
+
+	res, _ := json.Marshal(DaemonMessage{
+		Event:    "send_file_success",
+		Filename: cmd.Filename,
+		Size:     int64(len(fileData)),
+	})
+	ipcConn.Write(append(res, '\n'))
 }
 
 func (d *Daemon) handleDial(ipcConn net.Conn, cmd CommandMessage) {

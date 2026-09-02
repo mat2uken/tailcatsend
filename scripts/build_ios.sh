@@ -59,15 +59,18 @@ elif [ "$MODE" = "device" ]; then
 
 elif [ "$MODE" = "device-install" ]; then
     DEVICE_ID="${2:-[DEVICE_ID]}"
-    echo "🔨 [1/3] Compiling Rust library for physical iOS Device (aarch64-apple-ios)..."
+    echo "🔨 [1/4] Compiling Go Tailcat library for physical iOS Device..."
+    (cd tailcat && CGO_ENABLED=1 CC="$(xcrun --sdk iphoneos --find clang) -isysroot $(xcrun --sdk iphoneos --show-sdk-path) -arch arm64 -miphoneos-version-min=17.0" GOOS=ios GOARCH=arm64 go build -buildmode=c-archive -o ../libtailcat_ios.a bridge/native/bridge.go)
+
+    echo "🔨 [2/4] Compiling Rust library for physical iOS Device (aarch64-apple-ios)..."
     cargo build -p tailsend-ios --target aarch64-apple-ios --release
 
-    echo "⚙️  [2/3] Building Xcode Project for physical device ($DEVICE_ID)..."
+    echo "⚙️  [3/4] Building Xcode Project for physical device ($DEVICE_ID)..."
     cd apps/ios && xcodegen generate
     xcodebuild -project TailSend.xcodeproj -scheme TailSend -destination "id=$DEVICE_ID" -allowProvisioningUpdates build
     cd ../..
 
-    echo "📲 [3/3] Installing and launching on iPhone ($DEVICE_ID)..."
+    echo "📲 [4/4] Installing and launching on iPhone ($DEVICE_ID)..."
     xcrun devicectl device install app --device "$DEVICE_ID" apps/ios/DerivedData/TailSend/Build/Products/Debug-iphoneos/TailSend.app
     xcrun devicectl device process launch --device "$DEVICE_ID" dev.tailsend.app
     echo "✅ Successfully deployed and launched TailSend iOS on physical iPhone!"
