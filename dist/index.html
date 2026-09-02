@@ -259,121 +259,92 @@
         }
 
         const CHUNK_SIZE = 64 * 1024; // 64 KiB
-        let incomingFile = null;
+        let targetHostAddr = "";
 
-        // Connect to Cloudflare Edge Relay
-        function connectRelayWebSocket() {
-            const hash = window.location.hash;
-            let sessionId = "session-default";
-            const match = hash.match(/i=([^&]+)/);
-            if (match) {
-                sessionId = match[1].slice(0, 32);
-            }
-
-            const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-            const host = window.location.host || "tailsend-poc.mat2uken.workers.dev";
-            const relayUrl = `${protocol}//${host}/relay?session=${encodeURIComponent(sessionId)}&role=client`;
-            console.log("[TailSend Web] Connecting to Edge Relay:", relayUrl);
-
+        function decodeInvitationHostAddress(token) {
             try {
-                const ws = new WebSocket(relayUrl);
-                ws.onopen = () => console.log("[TailSend Web] Connected to Edge Relay!");
-                ws.onmessage = async (event) => {
-                    try {
-                        const msg = JSON.parse(event.data);
-                        handleIncomingRelayMessage(msg);
-                    } catch (e) {
-                        console.error("[TailSend Web] Error parsing message:", e);
-                    }
-                };
-                ws.onerror = (e) => console.error("[TailSend Web] Relay WS Error:", e);
-                ws.onclose = () => {
-                    console.log("[TailSend Web] Relay WS closed, reconnecting in 2s...");
-                    setTimeout(connectRelayWebSocket, 2000);
-                };
-                window.relayWs = ws;
-            } catch (err) {
-                console.error("[TailSend Web] Failed to init relay WS:", err);
-            }
-        }
-        connectRelayWebSocket();
-
-        // Handle Incoming Messages from PC Host (PC ➔ Mobile)
-        function handleIncomingRelayMessage(msg) {
-            if (msg.type === "text") {
-                console.log("[TailSend Web] Incoming text from PC:", msg.text);
-                window.lastReceivedMessage = msg.text;
-                if (window.onIncomingTextMessageSlint) {
-                    window.onIncomingTextMessageSlint(msg.text);
+                let base64 = token.replace(/-/g, '+').replace(/_/g, '/');
+                while (base64.length % 4) {
+                    base64 += '=';
                 }
-            } else if (msg.type === "file_start") {
-                console.log("[TailSend Web] Receiving file from PC:", msg.filename, msg.totalBytes);
-                incomingFile = {
-                    fileId: msg.fileId,
-                    filename: msg.filename,
-                    totalBytes: msg.totalBytes,
-                    totalChunks: msg.totalChunks,
-                    chunks: [],
-                    receivedBytes: 0,
-                    startTime: performance.now()
-                };
-                const totalMB = (msg.totalBytes / 1048576).toFixed(1);
-                updateHUD(true, "Receiving from PC...", msg.filename, `0.0 MB / ${totalMB} MB`, 0.0, "Starting...");
-                if (window.updateSlintTransferState) {
-                    window.updateSlintTransferState(true, false, "Receiving from PC...", msg.filename, `0.0 MB / ${totalMB} MB`, 0.0, "Starting...");
-                }
-            } else if (msg.type === "file_chunk" && incomingFile && incomingFile.fileId === msg.fileId) {
-                const binary = atob(msg.data);
+                const binary = atob(base64);
                 const bytes = new Uint8Array(binary.length);
                 for (let i = 0; i < binary.length; i++) {
                     bytes[i] = binary.charCodeAt(i);
                 }
-                incomingFile.chunks.push(bytes);
-                incomingFile.receivedBytes += bytes.length;
-
-                const progress = incomingFile.totalBytes > 0 ? (incomingFile.receivedBytes / incomingFile.totalBytes) : 0;
-                const elapsedSec = (performance.now() - incomingFile.startTime) / 1000;
-                const speedMBs = elapsedSec > 0 ? ((incomingFile.receivedBytes / 1048576) / elapsedSec).toFixed(1) + " MB/s" : "";
-                const bytesText = `${(incomingFile.receivedBytes / 1048576).toFixed(1)} MB / ${(incomingFile.totalBytes / 1048576).toFixed(1)} MB`;
-
-                updateHUD(true, "Receiving from PC...", incomingFile.filename, bytesText, progress, speedMBs);
-                if (window.updateSlintTransferState) {
-                    window.updateSlintTransferState(true, false, "Receiving...", incomingFile.filename, bytesText, progress, speedMBs);
+                // Magic check "TCINV\x01"
+                if (bytes.length > 8 && bytes[0] === 84 && bytes[1] === 67 && bytes[2] === 73 && bytes[3] === 78 && bytes[4] === 86 && bytes[5] === 1) {
+                    const addrLen = (bytes[6] << 8) | bytes[7];
+                    const addrBytes = bytes.slice(8, 8 + addrLen);
+                    const decoder = new TextDecoder('utf-8');
+                    return decoder.decode(addrBytes);
                 }
-            } else if (msg.type === "file_complete" && incomingFile && incomingFile.fileId === msg.fileId) {
-                console.log("[TailSend Web] File complete, triggering automatic download:", incomingFile.filename);
-                const blob = new Blob(incomingFile.chunks, { type: "application/octet-stream" });
-                const blobUrl = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = blobUrl;
-                a.download = incomingFile.filename;
-                document.body.appendChild(a);
-                a.click();
-                setTimeout(() => {
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(blobUrl);
-                }, 1000);
+            } catch (e) {
+                console.warn("[TailSend Web] Could not decode binary InvitationV1:", e);
+            }
+            return token;
+        }
 
-                updateHUD(false, "Download Complete!", incomingFile.filename, `${(incomingFile.totalBytes / 1048576).toFixed(1)} MB`, 1.0, "", true);
-                if (window.updateSlintTransferState) {
-                    window.updateSlintTransferState(false, true, "[Completed] Download Successful!", incomingFile.filename, `${(incomingFile.totalBytes / 1048576).toFixed(1)} MB`, 1.0, "Saved");
+        function parseHostAddressFromURL() {
+            const hash = window.location.hash;
+            const match = hash.match(/i=([^&]+)/);
+            if (match) {
+                targetHostAddr = decodeInvitationHostAddress(match[1]);
+                console.log("[TailSend Web] Extracted Host ConnBlob:", targetHostAddr);
+            } else {
+                const searchMatch = window.location.search.match(/addr=([^&]+)/);
+                if (searchMatch) {
+                    targetHostAddr = decodeURIComponent(searchMatch[1]);
                 }
-                if (window.onFileReceivedCompleteSlint) {
-                    window.onFileReceivedCompleteSlint(incomingFile.filename, incomingFile.totalBytes);
-                }
-                incomingFile = null;
+            }
+        }
+        parseHostAddressFromURL();
+
+        // Send Initial Direct P2P Handshake to Host
+        async function sendInitialP2PHandshake() {
+            if (!targetHostAddr || !window.tailcatDial) return;
+            try {
+                console.log("[TailSend Web] Connecting initial P2P handshake to Host...");
+                const conn = await window.tailcatDial({
+                    addr: targetHostAddr,
+                    port: 101,
+                    derpMapURL: "https://tailcat.dev/derpmap.json"
+                });
+                const encoder = new TextEncoder();
+                await conn.write(encoder.encode("🤝 [Connected] Mobile Web Client connected via Tailcat WireGuard P2P!"));
+                await conn.closeWrite();
+                conn.close();
+                console.log("✅ [TailSend Web] Direct P2P Handshake successfully delivered to Mac!");
+            } catch (err) {
+                console.warn("[TailSend Web] Handshake notice:", err);
             }
         }
 
-        // Send Text Message
-        window.sendTailcatTextMessage = function(text) {
-            if (window.relayWs && window.relayWs.readyState === 1) {
-                window.relayWs.send(JSON.stringify({
-                    type: "text",
-                    channel: 101,
-                    text: text,
-                    timestamp: Date.now()
-                }));
+        // Send Text Message via Tailcat Port 101
+        window.sendTailcatTextMessage = async function(text) {
+            if (!text || !targetHostAddr) {
+                alert("Error: Target host address not found. Please scan QR again.");
+                return;
+            }
+            console.log("[TailSend Web] Sending text via Tailcat P2P (Port 101):", text);
+            updateHUD(true, "Sending via Tailcat P2P...", "memo.txt", "", 0.5, "Direct P2P");
+
+            try {
+                const conn = await window.tailcatDial({
+                    addr: targetHostAddr,
+                    port: 101,
+                    derpMapURL: "https://tailcat.dev/derpmap.json"
+                });
+                const encoder = new TextEncoder();
+                await conn.write(encoder.encode(text));
+                await conn.closeWrite();
+                conn.close();
+                console.log("✅ [TailSend Web] Text delivered directly to Mac via Tailcat P2P!");
+                updateHUD(false, "Delivered!", "memo.txt", "", 1.0, "Saved", true);
+            } catch (err) {
+                console.error("[TailSend Web] Failed to dial host:", err);
+                alert("Tailcat P2P Dial Error: " + (err.message || err));
+                updateHUD(false, "Failed", "memo.txt", "", 0, "Error");
             }
         };
 
@@ -465,91 +436,79 @@
             }
         };
 
-        // Send Large File in 64 KiB Slices with 60fps Frame Synchronization (Mobile ➔ PC)
+        // Send File directly via Tailcat WireGuard P2P (Port 102)
         window.sendTailcatFileChunked = async function(file) {
-            console.log("[TailSend Web] Starting on-demand chunked streaming for:", file.name, file.size, "bytes");
-            const fileId = "file-" + Math.random().toString(36).substring(2, 10);
-            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+            if (!file || !targetHostAddr) {
+                alert("Error: Target host address not found. Please scan QR again.");
+                return;
+            }
+            console.log("[TailSend Web] Streaming file via Tailcat P2P (Port 102):", file.name, file.size, "bytes");
             const totalMB = (file.size / 1048576).toFixed(1);
 
-            updateHUD(true, "Sending to PC...", file.name, `0.0 MB / ${totalMB} MB`, 0.0, "Starting...");
+            updateHUD(true, "Connecting P2P...", file.name, `0.0 MB / ${totalMB} MB`, 0.0, "Connecting...");
             if (window.updateSlintTransferState) {
-                window.updateSlintTransferState(true, false, "Sending to PC...", file.name, `0.0 MB / ${totalMB} MB`, 0.0, "Starting...");
+                window.updateSlintTransferState(true, false, "Connecting P2P...", file.name, `0.0 MB / ${totalMB} MB`, 0.0, "Connecting...");
             }
 
-            // 1. Send file_start
-            window.relayWs.send(JSON.stringify({
-                type: "file_start",
-                channel: 102,
-                fileId: fileId,
-                filename: file.name,
-                totalBytes: file.size,
-                totalChunks: totalChunks,
-                timestamp: Date.now()
-            }));
+            try {
+                const conn = await window.tailcatDial({
+                    addr: targetHostAddr,
+                    port: 102,
+                    derpMapURL: "https://tailcat.dev/derpmap.json"
+                });
 
-            const startTime = performance.now();
-            let transferredBytes = 0;
+                updateHUD(true, "Sending to PC...", file.name, `0.0 MB / ${totalMB} MB`, 0.1, "Transferring...");
+                
+                // 1. Send filename header
+                const header = new TextEncoder().encode(`NAME:${file.name}\n`);
+                await conn.write(header);
 
-            // 2. Stream chunk-by-chunk using file.slice with frame render yield
-            for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
-                if (window.isTransferCancelled) {
-                    window.relayWs.send(JSON.stringify({ type: "file_cancel", fileId: fileId }));
-                    break;
+                // 2. Stream file content in chunks
+                const startTime = performance.now();
+                const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+                let transferredBytes = 0;
+
+                for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
+                    if (window.isTransferCancelled) {
+                        break;
+                    }
+
+                    const start = chunkIdx * CHUNK_SIZE;
+                    const end = Math.min(start + CHUNK_SIZE, file.size);
+                    const blobSlice = file.slice(start, end);
+                    const arrayBuffer = await blobSlice.arrayBuffer();
+                    const bytes = new Uint8Array(arrayBuffer);
+
+                    await conn.write(bytes);
+
+                    transferredBytes = end;
+                    const progress = transferredBytes / file.size;
+                    const elapsedSec = (performance.now() - startTime) / 1000;
+                    const speedMBs = elapsedSec > 0 ? ((transferredBytes / 1048576) / elapsedSec).toFixed(1) + " MB/s" : "Calculating...";
+                    const bytesText = `${(transferredBytes / 1048576).toFixed(1)} MB / ${totalMB} MB`;
+
+                    updateHUD(true, "Sending to PC...", file.name, bytesText, progress, speedMBs);
+                    if (window.updateSlintTransferState) {
+                        window.updateSlintTransferState(true, false, "Sending...", file.name, bytesText, progress, speedMBs);
+                    }
+
+                    if (chunkIdx % 4 === 0) {
+                        await new Promise(r => requestAnimationFrame(r));
+                    }
                 }
 
-                while (window.relayWs.bufferedAmount > 256 * 1024) {
-                    await new Promise(r => setTimeout(r, 10));
-                }
+                await conn.closeWrite();
+                conn.close();
 
-                const start = chunkIdx * CHUNK_SIZE;
-                const end = Math.min(start + CHUNK_SIZE, file.size);
-                const blobSlice = file.slice(start, end);
-                const arrayBuffer = await blobSlice.arrayBuffer();
-
-                let binary = "";
-                const bytes = new Uint8Array(arrayBuffer);
-                for (let i = 0; i < bytes.byteLength; i++) {
-                    binary += String.fromCharCode(bytes[i]);
-                }
-                const b64Chunk = btoa(binary);
-
-                window.relayWs.send(JSON.stringify({
-                    type: "file_chunk",
-                    channel: 102,
-                    fileId: fileId,
-                    chunkIndex: chunkIdx,
-                    data: b64Chunk
-                }));
-
-                transferredBytes = end;
-                const progress = transferredBytes / file.size;
-                const elapsedSec = (performance.now() - startTime) / 1000;
-                const speedMBs = elapsedSec > 0 ? ((transferredBytes / 1048576) / elapsedSec).toFixed(1) + " MB/s" : "Calculating...";
-                const bytesText = `${(transferredBytes / 1048576).toFixed(1)} MB / ${totalMB} MB`;
-
-                // Update both DOM HUD and Slint WASM State
-                updateHUD(true, "Sending to PC...", file.name, bytesText, progress, speedMBs);
+                updateHUD(false, "Transfer Complete!", file.name, `${totalMB} MB`, 1.0, "", true);
                 if (window.updateSlintTransferState) {
-                    window.updateSlintTransferState(true, false, "Sending...", file.name, bytesText, progress, speedMBs);
+                    window.updateSlintTransferState(false, true, "[Completed] Transfer Successful!", file.name, `${totalMB} MB`, 1.0, "Saved");
                 }
-
-                // Yield to browser rendering pipeline every few chunks for silky smooth 60fps UI
-                if (chunkIdx % 4 === 0) {
-                    await new Promise(r => requestAnimationFrame(r));
-                }
-            }
-
-            // 3. Send file_complete
-            window.relayWs.send(JSON.stringify({
-                type: "file_complete",
-                channel: 102,
-                fileId: fileId
-            }));
-
-            updateHUD(false, "Transfer Complete!", file.name, `${totalMB} MB`, 1.0, "", true);
-            if (window.updateSlintTransferState) {
-                window.updateSlintTransferState(false, true, "[Completed] Transfer Successful!", file.name, `${totalMB} MB`, 1.0, "Saved");
+                console.log("✅ [TailSend Web] File successfully delivered to Mac via Tailcat P2P!");
+            } catch (err) {
+                console.error("[TailSend Web] Failed to send file via Tailcat P2P:", err);
+                alert("File transfer error: " + (err.message || err));
+                updateHUD(false, "Transfer Failed", file.name, "0.0 MB", 0.0, "Error");
             }
         };
 
@@ -573,6 +532,7 @@
                 const { instance } = await WebAssembly.instantiateStreaming(tailcatResponse, go.importObject);
                 go.run(instance);
                 updateStatus("Tailcat WireGuard engine ready");
+                sendInitialP2PHandshake();
 
                 updateStatus("Initializing Slint UI runtime...");
                 const moduleUrl = `./pkg/tailsend_web.js?_cb=${BUILD_TIMESTAMP}`;
