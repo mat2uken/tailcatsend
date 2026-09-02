@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/tailscale/tailcat"
+	"tailscale.com/tailcfg"
 	"tailscale.com/types/key"
 	"tailscale.com/types/logger"
 )
@@ -52,11 +53,26 @@ var (
 	verbose    = flag.Bool("v", false, "Verbose logging")
 )
 
+var daemonLogf logger.Logf = logger.Discard
+
+type daemonDERPCache struct{}
+
+func (daemonDERPCache) Get(url string) ([]byte, string, time.Time, bool) {
+	return []byte(staticDERPMapJSON), "", time.Now(), true
+}
+
+func (daemonDERPCache) Put(url string, data []byte, etag string) error {
+	return nil
+}
+
+const staticDERPMapJSON = `{"Regions":{"301":{"RegionID":301,"RegionCode":"nyc","RegionName":"New York City","Latitude":40.7128,"Longitude":-74.006,"Nodes":[{"Name":"301a","RegionID":301,"HostName":"tc301a.ipn.dev","IPv4":"199.38.181.166","IPv6":"2607:f740:f::26b","CanPort80":true}]},"302":{"RegionID":302,"RegionCode":"sfo","RegionName":"San Francisco","Latitude":37.7775,"Longitude":-122.416389,"Nodes":[{"Name":"302a","RegionID":302,"HostName":"tc302a.ipn.dev","IPv4":"208.111.39.38","IPv6":"2607:f740:0:3f::720","CanPort80":true}]},"303":{"RegionID":303,"RegionCode":"fra","RegionName":"Frankfurt","Latitude":50.1109,"Longitude":8.6821,"Nodes":[{"Name":"303a","RegionID":303,"HostName":"tc303a.ipn.dev","IPv4":"185.178.202.197","IPv6":"2a00:dd80:20::207","CanPort80":true}]},"304":{"RegionID":304,"RegionCode":"tok","RegionName":"Tokyo","Latitude":35.6764,"Longitude":139.65,"Nodes":[{"Name":"304a","RegionID":304,"HostName":"tc304a.ipn.dev","IPv4":"172.238.7.124","IPv6":"2600:3c18::2000:31ff:fe29:e8e8","CanPort80":true}]}}}`
+
 type Daemon struct {
 	mu         sync.Mutex
 	server     *tailcat.Server
 	address    string
 	streams    map[uint64]net.Conn
+	clients    map[string]*tailcat.Client
 	nextHandle uint64
 	ipcClients map[net.Conn]bool
 }
@@ -69,6 +85,7 @@ func main() {
 		logf = func(format string, args ...any) {
 			fmt.Fprintf(os.Stderr, "[tailcat-daemon] "+format+"\n", args...)
 		}
+		daemonLogf = logf
 	}
 
 	d := &Daemon{
@@ -79,7 +96,7 @@ func main() {
 
 	// 1. Initialize Ephemeral Key & Expand Server
 	pk := tailcat.NewPrivateKey()
-	pk.Public.RegionID = -1
+	pk.Public.RegionID = 304
 
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
@@ -91,6 +108,7 @@ func main() {
 	}
 
 	reg := ci.Region[0]
+	pk.Public.Region = []*tailcfg.DERPRegion{reg}
 	pk.Public.RegionID = reg.RegionID
 	blob := pk.Public.ConnBlob()
 	d.address = string(blob)
@@ -134,6 +152,7 @@ func main() {
 						fmt.Fprintf(os.Stderr, "[tailcat-daemon] port 101 read error: %v\n", err)
 					}
 				}(c, handle)
+			} else if port == 102 {
 				go func(conn net.Conn, h uint64) {
 					defer conn.Close()
 					userHome, _ := os.UserHomeDir()
@@ -323,26 +342,39 @@ func (d *Daemon) handleIPCClient(conn net.Conn) {
 	}
 }
 
-func (d *Daemon) handleSendText(ipcConn net.Conn, cmd CommandMessage) {
+func (d *Daemon) getOrCreateClient(addr string) *tailcat.Client {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.clients == nil {
+		d.clients = make(map[string]*tailcat.Client)
+	}
+	if cl, ok := d.clients[addr]; ok {
+		return cl
+	}
 	priv := key.NewNode()
 	cl := &tailcat.Client{
-		Server:     tailcat.ConnBlob(cmd.Address),
-		Key:        priv,
-		Logf:       logger.Discard,
-		DERPMapURL: *derpMapURL,
+		Server:       tailcat.ConnBlob(addr),
+		Key:          priv,
+		Logf:         daemonLogf,
+		DERPMapURL:   *derpMapURL,
+		DERPMapCache: daemonDERPCache{},
 	}
+	d.clients[addr] = cl
+	return cl
+}
+
+func (d *Daemon) handleSendText(ipcConn net.Conn, cmd CommandMessage) {
+	cl := d.getOrCreateClient(cmd.Address)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	conn, err := cl.DialTCPPort(ctx, 101)
 	if err != nil {
-		cl.Close()
 		res, _ := json.Marshal(DaemonMessage{Event: "error", Error: err.Error()})
 		ipcConn.Write(append(res, '\n'))
 		return
 	}
 	defer conn.Close()
-	defer cl.Close()
 
 	_, _ = conn.Write([]byte(cmd.Text))
 	res, _ := json.Marshal(DaemonMessage{Event: "send_text_success", Text: cmd.Text})
@@ -357,27 +389,19 @@ func (d *Daemon) handleSendFile(ipcConn net.Conn, cmd CommandMessage) {
 		return
 	}
 
-	priv := key.NewNode()
-	cl := &tailcat.Client{
-		Server:     tailcat.ConnBlob(cmd.Address),
-		Key:        priv,
-		Logf:       logger.Discard,
-		DERPMapURL: *derpMapURL,
-	}
+	cl := d.getOrCreateClient(cmd.Address)
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
 	conn, err := cl.DialTCPPort(ctx, 102)
 	if err != nil {
-		cl.Close()
 		res, _ := json.Marshal(DaemonMessage{Event: "error", Error: err.Error()})
 		ipcConn.Write(append(res, '\n'))
 		return
 	}
 	defer conn.Close()
-	defer cl.Close()
 
-	header := fmt.Sprintf("NAME:%s\n", cmd.Filename)
+	header := fmt.Sprintf("NAME:%s:%d\n", cmd.Filename, len(fileData))
 	_, _ = conn.Write([]byte(header))
 	_, _ = conn.Write(fileData)
 
@@ -392,10 +416,11 @@ func (d *Daemon) handleSendFile(ipcConn net.Conn, cmd CommandMessage) {
 func (d *Daemon) handleDial(ipcConn net.Conn, cmd CommandMessage) {
 	priv := key.NewNode()
 	cl := &tailcat.Client{
-		Server:     tailcat.ConnBlob(cmd.Address),
-		Key:        priv,
-		Logf:       logger.Discard,
-		DERPMapURL: *derpMapURL,
+		Server:       tailcat.ConnBlob(cmd.Address),
+		Key:          priv,
+		Logf:         daemonLogf,
+		DERPMapURL:   *derpMapURL,
+		DERPMapCache: daemonDERPCache{},
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)

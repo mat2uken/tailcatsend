@@ -3,7 +3,17 @@ package main
 /*
 #include <stdint.h>
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
+
+#ifdef __ANDROID__
+#include <android/log.h>
+static void tc_android_log(const char* msg) {
+    __android_log_print(ANDROID_LOG_INFO, "TailcatGo", "%s", msg);
+}
+#else
+static void tc_android_log(const char* msg) {}
+#endif
 
 typedef uint64_t tc_handle_t;
 
@@ -21,17 +31,20 @@ import "C"
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
 
 	"github.com/tailscale/tailcat"
+	"tailscale.com/tailcfg"
 	"tailscale.com/types/key"
-	"tailscale.com/types/logger"
 )
 
 const (
@@ -53,6 +66,26 @@ const (
 	TC_EVENT_STREAM_ERROR    = 3
 	TC_EVENT_LOG             = 4
 )
+
+const staticDERPMapJSON = `{"Regions":{"301":{"RegionID":301,"RegionCode":"nyc","RegionName":"New York City","Latitude":40.7128,"Longitude":-74.006,"Nodes":[{"Name":"301a","RegionID":301,"HostName":"tc301a.ipn.dev","IPv4":"199.38.181.166","IPv6":"2607:f740:f::26b","CanPort80":true}]},"302":{"RegionID":302,"RegionCode":"sfo","RegionName":"San Francisco","Latitude":37.7775,"Longitude":-122.416389,"Nodes":[{"Name":"302a","RegionID":302,"HostName":"tc302a.ipn.dev","IPv4":"208.111.39.38","IPv6":"2607:f740:0:3f::720","CanPort80":true}]},"303":{"RegionID":303,"RegionCode":"fra","RegionName":"Frankfurt","Latitude":50.1109,"Longitude":8.6821,"Nodes":[{"Name":"303a","RegionID":303,"HostName":"tc303a.ipn.dev","IPv4":"185.178.202.197","IPv6":"2a00:dd80:20::207","CanPort80":true}]},"304":{"RegionID":304,"RegionCode":"tok","RegionName":"Tokyo","Latitude":35.6764,"Longitude":139.65,"Nodes":[{"Name":"304a","RegionID":304,"HostName":"tc304a.ipn.dev","IPv4":"172.238.7.124","IPv6":"2600:3c18::2000:31ff:fe29:e8e8","CanPort80":true}]}}}`
+
+type staticDERPCache struct{}
+
+func (staticDERPCache) Get(url string) ([]byte, string, time.Time, bool) {
+	return []byte(staticDERPMapJSON), "", time.Now(), true
+}
+
+func (staticDERPCache) Put(url string, data []byte, etag string) error {
+	return nil
+}
+
+func tcLogf(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	cStr := C.CString(msg)
+	defer C.free(unsafe.Pointer(cStr))
+	C.tc_android_log(cStr)
+	fmt.Printf("[TailcatGo] %s\n", msg)
+}
 
 type bridgeState struct {
 	mu           sync.Mutex
@@ -121,7 +154,17 @@ func tc_listener_create(
 	derp_map_url_len C.size_t,
 	verbose C.uint8_t,
 	out_listener *C.tc_handle_t,
-) C.int32_t {
+) (retCode C.int32_t) {
+	defer func() {
+		if r := recover(); r != nil {
+			buf := make([]byte, 4096)
+			n := runtime.Stack(buf, false)
+			msg := fmt.Sprintf("panic in tc_listener_create: %v\nstack:\n%s", r, buf[:n])
+			setLastError(msg)
+			fmt.Printf("❌ %s\n", msg)
+			retCode = TC_INTERNAL_ERROR
+		}
+	}()
 	if out_listener == nil {
 		return TC_INVALID_ARGUMENT
 	}
@@ -134,26 +177,45 @@ func tc_listener_create(
 	}
 
 	pk := tailcat.NewPrivateKey()
-	pk.Public.RegionID = -1
+	pk.Public.RegionID = 304
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	ci := pk.Public
 	if err := ci.Expand(ctx, tailcat.ExpandForServer, tailcat.DERPMapURL(derpURL)); err != nil {
-		setLastError(err.Error())
-		return TC_NETWORK_ERROR
+		var dm tailcfg.DERPMap
+		if jErr := json.Unmarshal([]byte(staticDERPMapJSON), &dm); jErr == nil {
+			if fErr := ci.Expand(context.Background(), tailcat.ExpandForServer, &dm); fErr != nil {
+				setLastError("network err: " + err.Error() + " | fallback err: " + fErr.Error())
+				return TC_NETWORK_ERROR
+			}
+		} else {
+			setLastError(err.Error())
+			return TC_NETWORK_ERROR
+		}
 	}
-	reg := ci.Region[0]
+	var reg *tailcfg.DERPRegion
+	if len(ci.Region) > 0 {
+		reg = ci.Region[0]
+	} else {
+		var dm tailcfg.DERPMap
+		_ = json.Unmarshal([]byte(staticDERPMapJSON), &dm)
+		if r, ok := dm.Regions[ci.RegionID]; ok {
+			reg = r
+		} else if r304, ok2 := dm.Regions[304]; ok2 {
+			reg = r304
+		}
+	}
+	if reg == nil {
+		setLastError("no valid DERP region found")
+		return TC_INTERNAL_ERROR
+	}
+	pk.Public.Region = []*tailcfg.DERPRegion{reg}
 	pk.Public.RegionID = reg.RegionID
 	blob := pk.Public.ConnBlob()
 
-	logf := logger.Discard
-	if verbose != 0 {
-		logf = logger.Discard // can plug standard logger
-	}
-
-	srv := &tailcat.Server{Key: pk.Private, Logf: logf, Region: reg}
+	srv := &tailcat.Server{Key: pk.Private, Logf: tcLogf, Region: reg}
 
 	state.mu.Lock()
 	handle := state.nextHandle
@@ -283,6 +345,29 @@ func tc_wait_event(timeout_ms C.uint32_t, out_event *C.tc_event_t) C.int32_t {
 	}
 }
 
+var (
+	bridgeClientsMu sync.Mutex
+	bridgeClients   = make(map[string]*tailcat.Client)
+)
+
+func getOrCreateBridgeClient(addr, derpURL string) *tailcat.Client {
+	bridgeClientsMu.Lock()
+	defer bridgeClientsMu.Unlock()
+	if cl, ok := bridgeClients[addr]; ok {
+		return cl
+	}
+	priv := key.NewNode()
+	cl := &tailcat.Client{
+		Server:       tailcat.ConnBlob(addr),
+		Key:          priv,
+		Logf:         tcLogf,
+		DERPMapURL:   derpURL,
+		DERPMapCache: staticDERPCache{},
+	}
+	bridgeClients[addr] = cl
+	return cl
+}
+
 //export tc_stream_dial
 func tc_stream_dial(
 	address *C.uint8_t,
@@ -292,7 +377,17 @@ func tc_stream_dial(
 	port C.uint16_t,
 	timeout_ms C.uint32_t,
 	out_stream *C.tc_handle_t,
-) C.int32_t {
+) (retCode C.int32_t) {
+	defer func() {
+		if r := recover(); r != nil {
+			buf := make([]byte, 4096)
+			n := runtime.Stack(buf, false)
+			msg := fmt.Sprintf("panic in tc_stream_dial: %v\nstack:\n%s", r, buf[:n])
+			setLastError(msg)
+			fmt.Printf("❌ %s\n", msg)
+			retCode = TC_INTERNAL_ERROR
+		}
+	}()
 	if address == nil || address_len == 0 || out_stream == nil {
 		return TC_INVALID_ARGUMENT
 	}
@@ -311,34 +406,13 @@ func tc_stream_dial(
 		timeout = time.Duration(timeout_ms) * time.Millisecond
 	}
 
-	priv := key.NewNode()
-	cl := &tailcat.Client{
-		Server:     tailcat.ConnBlob(addr),
-		Key:        priv,
-		Logf:       logger.Discard,
-		DERPMapURL: derpURL,
-	}
+	cl := getOrCreateBridgeClient(addr, derpURL)
 
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	for {
-		pctx, pcancel := context.WithTimeout(ctx, 5*time.Second)
-		_, err := cl.Ping(pctx)
-		pcancel()
-		if err == nil {
-			break
-		}
-		if ctx.Err() != nil {
-			cl.Close()
-			setLastError("ping timeout: " + err.Error())
-			return TC_TIMEOUT
-		}
-	}
-
 	c, err := cl.DialTCPPort(ctx, uint16(port))
 	if err != nil {
-		cl.Close()
 		setLastError(err.Error())
 		return TC_NETWORK_ERROR
 	}
@@ -484,9 +558,6 @@ func tc_stream_close(stream C.tc_handle_t) C.int32_t {
 
 	s.closed.Store(true)
 	s.conn.Close()
-	if s.client != nil {
-		s.client.Close()
-	}
 	return TC_OK
 }
 

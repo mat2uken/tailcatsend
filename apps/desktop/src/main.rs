@@ -80,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // IPC channel to communicate with Tailcat daemon
     let (ipc_tx, mut ipc_rx) = mpsc::unbounded_channel::<DaemonCommand>();
-    let _ipc_tx_clone = ipc_tx.clone();
+    let ipc_tx_clone = ipc_tx.clone();
 
     // Find and spawn native Tailcat daemon
     let daemon_bin_name = if cfg!(windows) {
@@ -112,6 +112,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut child = Command::new(&daemon_path)
         .arg("-derp=https://tailcat.dev/derpmap.json")
         .arg("-ipc-port=49152")
+        .arg("-v")
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()

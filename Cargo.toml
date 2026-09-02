@@ -11,6 +11,7 @@ members = [
     "apps/desktop",
     "apps/web",
     "apps/ios",
+    "apps/android",
 ]
 
 [workspace.dependencies]

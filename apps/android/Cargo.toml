@@ -1,0 +1,55 @@
+[package]
+name = "tailsend-android"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[package.metadata.android]
+package = "dev.tailcat.tailsend"
+apk_name = "TailSend"
+label = "TailSend"
+sdk_version = 34
+min_sdk_version = 31
+target_sdk_version = 34
+
+[package.metadata.android.application]
+has_code = false
+
+[package.metadata.android.activity]
+name = "android.app.NativeActivity"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.INTERNET"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.ACCESS_NETWORK_STATE"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.READ_EXTERNAL_STORAGE"
+
+[[package.metadata.android.uses_permission]]
+name = "android.permission.WRITE_EXTERNAL_STORAGE"
+
+[dependencies]
+tailsend-protocol = { workspace = true }
+tailsend-qr = { workspace = true }
+tailsend-ui-controller = { workspace = true }
+ciborium = { workspace = true }
+
+slint = { workspace = true, features = ["backend-android-activity-06", "renderer-femtovg"] }
+android-activity = { version = "0.6", features = ["native-activity"] }
+
+tokio = { version = "1.43", features = ["rt-multi-thread", "sync", "time", "macros", "io-util", "fs"] }
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+base64 = { workspace = true }
+log = { workspace = true }
+android_logger = "0.14"
+rand = { workspace = true }
+image = { workspace = true }
+
+[build-dependencies]
+slint-build = { version = "1.17.1" }
