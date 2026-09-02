@@ -49,11 +49,11 @@ pub fn run_app() -> Result<(), JsValue> {
                 let short_tok = if token_str.len() >= 12 { format!("{}...", &token_str[..12]) } else { token_str };
 
                 app.set_screen_index(3); // Screen 3: Connected Home
-                app.set_peer_name("macOS Host (Metal)".into());
-                app.set_derp_info("tailcat.dev (Active Mesh)".into());
-                app.set_edge_relay_info("Cloudflare Workers (DO)".into());
+                app.set_peer_name("macOS Host (P2P)".into());
+                app.set_derp_info("tailcat.dev (WireGuard P2P)".into());
+                app.set_edge_relay_info("Pure Tailcat Mesh (No Relay)".into());
                 app.set_session_info(short_tok.into());
-                app.set_status_text("Connected to macOS Host over WireGuard P2P".into());
+                app.set_status_text("Connecting to macOS Host via WireGuard P2P...".into());
                 app.set_can_disconnect(true);
                 app.set_can_send(true);
             }
@@ -64,7 +64,7 @@ pub fn run_app() -> Result<(), JsValue> {
         }
     } else {
         app.set_screen_index(1);
-        app.set_status_text("Waiting for peer to scan QR...".into());
+        app.set_status_text("Scan QR Code to Connect (Pure Tailcat P2P)".into());
         app.set_expires_secs(600);
         app.set_can_disconnect(false);
     }
@@ -73,19 +73,28 @@ pub fn run_app() -> Result<(), JsValue> {
     let app_weak_msg = app.as_weak();
     let on_incoming_text = Closure::wrap(Box::new(move |text: String| {
         if let Some(app) = app_weak_msg.upgrade() {
-            let new_log = format!("[PC Host]: {}\n{}", text, app.get_received_message_log());
+            let new_log = format!("[macOS]: {}\n{}", text, app.get_received_message_log());
             app.set_received_message_log(new_log.into());
             app.set_last_received_text(text.into());
-            app.set_status_text("Received message from PC!".into());
+            app.set_status_text("Received message from macOS!".into());
         }
     }) as Box<dyn FnMut(String)>);
     let _ = js_sys::Reflect::set(&window, &JsValue::from_str("onIncomingTextMessageSlint"), on_incoming_text.as_ref().unchecked_ref());
     on_incoming_text.forget();
 
+    let app_weak_status = app.as_weak();
+    let update_status_cb = Closure::wrap(Box::new(move |status: String| {
+        if let Some(app) = app_weak_status.upgrade() {
+            app.set_status_text(status.into());
+        }
+    }) as Box<dyn FnMut(String)>);
+    let _ = js_sys::Reflect::set(&window, &JsValue::from_str("updateSlintStatusText"), update_status_cb.as_ref().unchecked_ref());
+    update_status_cb.forget();
+
     let app_weak_sent = app.as_weak();
     let on_text_sent = Closure::wrap(Box::new(move |text: String| {
         if let Some(app) = app_weak_sent.upgrade() {
-            let log_text = format!("Sent (Clipboard): {}\n{}", text, app.get_received_message_log());
+            let log_text = format!("Sent: {}\n{}", text, app.get_received_message_log());
             app.set_received_message_log(log_text.into());
         }
     }) as Box<dyn FnMut(String)>);
@@ -125,9 +134,15 @@ pub fn run_app() -> Result<(), JsValue> {
     let app_weak = app.as_weak();
     app.on_compose_text(move |msg| {
         if let Some(app) = app_weak.upgrade() {
-            send_tailcat_text_message(&msg);
-            let log_text = format!("Sent: {}\n{}", msg, app.get_received_message_log());
+            let text_to_send = if msg.trim().is_empty() {
+                "Hello macOS from iPhone Safari!".to_string()
+            } else {
+                msg.to_string()
+            };
+            send_tailcat_text_message(&text_to_send);
+            let log_text = format!("Sent: {}\n{}", text_to_send, app.get_received_message_log());
             app.set_received_message_log(log_text.into());
+            app.set_message_input("".into());
         }
     });
 
