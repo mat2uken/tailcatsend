@@ -7,6 +7,11 @@ require (
 	tailscale.com v1.103.0-pre.0.20260830144538-72780705eda8
 )
 
+replace (
+	github.com/tailscale/tailcat => ./pkg/tailcat
+	tailscale.com => ./pkg/tailscale.com
+)
+
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/akutz/memconn v0.1.0 // indirect
