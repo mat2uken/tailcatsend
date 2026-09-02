@@ -10,16 +10,19 @@ targets:
     sources:
       - path: TailSend
     settings:
-      PRODUCT_BUNDLE_IDENTIFIER: dev.tailsend.app
+      PRODUCT_BUNDLE_IDENTIFIER: jp.co.roland.tailsend
+      DEVELOPMENT_TEAM: 4C6WC6J297
+      CODE_SIGN_STYLE: Automatic
       INFOPLIST_FILE: TailSend/Info.plist
       SWIFT_OBJC_BRIDGING_HEADER: TailSend/TailSend-Bridging-Header.h
       SWIFT_VERSION: "5.0"
       ONLY_ACTIVE_ARCH: YES
       ARCHS:
         - arm64
-      LIBRARY_SEARCH_PATHS:
-        - $(SRCROOT)/../../target/aarch64-apple-ios-sim/release
+      "LIBRARY_SEARCH_PATHS[sdk=iphoneos*]":
         - $(SRCROOT)/../../target/aarch64-apple-ios/release
+      "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]":
+        - $(SRCROOT)/../../target/aarch64-apple-ios-sim/release
       OTHER_LDFLAGS:
         - -ltailsend_ios
         - -framework UIKit
