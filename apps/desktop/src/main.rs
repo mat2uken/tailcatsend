@@ -402,6 +402,48 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // Regenerate Invite Handler
+    let app_weak_regen = app.as_weak();
+    let base_url_for_regen = base_url.clone();
+    app.on_regenerate_invite(move || {
+        if let Some(app) = app_weak_regen.upgrade() {
+            info!("Regenerating QR Code on Desktop...");
+            let mut session_id = [0u8; 16];
+            rand::thread_rng().fill_bytes(&mut session_id);
+            let mut invite_secret = [0u8; 32];
+            rand::thread_rng().fill_bytes(&mut invite_secret);
+
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+
+            let host_address = "tc-desktop-mesh-ephemeral".to_string();
+            let invitation = InvitationV1::new(host_address, session_id, invite_secret, now, 600);
+            let invite_url = invitation.to_qr_url(&base_url_for_regen).unwrap_or_default();
+            let session_token = invitation.to_base64url().unwrap_or_default();
+            let short_session_id = if session_token.len() >= 32 { &session_token[..32] } else { &session_token };
+
+            if let Ok(qr) = generate_qr_rgba(&invite_url, 236) {
+                let mut pixel_buffer = SharedPixelBuffer::new(qr.width, qr.height);
+                pixel_buffer.make_mut_bytes().copy_from_slice(&qr.rgba_pixels);
+
+                let slint_qr_img = Image::from_rgba8(pixel_buffer);
+                app.set_qr_code_image(slint_qr_img);
+                app.set_has_qr_image(true);
+                app.set_invite_url(invite_url.into());
+                app.set_expires_secs(600);
+                let display_sess = if short_session_id.len() >= 12 {
+                    format!("{}...", &short_session_id[..12])
+                } else {
+                    short_session_id.to_string()
+                };
+                app.set_session_info(display_sess.into());
+                app.set_status_text("New QR Code generated! Scan with phone.".into());
+            }
+        }
+    });
+
     // Disconnect Handler
     let app_weak = app.as_weak();
     app.on_disconnect(move || {
