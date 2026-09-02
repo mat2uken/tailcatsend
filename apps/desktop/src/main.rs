@@ -26,6 +26,9 @@ struct DaemonEvent {
     text: Option<String>,
     filename: Option<String>,
     size: Option<i64>,
+    bytes: Option<i64>,
+    progress: Option<f64>,
+    speed: Option<String>,
     path: Option<String>,
     error: Option<String>,
 }
@@ -228,6 +231,57 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             });
                         }
                     }
+                    "incoming_file_start" => {
+                        let fname = ev.filename.unwrap_or_else(|| "file.bin".to_string());
+                        let total_mb = ev.size.unwrap_or(0) as f64 / 1048576.0;
+                        let w = app_weak_daemon.clone();
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(app) = w.upgrade() {
+                                app.set_screen_index(3);
+                                app.set_peer_name("Connected iPhone".into());
+                                app.set_is_transferring(true);
+                                app.set_transfer_completed(false);
+                                app.set_transfer_filename(fname.clone().into());
+                                if total_mb > 0.0 {
+                                    app.set_transfer_bytes_text(format!("0.0 MB / {:.1} MB", total_mb).into());
+                                } else {
+                                    app.set_transfer_bytes_text("Starting download...".into());
+                                }
+                                app.set_transfer_speed("Connecting...".into());
+                                app.set_transfer_progress(0.05);
+                                app.set_transfer_status("Receiving file from iPhone...".into());
+                                app.set_status_text(format!("Receiving {} from iPhone...", fname).into());
+                            }
+                        });
+                    }
+                    "incoming_file_progress" => {
+                        let fname = ev.filename.unwrap_or_else(|| "file.bin".to_string());
+                        let bytes_mb = ev.bytes.unwrap_or(0) as f64 / 1048576.0;
+                        let total_mb = ev.size.unwrap_or(0) as f64 / 1048576.0;
+                        let progress = if ev.progress.unwrap_or(0.0) > 0.0 {
+                            ev.progress.unwrap_or(0.0)
+                        } else {
+                            0.5
+                        };
+                        let speed = ev.speed.unwrap_or_default();
+                        let bytes_text = if total_mb > 0.0 {
+                            format!("{:.1} MB / {:.1} MB", bytes_mb, total_mb)
+                        } else {
+                            format!("{:.1} MB received", bytes_mb)
+                        };
+                        let w = app_weak_daemon.clone();
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(app) = w.upgrade() {
+                                app.set_is_transferring(true);
+                                app.set_transfer_completed(false);
+                                app.set_transfer_filename(fname.clone().into());
+                                app.set_transfer_bytes_text(bytes_text.into());
+                                app.set_transfer_speed(speed.into());
+                                app.set_transfer_progress(progress as f32);
+                                app.set_transfer_status("Receiving from iPhone...".into());
+                            }
+                        });
+                    }
                     "incoming_file" => {
                         let fname = ev.filename.unwrap_or_else(|| "file.bin".to_string());
                         let fsize = ev.size.unwrap_or(0) as f64 / 1048576.0;
@@ -240,8 +294,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 app.set_screen_index(3);
                                 app.set_is_transferring(false);
                                 app.set_transfer_completed(true);
+                                app.set_transfer_filename(fname.clone().into());
+                                app.set_transfer_bytes_text(format!("{:.1} MB", fsize).into());
+                                app.set_transfer_speed("Saved".into());
                                 app.set_transfer_progress(1.0);
                                 app.set_transfer_status("[Completed] File Transfer Successful!".into());
+                                app.set_status_text(format!("Received {} ({:.1} MB) — Saved to Downloads/TailSend!", fname, fsize).into());
                                 let new_log = format!(
                                     "[File Received]: {} ({:.1} MB)\nSaved: {}\n{}",
                                     fname, fsize, fpath, app.get_received_message_log()

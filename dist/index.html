@@ -538,8 +538,8 @@
                     window.updateSlintStatusText(`Transferring ${file.name}...`);
                 }
                 
-                // 1. Send filename header
-                const header = new TextEncoder().encode(`NAME:${file.name}\n`);
+                // 1. Send filename and size header
+                const header = new TextEncoder().encode(`NAME:${file.name}:${file.size}\n`);
                 await conn.write(header);
 
                 // 2. Stream file content in chunks

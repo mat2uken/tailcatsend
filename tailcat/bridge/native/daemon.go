@@ -22,15 +22,18 @@ import (
 )
 
 type DaemonMessage struct {
-	Event    string `json:"event"`
-	Address  string `json:"address,omitempty"`
-	Port     uint16 `json:"port,omitempty"`
-	Handle   uint64 `json:"handle,omitempty"`
-	Text     string `json:"text,omitempty"`
-	Filename string `json:"filename,omitempty"`
-	Size     int64  `json:"size,omitempty"`
-	Path     string `json:"path,omitempty"`
-	Error    string `json:"error,omitempty"`
+	Event    string  `json:"event"`
+	Address  string  `json:"address,omitempty"`
+	Port     uint16  `json:"port,omitempty"`
+	Handle   uint64  `json:"handle,omitempty"`
+	Text     string  `json:"text,omitempty"`
+	Filename string  `json:"filename,omitempty"`
+	Size     int64   `json:"size,omitempty"`
+	Bytes    int64   `json:"bytes,omitempty"`
+	Progress float64 `json:"progress,omitempty"`
+	Speed    string  `json:"speed,omitempty"`
+	Path     string  `json:"path,omitempty"`
+	Error    string  `json:"error,omitempty"`
 }
 
 type CommandMessage struct {
@@ -131,7 +134,6 @@ func main() {
 						fmt.Fprintf(os.Stderr, "[tailcat-daemon] port 101 read error: %v\n", err)
 					}
 				}(c, handle)
-			} else if port == 102 {
 				go func(conn net.Conn, h uint64) {
 					defer conn.Close()
 					userHome, _ := os.UserHomeDir()
@@ -141,25 +143,73 @@ func main() {
 					reader := bufio.NewReader(conn)
 					header, err := reader.ReadString('\n')
 					filename := fmt.Sprintf("received_%d.bin", time.Now().Unix())
-					var hasPrefix bool
+					var expectedSize int64 = 0
+
 					if err == nil && strings.HasPrefix(header, "NAME:") {
-						hasPrefix = true
-						filename = strings.TrimSpace(strings.TrimPrefix(header, "NAME:"))
+						meta := strings.TrimSpace(strings.TrimPrefix(header, "NAME:"))
+						if parts := strings.Split(meta, ":"); len(parts) == 2 {
+							filename = parts[0]
+							fmt.Sscanf(parts[1], "%d", &expectedSize)
+						} else {
+							filename = meta
+						}
 					}
+
+					d.broadcast(DaemonMessage{
+						Event:    "incoming_file_start",
+						Port:     102,
+						Handle:   h,
+						Filename: filename,
+						Size:     expectedSize,
+					})
 
 					outPath := filepath.Join(outDir, filename)
 					outFile, err := os.Create(outPath)
 					if err == nil {
+						defer outFile.Close()
+						buf := make([]byte, 64*1024)
 						var totalBytes int64
-						if hasPrefix {
-							n, _ := io.Copy(outFile, reader)
-							totalBytes = n
-						} else {
-							outFile.Write([]byte(header))
-							n, _ := io.Copy(outFile, reader)
-							totalBytes = int64(len(header)) + n
+						startTime := time.Now()
+						lastProgress := time.Now()
+
+						for {
+							n, rErr := reader.Read(buf)
+							if n > 0 {
+								_, wErr := outFile.Write(buf[:n])
+								if wErr != nil {
+									break
+								}
+								totalBytes += int64(n)
+
+								// Broadcast progress every 100ms
+								if time.Since(lastProgress) >= 100*time.Millisecond {
+									lastProgress = time.Now()
+									var progress float64
+									if expectedSize > 0 {
+										progress = float64(totalBytes) / float64(expectedSize)
+									}
+									elapsed := time.Since(startTime).Seconds()
+									speed := ""
+									if elapsed > 0 {
+										speed = fmt.Sprintf("%.1f MB/s", (float64(totalBytes)/1048576.0)/elapsed)
+									}
+
+									d.broadcast(DaemonMessage{
+										Event:    "incoming_file_progress",
+										Port:     102,
+										Handle:   h,
+										Filename: filename,
+										Bytes:    totalBytes,
+										Size:     expectedSize,
+										Progress: progress,
+										Speed:    speed,
+									})
+								}
+							}
+							if rErr != nil {
+								break
+							}
 						}
-						outFile.Close()
 
 						d.broadcast(DaemonMessage{
 							Event:    "incoming_file",
