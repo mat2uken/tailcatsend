@@ -62,8 +62,9 @@ const CHUNK_SIZE: usize = 64 * 1024; // 64 KiB chunks
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     info!("Starting TailSend Desktop Native Application...");
+    println!("\n🚀 TailSend Desktop Native App is starting on macOS...");
 
     let args: Vec<String> = std::env::args().collect();
     let base_url = if args.len() > 1 {
@@ -73,6 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     info!("Using Cloudflare Hosting Base URL: {}", base_url);
+    println!("🌐 Cloudflare Relay URL: {}\n", base_url);
 
     let app = AppWindow::new()?;
     let (relay_tx, mut relay_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
@@ -99,24 +101,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "tailcat_daemon"
         };
 
-        let daemon_path = if std::path::Path::new(&format!("target/debug/{}", daemon_bin_name)).exists() {
-            format!("target/debug/{}", daemon_bin_name)
-        } else if std::path::Path::new(&format!("target/release/{}", daemon_bin_name)).exists() {
-            format!("target/release/{}", daemon_bin_name)
-        } else if std::path::Path::new(daemon_bin_name).exists() {
-            daemon_bin_name.to_string()
-        } else {
-            daemon_bin_name.to_string()
-        };
+        let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf()));
 
-        info!("Spawning Tailcat daemon from path: {}", daemon_path);
+        let candidates = [
+            exe_dir.as_ref().map(|d| d.join(daemon_bin_name)),
+            Some(current_dir.join(daemon_bin_name)),
+            Some(current_dir.join("target").join("release").join(daemon_bin_name)),
+            Some(current_dir.join("target").join("debug").join(daemon_bin_name)),
+            Some(current_dir.join("tailcat").join(daemon_bin_name)),
+            Some(PathBuf::from(format!("./{}", daemon_bin_name))),
+        ];
+
+        let daemon_path = candidates
+            .into_iter()
+            .flatten()
+            .find(|p| p.is_file())
+            .unwrap_or_else(|| PathBuf::from(daemon_bin_name));
+
+        info!("Spawning Tailcat daemon from path: {}", daemon_path.display());
 
         let mut child = Command::new(&daemon_path)
             .arg("-derp=https://tailcat.dev/derpmap.json")
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()
-            .unwrap_or_else(|e| panic!("Failed to spawn Tailcat native daemon at {}: {}", daemon_path, e));
+            .unwrap_or_else(|e| panic!("Failed to spawn Tailcat native daemon at {}: {}", daemon_path.display(), e));
 
         let stdout = child.stdout.take().expect("Failed to get stdout of daemon");
         let mut reader = BufReader::new(stdout).lines();
@@ -163,6 +173,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             pixel_buffer.make_mut_bytes().copy_from_slice(&qr.rgba_pixels);
 
             let invite_url_copy = invite_url.clone();
+            let short_sess_copy = short_session_id.to_string();
             let app_weak_clone = app_weak_boot.clone();
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(app) = app_weak_clone.upgrade() {
@@ -175,9 +186,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     app.set_expires_secs(600);
                     app.set_can_disconnect(true);
                     app.set_can_send(true);
+                    app.set_peer_name("Mobile Client (iOS / Web)".into());
+                    app.set_derp_info("tailcat.dev (Mesh Active)".into());
+                    app.set_edge_relay_info("Cloudflare Workers (DO)".into());
+                    let display_sess = if short_sess_copy.len() >= 12 {
+                        format!("{}...", &short_sess_copy[..12])
+                    } else {
+                        short_sess_copy.clone()
+                    };
+                    app.set_session_info(display_sess.into());
                 }
             });
         }
+
+        let short_sess_for_relay = short_session_id.to_string();
 
         // Connect Desktop Host WebSocket to Edge Relay
         let relay_ws_url = format!(
@@ -210,13 +232,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if let Ok(Message::Text(text)) = msg_res {
                             if let Ok(payload) = serde_json::from_str::<RelayPayload>(&text) {
                                 match payload.msg_type.as_str() {
-                                    "text" => {
+                                     "text" => {
                                         if let Some(incoming_text) = payload.text {
                                             let w = app_weak_relay.clone();
                                             let inc_t = incoming_text.clone();
+                                            let s_id = short_sess_for_relay.clone();
                                             let _ = slint::invoke_from_event_loop(move || {
                                                 if let Some(app) = w.upgrade() {
                                                     app.set_screen_index(3);
+                                                    app.set_peer_name("Mobile Client (iPhone / Web)".into());
+                                                    app.set_derp_info("tailcat.dev (Active Mesh)".into());
+                                                    app.set_edge_relay_info("Cloudflare Workers (DO)".into());
+                                                    let display_sess = if s_id.len() >= 12 {
+                                                        format!("{}...", &s_id[..12])
+                                                    } else {
+                                                        s_id.clone()
+                                                    };
+                                                    app.set_session_info(display_sess.into());
                                                     let new_log = format!("[Mobile]: {}\n{}", inc_t, app.get_received_message_log());
                                                     app.set_received_message_log(new_log.into());
                                                     app.set_last_received_text(inc_t.into());
@@ -255,9 +287,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                                         let w = app_weak_relay.clone();
                                         let fn_clone = filename.clone();
+                                        let s_id_f = short_sess_for_relay.clone();
                                         let _ = slint::invoke_from_event_loop(move || {
                                             if let Some(app) = w.upgrade() {
                                                 app.set_screen_index(3);
+                                                app.set_peer_name("Mobile Client (iPhone / Web)".into());
+                                                app.set_derp_info("tailcat.dev (Active Mesh)".into());
+                                                app.set_edge_relay_info("Cloudflare Workers (DO)".into());
+                                                let display_sess = if s_id_f.len() >= 12 {
+                                                    format!("{}...", &s_id_f[..12])
+                                                } else {
+                                                    s_id_f.clone()
+                                                };
+                                                app.set_session_info(display_sess.into());
                                                 app.set_is_transferring(true);
                                                 app.set_transfer_completed(false);
                                                 app.set_transfer_status("Receiving from Mobile...".into());
@@ -589,6 +631,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
         }
     });
+
+    app.show()?;
 
     // Run Slint Event Loop on Main Thread
     slint::run_event_loop()?;

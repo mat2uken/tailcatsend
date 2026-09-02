@@ -4,6 +4,7 @@ target/
 Cargo.lock
 
 # Go binaries
+tailcat_daemon
 tailcat_daemon.exe
 *.exe
 
@@ -21,3 +22,4 @@ mobile_updated_actions_screenshot.png
 mobile_screenshot.png
 qr_code.png
 test_*.bin
+test_*.mp4

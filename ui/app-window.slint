@@ -4,8 +4,8 @@ export component AppWindow inherits Window {
     title: "TailSend — Direct P2P Transfer";
     background: #0f172a;
     default-font-size: 14px;
-    min-width: 320px;
-    min-height: 520px;
+    min-width: 360px;
+    min-height: 560px;
 
     in-out property <int> screen_index: 0; // 0: Boot, 1: Invite, 2: Joining, 3: Connected
     in-out property <string> status_text: "Initializing TailSend...";
@@ -29,6 +29,10 @@ export component AppWindow inherits Window {
     in-out property <string> message_input: "Hello from Mobile Device!";
     in-out property <string> received_message_log: "";
     in-out property <string> last_received_text: "";
+
+    in-out property <string> derp_info: "tailcat.dev (Auto-Mesh)";
+    in-out property <string> edge_relay_info: "Cloudflare Workers (DO)";
+    in-out property <string> session_info: "";
 
     callback copy_invite();
     callback regenerate_invite();
@@ -54,8 +58,9 @@ export component AppWindow inherits Window {
                 font-size: 22px;
                 font-weight: 800;
                 color: #38bdf8;
+                vertical-alignment: center;
             }
-            if root.can_disconnect : Button {
+            if root.screen_index == 3 : Button {
                 text: "Disconnect";
                 clicked => { root.disconnect(); }
             }
@@ -106,25 +111,37 @@ export component AppWindow inherits Window {
                     color: #f8fafc;
                 }
 
-                Rectangle {
-                    width: 236px;
-                    height: 236px;
-                    background: #ffffff;
-                    border-radius: 10px;
+                // Perfectly Centered QR Container
+                HorizontalLayout {
+                    alignment: center;
 
-                    if root.has_qr_image : Image {
-                        source: root.qr_code_image;
-                        width: 228px;
-                        height: 228px;
-                        image-fit: contain;
-                    }
-                    if !root.has_qr_image : VerticalLayout {
-                        alignment: center;
-                        Text {
-                            text: "Generating QR Code...";
-                            horizontal-alignment: center;
-                            font-size: 14px;
-                            color: #0f172a;
+                    Rectangle {
+                        width: 240px;
+                        height: 240px;
+                        background: #ffffff;
+                        border-radius: 12px;
+
+                        VerticalLayout {
+                            alignment: center;
+                            padding: 6px;
+
+                            HorizontalLayout {
+                                alignment: center;
+
+                                if root.has_qr_image : Image {
+                                    source: root.qr_code_image;
+                                    width: 228px;
+                                    height: 228px;
+                                    image-fit: contain;
+                                }
+                                if !root.has_qr_image : Text {
+                                    text: "Generating QR Code...";
+                                    horizontal-alignment: center;
+                                    font-size: 14px;
+                                    color: #0f172a;
+                                    vertical-alignment: center;
+                                }
+                            }
                         }
                     }
                 }
@@ -144,7 +161,7 @@ export component AppWindow inherits Window {
                 }
 
                 Text {
-                    text: "Expires in: " + (root.expires_secs / 60) + "m " + (root.expires_secs - (root.expires_secs / 60) * 60) + "s";
+                    text: "Expires in: " + Math.floor(root.expires_secs / 60) + "m " + (root.expires_secs - Math.floor(root.expires_secs / 60) * 60) + "s";
                     horizontal-alignment: center;
                     font-size: 12px;
                     color: #94a3b8;
@@ -155,6 +172,50 @@ export component AppWindow inherits Window {
                     horizontal-alignment: center;
                     font-size: 13px;
                     color: #38bdf8;
+                }
+
+                Rectangle {
+                    background: #0f172a;
+                    border-radius: 8px;
+                    border-width: 1px;
+                    border-color: #334155;
+
+                    VerticalLayout {
+                        padding-top: 6px;
+                        padding-bottom: 6px;
+                        padding-left: 10px;
+                        padding-right: 10px;
+                        spacing: 4px;
+
+                        HorizontalLayout {
+                            alignment: space-between;
+                            Text {
+                                text: "⚡ Tailcat DERP:";
+                                font-size: 11px;
+                                color: #94a3b8;
+                            }
+                            Text {
+                                text: root.derp_info;
+                                font-size: 11px;
+                                font-weight: 600;
+                                color: #38bdf8;
+                            }
+                        }
+                        HorizontalLayout {
+                            alignment: space-between;
+                            Text {
+                                text: "🌐 Edge Relay:";
+                                font-size: 11px;
+                                color: #94a3b8;
+                            }
+                            Text {
+                                text: root.edge_relay_info;
+                                font-size: 11px;
+                                font-weight: 600;
+                                color: #38bdf8;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -194,21 +255,145 @@ export component AppWindow inherits Window {
         if root.screen_index == 3 : VerticalLayout {
             spacing: 12px;
 
-            // Connection Status Banner
+            // Connection Status & Network Info Card
             Rectangle {
-                background: #1e3a8a;
-                border-radius: 10px;
+                background: #172554;
+                border-radius: 12px;
                 border-width: 1px;
                 border-color: #3b82f6;
-                height: 44px;
 
-                HorizontalLayout {
-                    alignment: center;
-                    Text {
-                        text: "[Connected] " + root.peer_name;
-                        font-size: 14px;
-                        font-weight: 700;
-                        color: #93c5fd;
+                VerticalLayout {
+                    padding-top: 10px;
+                    padding-bottom: 10px;
+                    padding-left: 14px;
+                    padding-right: 14px;
+                    spacing: 8px;
+
+                    // Row 1: Status Indicator + Protocol Badge
+                    HorizontalLayout {
+                        alignment: space-between;
+
+                        HorizontalLayout {
+                            spacing: 6px;
+                            alignment: start;
+
+                            // Green Status Dot Indicator
+                            Rectangle {
+                                width: 8px;
+                                height: 8px;
+                                border-radius: 4px;
+                                background: #22c55e;
+                                y: (parent.height - self.height) / 2;
+                            }
+
+                            Text {
+                                text: "Connected";
+                                font-size: 13px;
+                                font-weight: 700;
+                                color: #4ade80;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        // Protocol Badge
+                        Rectangle {
+                            background: #1e3a8a;
+                            border-radius: 4px;
+                            border-width: 1px;
+                            border-color: #60a5fa;
+
+                            HorizontalLayout {
+                                padding-left: 6px;
+                                padding-right: 6px;
+                                padding-top: 2px;
+                                padding-bottom: 2px;
+                                Text {
+                                    text: "WireGuard P2P";
+                                    font-size: 10px;
+                                    font-weight: 700;
+                                    color: #67e8f9;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                    }
+
+                    // Row 2: Peer Name (Clear and spacious)
+                    HorizontalLayout {
+                        alignment: start;
+                        spacing: 4px;
+                        Text {
+                            text: "Peer:";
+                            font-size: 12px;
+                            color: #94a3b8;
+                            vertical-alignment: center;
+                        }
+                        Text {
+                            text: root.peer_name;
+                            font-size: 13px;
+                            font-weight: 700;
+                            color: #f8fafc;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    // Subtle Divider
+                    Rectangle {
+                        height: 1px;
+                        background: #1e40af;
+                    }
+
+                    // Connection Details Sub-Grid
+                    VerticalLayout {
+                        spacing: 4px;
+                        HorizontalLayout {
+                            alignment: space-between;
+                            Text {
+                                text: "• DERP Relay:";
+                                font-size: 11px;
+                                color: #94a3b8;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                text: root.derp_info;
+                                font-size: 11px;
+                                font-weight: 600;
+                                color: #cbd5e1;
+                                vertical-alignment: center;
+                            }
+                        }
+                        HorizontalLayout {
+                            alignment: space-between;
+                            Text {
+                                text: "• Edge Relay:";
+                                font-size: 11px;
+                                color: #94a3b8;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                text: root.edge_relay_info;
+                                font-size: 11px;
+                                font-weight: 600;
+                                color: #cbd5e1;
+                                vertical-alignment: center;
+                            }
+                        }
+                        if root.session_info != "" : HorizontalLayout {
+                            alignment: space-between;
+                            Text {
+                                text: "• Session ID:";
+                                font-size: 11px;
+                                color: #94a3b8;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                text: root.session_info;
+                                font-size: 11px;
+                                font-weight: 600;
+                                color: #38bdf8;
+                                vertical-alignment: center;
+                            }
+                        }
                     }
                 }
             }
