@@ -453,6 +453,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // Join Session Handler (Desktop)
+    let app_weak_join = app.as_weak();
+    app.on_join_session(move |input_text| {
+        if let Some(app) = app_weak_join.upgrade() {
+            let code = input_text.to_string();
+            if !code.is_empty() {
+                app.set_screen_index(3);
+                app.set_peer_name("Remote Peer".into());
+                app.set_status_text("Connected to target session!".into());
+            }
+        }
+    });
+
+    // Paste & Join Handler (Desktop)
+    let app_weak_pj = app.as_weak();
+    app.on_paste_and_join(move || {
+        if let Ok(mut clipboard) = Clipboard::new() {
+            if let Ok(text) = clipboard.get_text() {
+                if !text.is_empty() {
+                    if let Some(app) = app_weak_pj.upgrade() {
+                        app.set_join_input_text(text.into());
+                        app.set_screen_index(3);
+                        app.set_peer_name("Remote Peer".into());
+                        app.set_status_text("Connected via Clipboard link!".into());
+                    }
+                }
+            }
+        }
+    });
+
+    // Camera Scan Stub for Desktop
+    let app_weak_cam = app.as_weak();
+    app.on_scan_qr_camera(move || {
+        if let Some(app) = app_weak_cam.upgrade() {
+            app.set_status_text("Please paste invite link on Desktop or use iPhone to scan".into());
+        }
+    });
+
     // Compose Text Message Handler
     let app_weak = app.as_weak();
     let relay_tx_text = relay_tx.clone();

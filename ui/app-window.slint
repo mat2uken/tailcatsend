@@ -33,10 +33,14 @@ export component AppWindow inherits Window {
     in-out property <string> derp_info: "tailcat.dev (Active Mesh)";
     in-out property <string> edge_relay_info: "Cloudflare Workers (DO)";
     in-out property <string> session_info: "session-active";
+    in-out property <string> join_input_text: "";
     in-out property <length> top_safe_area: 0px;
 
     callback copy_invite();
     callback regenerate_invite();
+    callback scan_qr_camera();
+    callback join_session(string);
+    callback paste_and_join();
     callback disconnect();
     callback compose_text(string);
     callback paste_and_send();
@@ -176,6 +180,48 @@ export component AppWindow inherits Window {
                     horizontal-alignment: center;
                     font-size: 13px;
                     color: #38bdf8;
+                }
+
+                // Divider
+                Rectangle {
+                    height: 1px;
+                    background: #334155;
+                }
+
+                // Join Another Peer Section
+                Text {
+                    text: "— or Connect to Another Peer —";
+                    horizontal-alignment: center;
+                    font-size: 12px;
+                    font-weight: 700;
+                    color: #94a3b8;
+                }
+
+                HorizontalLayout {
+                    alignment: center;
+                    spacing: 8px;
+                    Button {
+                        text: "📷 Scan QR Camera";
+                        primary: true;
+                        clicked => { root.scan_qr_camera(); }
+                    }
+                    Button {
+                        text: "📋 Paste & Join";
+                        clicked => { root.paste_and_join(); }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 6px;
+                    LineEdit {
+                        placeholder-text: "Invite URL or Session ID...";
+                        text <=> root.join_input_text;
+                        accepted => { root.join_session(self.text); }
+                    }
+                    Button {
+                        text: "Join";
+                        clicked => { root.join_session(root.join_input_text); }
+                    }
                 }
 
                 Rectangle {
