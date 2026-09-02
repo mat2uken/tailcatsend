@@ -46,6 +46,8 @@
             align-items: center;
             z-index: 100;
             transition: opacity 0.3s ease-out;
+            padding: 20px;
+            text-align: center;
         }
         .spinner {
             width: 48px;
@@ -63,63 +65,76 @@
         .title {
             font-size: 24px;
             font-weight: 700;
-            color: #ffffff;
-            margin-bottom: 8px;
             letter-spacing: -0.5px;
+            margin-bottom: 8px;
+            background: linear-gradient(to right, #6366f1, #a855f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
         }
         .status {
             font-size: 14px;
             color: #94a3b8;
-            max-width: 85%;
-            text-align: center;
-            line-height: 1.4;
+            word-break: break-all;
+            max-width: 90vw;
+        }
+        #debug-log {
+            margin-top: 15px;
+            font-size: 11px;
+            color: #ef4444;
+            max-width: 90vw;
+            word-break: break-all;
+            font-family: monospace;
         }
 
-        /* Floating Real-Time Transfer HUD Overlay */
+        /* Floating iOS / Native Progress HUD */
         #transfer-hud {
-            position: fixed;
-            bottom: 24px;
-            left: 16px;
-            right: 16px;
-            background: rgba(15, 39, 68, 0.95);
-            border: 1.5px solid #38bdf8;
-            border-radius: 14px;
-            padding: 14px 16px;
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            z-index: 90;
             display: none;
+            position: fixed;
+            top: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: calc(100% - 32px);
+            max-width: 400px;
+            background: rgba(30, 41, 59, 0.95);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.5), 0 0 20px rgba(99, 102, 241, 0.2);
+            border-radius: 16px;
+            padding: 16px;
+            z-index: 9999;
             flex-direction: column;
             gap: 8px;
-            transition: all 0.3s ease-in-out;
+            animation: slideDown 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        @keyframes slideDown {
+            from { transform: translate(-50%, -20px); opacity: 0; }
+            to { transform: translate(-50%, 0); opacity: 1; }
         }
         #transfer-hud.completed {
-            background: rgba(6, 78, 59, 0.95) !important;
-            border-color: #10b981 !important;
+            border-color: rgba(34, 197, 94, 0.4);
+            box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.5), 0 0 20px rgba(34, 197, 94, 0.2);
         }
         .hud-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             font-size: 13px;
-            font-weight: 700;
+            font-weight: 600;
         }
         .hud-status {
-            color: #38bdf8;
+            color: #6366f1;
         }
         #transfer-hud.completed .hud-status {
-            color: #34d399 !important;
+            color: #22c55e;
         }
         .hud-percent {
-            color: #60a5fa;
-            font-size: 14px;
-        }
-        #transfer-hud.completed .hud-percent {
-            color: #6ee7b7 !important;
+            color: #f8fafc;
+            font-variant-numeric: tabular-nums;
         }
         .hud-file {
-            font-size: 12px;
+            font-size: 14px;
+            font-weight: 500;
             color: #f8fafc;
             white-space: nowrap;
             overflow: hidden;
@@ -127,36 +142,37 @@
         }
         .hud-bar-bg {
             width: 100%;
-            height: 8px;
-            background: #1e293b;
-            border-radius: 4px;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
             overflow: hidden;
+            margin-top: 4px;
         }
         .hud-bar-fill {
             width: 0%;
             height: 100%;
-            background: linear-gradient(90deg, #38bdf8 0%, #3b82f6 100%);
-            border-radius: 4px;
-            transition: width 0.1s ease-out;
+            background: linear-gradient(90deg, #6366f1, #a855f7);
+            border-radius: 3px;
+            transition: width 0.1s linear;
         }
         #transfer-hud.completed .hud-bar-fill {
-            background: linear-gradient(90deg, #34d399 0%, #10b981 100%) !important;
+            background: #22c55e;
         }
         .hud-footer {
             display: flex;
             justify-content: space-between;
-            align-items: center;
             font-size: 11px;
             color: #94a3b8;
         }
     </style>
-    <script src="./assets/wasm_exec.js"></script>
+    <script src="./assets/wasm_exec.js?v=20260902_3"></script>
 </head>
 <body>
     <div id="loader">
         <div class="spinner"></div>
         <div class="title">TailSend</div>
-        <div class="status" id="status">Loading...</div>
+        <div class="status" id="status">Loading TailSend...</div>
+        <div id="debug-log"></div>
     </div>
 
     <!-- Floating Native Progress HUD -->
@@ -180,6 +196,7 @@
     <script type="module">
         const statusEl = document.getElementById("status");
         const loaderEl = document.getElementById("loader");
+        const debugEl = document.getElementById("debug-log");
         const hudEl = document.getElementById("transfer-hud");
         const hudStatusEl = document.getElementById("hud-status");
         const hudPercentEl = document.getElementById("hud-percent");
@@ -195,6 +212,16 @@
             if (statusEl) statusEl.textContent = msg;
             console.log("[TailSend Loader]", msg);
         }
+
+        function showDebugError(err) {
+            console.error("[TailSend Debug]", err);
+            if (debugEl) {
+                debugEl.textContent = "Error: " + (err.message || String(err));
+            }
+        }
+
+        window.addEventListener("error", (e) => showDebugError(e.error || e.message));
+        window.addEventListener("unhandledrejection", (e) => showDebugError(e.reason));
 
         function hideLoader() {
             if (loaderEl) {
@@ -525,12 +552,15 @@
         async function init() {
             try {
                 updateStatus("Loading Tailcat WireGuard P2P engine...");
-                const go = new Go();
-                const tailcatBytes = await fetchAndDecompressWasmBytes("./assets/tailcat.wasm.gz");
-                const { instance } = await WebAssembly.instantiate(tailcatBytes, go.importObject);
-                go.run(instance);
-                updateStatus("Tailcat WireGuard engine ready");
-                sendInitialP2PHandshake();
+                if (typeof Go !== "undefined") {
+                    const go = new Go();
+                    const tailcatBytes = await fetchAndDecompressWasmBytes("./assets/tailcat.wasm.gz");
+                    const result = await WebAssembly.instantiate(tailcatBytes, go.importObject);
+                    const instance = result.instance || result;
+                    go.run(instance);
+                    updateStatus("Tailcat WireGuard engine ready");
+                    sendInitialP2PHandshake();
+                }
 
                 updateStatus("Initializing Slint UI runtime...");
                 const moduleUrl = `./pkg/tailsend_web.js?_cb=${BUILD_TIMESTAMP}`;
@@ -554,7 +584,8 @@
                 hideLoader();
             } catch (err) {
                 console.error("[TailSend Bootstrap Error]", err);
-                updateStatus(`Error: ${err.message || err}`);
+                updateStatus(`Bootstrap Error: ${err.message || err}`);
+                showDebugError(err);
                 const spinner = document.querySelector(".spinner");
                 if (spinner) spinner.style.borderTopColor = "#ef4444";
             }
