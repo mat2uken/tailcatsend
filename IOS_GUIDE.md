@@ -22,14 +22,21 @@ TailSend iOS アプリは、Rust (Slint UI + Tokio) および Swift (UIKit / Met
 ```
 > ※ iPhone 16 シミュレータへのビルド、署名、インストール、および自動起動までを一発で実行します。
 
-### 2. 実機（iPhone）向けビルド
+### 2. 実機（iPhone Air 等）へのビルド・インストール・起動 (ワンライナー)
+
+```bash
+./scripts/build_ios.sh device-install
+```
+> ※ 接続中の iPhone（iPhone Air）向けに Rust ライブラリのビルド、コード署名、実機へのアプリインストールと自動起動までを一発で実行します。
+
+### 3. 実機向けライブラリビルドのみ
 
 ```bash
 ./scripts/build_ios.sh device
 ```
 > `target/aarch64-apple-ios/release/libtailsend_ios.a` がビルドされます。
 
-### 3. Xcode プロジェクトの生成 & 開く
+### 4. Xcode プロジェクトの生成 & 開く
 
 ```bash
 ./scripts/build_ios.sh xcode
