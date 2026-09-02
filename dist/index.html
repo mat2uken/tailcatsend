@@ -242,20 +242,18 @@
             }
         }
 
-        async function fetchAndDecompressWasm(url) {
+        async function fetchAndDecompressWasmBytes(url) {
             const cacheBustedUrl = url.includes("?") ? `${url}&_cb=${BUILD_TIMESTAMP}` : `${url}?_cb=${BUILD_TIMESTAMP}`;
             const response = await fetch(cacheBustedUrl, { cache: "no-store" });
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status} while fetching ${cacheBustedUrl}`);
             }
-            if (typeof DecompressionStream !== "undefined") {
+            if (url.endsWith(".gz") && typeof DecompressionStream !== "undefined") {
                 const decompressedStream = response.body.pipeThrough(new DecompressionStream("gzip"));
-                return new Response(decompressedStream, {
-                    headers: { "Content-Type": "application/wasm" }
-                });
-            } else {
-                return response;
+                const blob = await new Response(decompressedStream).blob();
+                return await blob.arrayBuffer();
             }
+            return await response.arrayBuffer();
         }
 
         const CHUNK_SIZE = 64 * 1024; // 64 KiB
@@ -528,8 +526,8 @@
             try {
                 updateStatus("Loading Tailcat WireGuard P2P engine...");
                 const go = new Go();
-                const tailcatResponse = await fetchAndDecompressWasm("./assets/tailcat.wasm.gz");
-                const { instance } = await WebAssembly.instantiateStreaming(tailcatResponse, go.importObject);
+                const tailcatBytes = await fetchAndDecompressWasmBytes("./assets/tailcat.wasm.gz");
+                const { instance } = await WebAssembly.instantiate(tailcatBytes, go.importObject);
                 go.run(instance);
                 updateStatus("Tailcat WireGuard engine ready");
                 sendInitialP2PHandshake();
@@ -537,8 +535,8 @@
                 updateStatus("Initializing Slint UI runtime...");
                 const moduleUrl = `./pkg/tailsend_web.js?_cb=${BUILD_TIMESTAMP}`;
                 const { default: initWasm, run_app } = await import(moduleUrl);
-                const slintResponse = await fetchAndDecompressWasm("./pkg/tailsend_web_bg.wasm.gz");
-                await initWasm(slintResponse);
+                const slintBytes = await fetchAndDecompressWasmBytes("./pkg/tailsend_web_bg.wasm.gz");
+                await initWasm({ module_or_path: slintBytes });
 
                 updateStatus("Launching TailSend interface...");
                 try {
