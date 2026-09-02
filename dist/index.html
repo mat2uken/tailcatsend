@@ -549,26 +549,32 @@
             input.click();
         };
 
-        async function init() {
+        async function initTailcatEngine() {
             try {
-                updateStatus("Loading Tailcat WireGuard P2P engine...");
+                console.log("[TailSend WASM] Starting async Tailcat WireGuard P2P engine load...");
                 if (typeof Go !== "undefined") {
                     const go = new Go();
                     const tailcatBytes = await fetchAndDecompressWasmBytes("./assets/tailcat.wasm.gz");
                     const result = await WebAssembly.instantiate(tailcatBytes, go.importObject);
                     const instance = result.instance || result;
                     go.run(instance);
-                    updateStatus("Tailcat WireGuard engine ready");
-                    sendInitialP2PHandshake();
+                    console.log("✅ [TailSend WASM] Tailcat WireGuard engine ready!");
+                    await sendInitialP2PHandshake();
                 }
+            } catch (err) {
+                console.error("[TailSend WASM Error]", err);
+                showDebugError(err);
+            }
+        }
 
-                updateStatus("Initializing Slint UI runtime...");
+        async function init() {
+            try {
+                updateStatus("Launching TailSend UI interface...");
                 const moduleUrl = `./pkg/tailsend_web.js?_cb=${BUILD_TIMESTAMP}`;
                 const { default: initWasm, run_app } = await import(moduleUrl);
                 const slintBytes = await fetchAndDecompressWasmBytes("./pkg/tailsend_web_bg.wasm.gz");
                 await initWasm({ module_or_path: slintBytes });
 
-                updateStatus("Launching TailSend interface...");
                 try {
                     if (typeof run_app === "function") {
                         run_app();
@@ -582,6 +588,9 @@
                 }
 
                 hideLoader();
+
+                // Initialize Tailcat WASM P2P Engine in background
+                initTailcatEngine();
             } catch (err) {
                 console.error("[TailSend Bootstrap Error]", err);
                 updateStatus(`Bootstrap Error: ${err.message || err}`);
