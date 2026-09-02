@@ -93,20 +93,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap()
             .as_secs();
 
-        let daemon_path = if std::path::Path::new("target/debug/tailcat_daemon.exe").exists() {
-            "target/debug/tailcat_daemon.exe"
-        } else if std::path::Path::new("tailcat_daemon.exe").exists() {
+        let daemon_bin_name = if cfg!(windows) {
             "tailcat_daemon.exe"
         } else {
-            "target/debug/tailcat_daemon.exe"
+            "tailcat_daemon"
         };
 
-        let mut child = Command::new(daemon_path)
+        let daemon_path = if std::path::Path::new(&format!("target/debug/{}", daemon_bin_name)).exists() {
+            format!("target/debug/{}", daemon_bin_name)
+        } else if std::path::Path::new(&format!("target/release/{}", daemon_bin_name)).exists() {
+            format!("target/release/{}", daemon_bin_name)
+        } else if std::path::Path::new(daemon_bin_name).exists() {
+            daemon_bin_name.to_string()
+        } else {
+            daemon_bin_name.to_string()
+        };
+
+        info!("Spawning Tailcat daemon from path: {}", daemon_path);
+
+        let mut child = Command::new(&daemon_path)
             .arg("-derp=https://tailcat.dev/derpmap.json")
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .spawn()
-            .expect("Failed to spawn Tailcat native daemon");
+            .unwrap_or_else(|e| panic!("Failed to spawn Tailcat native daemon at {}: {}", daemon_path, e));
 
         let stdout = child.stdout.take().expect("Failed to get stdout of daemon");
         let mut reader = BufReader::new(stdout).lines();
@@ -401,12 +411,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Share / Open Downloads Folder
+    // Share / Open Downloads Folder (Cross-Platform)
     app.on_share_received_text(move || {
         let download_dir = dirs_next()
             .map(|p| p.join("Downloads").join("TailSend"))
             .unwrap_or_else(|| PathBuf::from("TailSend_Downloads"));
-        let _ = std::process::Command::new("explorer").arg(download_dir).spawn();
+        
+        #[cfg(target_os = "windows")]
+        let _ = std::process::Command::new("explorer").arg(&download_dir).spawn();
+        
+        #[cfg(target_os = "macos")]
+        let _ = std::process::Command::new("open").arg(&download_dir).spawn();
+        
+        #[cfg(target_os = "linux")]
+        let _ = std::process::Command::new("xdg-open").arg(&download_dir).spawn();
     });
 
     // Save Received Text as .txt File
@@ -578,8 +596,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn dirs_next() -> Option<PathBuf> {
-    std::env::var_os("USERPROFILE")
-        .or_else(|| std::env::var_os("HOME"))
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)
 }
 
