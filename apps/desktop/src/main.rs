@@ -160,6 +160,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Generated Tailcat QR Invitation: {}", invite_url);
 
     if let Ok(qr) = generate_qr_rgba(&invite_url, 236) {
+        let _ = image::save_buffer_with_format(
+            "qr_code.png",
+            &qr.rgba_pixels,
+            qr.width,
+            qr.height,
+            image::ColorType::Rgba8,
+            image::ImageFormat::Png,
+        );
+
         let mut pixel_buffer = SharedPixelBuffer::new(qr.width, qr.height);
         pixel_buffer.make_mut_bytes().copy_from_slice(&qr.rgba_pixels);
 
@@ -367,6 +376,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let session_token = invitation.to_base64url().unwrap_or_default();
 
             if let Ok(qr) = generate_qr_rgba(&invite_url, 236) {
+                let _ = image::save_buffer_with_format(
+                    "qr_code.png",
+                    &qr.rgba_pixels,
+                    qr.width,
+                    qr.height,
+                    image::ColorType::Rgba8,
+                    image::ImageFormat::Png,
+                );
+
                 let mut pixel_buffer = SharedPixelBuffer::new(qr.width, qr.height);
                 pixel_buffer.make_mut_bytes().copy_from_slice(&qr.rgba_pixels);
 
