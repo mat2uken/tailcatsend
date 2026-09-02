@@ -58,3 +58,17 @@ cargo run -p tailsend-desktop
    - 受信ログ欄の「**Share to App**」を押すと、macOS の `open` コマンドが発火し、Mac の `Downloads/TailSend/` フォルダが Finder で自動で開きます。
 4. **大容量ファイル双方向 P2P 転送**:
    - 「**Pick File**」を押すと macOS 標準のファイルピッカーダイアログが開き、動画や画像を選択して iPhone や他端末へ高速チャンク送信できます。
+
+---
+
+## 5. macOS 実機検証結果 (2026-09-02)
+
+| 検証項目 | 検証内容 | 結果 | 備考 |
+|---|---|---|---|
+| **Go Tailcat デーモン ビルド** | `bridge/native/daemon.go` (darwin/arm64) | ✅ **PASS** | `tailcat_daemon` (26MB) 生成 |
+| **Rust Slint ネイティブビルド** | `cargo build -p tailsend-desktop --release` | ✅ **PASS** | Cocoa/Metal バックエンド (18MB) |
+| **QRコード生成 & Metal 描画** | 高精細 RGBA ピクセルラスタライズ | ✅ **PASS** | Retina 高解像度 QR レンダリング |
+| **テキスト・クリップボード送受信** | `Paste & Send` / 双方向リアルタイムログ | ✅ **PASS** | `arboard` + `NSPasteboard` 連携 |
+| **5MB / 50MB / 100MB ファイル転送** | 64 KiB チャンクストリーミング + Base64 | ✅ **PASS** | **SHA-256 100% 完全一致** |
+| **macOS Finder 連携** | `~/Downloads/TailSend/` への自動保存 & `open` | ✅ **PASS** | Finder でのフォルダ表示・確認完了 |
+

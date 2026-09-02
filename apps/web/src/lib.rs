@@ -45,9 +45,15 @@ pub fn run_app() -> Result<(), JsValue> {
                     &JsValue::from_str(&inv.host_address),
                 );
 
+                let token_str = inv.to_base64url().unwrap_or_default();
+                let short_tok = if token_str.len() >= 12 { format!("{}...", &token_str[..12]) } else { token_str };
+
                 app.set_screen_index(3); // Screen 3: Connected Home
-                app.set_peer_name("PC (Windows Host)".into());
-                app.set_status_text("Connected to PC over WireGuard P2P".into());
+                app.set_peer_name("macOS Host (Metal)".into());
+                app.set_derp_info("tailcat.dev (Active Mesh)".into());
+                app.set_edge_relay_info("Cloudflare Workers (DO)".into());
+                app.set_session_info(short_tok.into());
+                app.set_status_text("Connected to macOS Host over WireGuard P2P".into());
                 app.set_can_disconnect(true);
                 app.set_can_send(true);
             }

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use tailsend_platform_api::ReceivedItem;
-use crate::state::{PendingOffer, SessionState};
+use crate::state::SessionState;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AppEvent {
