@@ -6,7 +6,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use base64::prelude::*;
 use futures::{SinkExt, StreamExt};
-use log::{error, info};
+use log::{error, info, warn};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use slint::{Image, SharedPixelBuffer};
@@ -72,7 +72,7 @@ pub extern "C" fn tailsend_ios_join_session(url_ptr: *const c_char) {
     }
     let c_str = unsafe { CStr::from_ptr(url_ptr) };
     if let Ok(url_str) = c_str.to_str() {
-        info!("Received scanned QR code URL from Swift camera: {}", url_str);
+        info!("📸 [Swift Camera] Scanned QR code raw text: {}", url_str);
         if let Some(tx) = GLOBAL_JOIN_TX.get() {
             let _ = tx.send(url_str.to_string());
         }
@@ -81,29 +81,23 @@ pub extern "C" fn tailsend_ios_join_session(url_ptr: *const c_char) {
 
 fn parse_session_id_from_url_or_code(input: &str) -> String {
     let trimmed = input.trim();
-    if let Some(pos) = trimmed.find("#i=") {
+    let token = if let Some(pos) = trimmed.find("#i=") {
         let after = &trimmed[pos + 3..];
-        let token = after.split('&').next().unwrap_or(after);
-        if token.len() >= 32 {
-            token[..32].to_string()
-        } else {
-            token.to_string()
-        }
+        after.split('&').next().unwrap_or(after)
     } else if let Some(pos) = trimmed.find("session=") {
         let after = &trimmed[pos + 8..];
-        let token = after.split('&').next().unwrap_or(after);
-        if token.len() >= 32 {
-            token[..32].to_string()
-        } else {
-            token.to_string()
-        }
+        after.split('&').next().unwrap_or(after)
     } else {
-        if trimmed.len() >= 32 {
-            trimmed[..32].to_string()
-        } else {
-            trimmed.to_string()
-        }
-    }
+        trimmed
+    };
+
+    let session_id = if token.len() >= 32 {
+        &token[..32]
+    } else {
+        token
+    };
+    info!("🔑 Parsed session ID '{}' from input '{}'", session_id, trimmed);
+    session_id.to_string()
 }
 
 fn generate_invitation_data(base_url: &str) -> (InvitationV1, String, String, SharedPixelBuffer<slint::Rgba8Pixel>) {
@@ -214,7 +208,7 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
                 let sender_holder = active_sender_tokio.clone();
 
                 let session_task = tokio::spawn(async move {
-                    connect_relay_worker(relay_ws_url, "Connected Peer", short_sess_for_relay, app_weak_relay, inc_files, sender_holder).await;
+                    connect_relay_worker(relay_ws_url, "Connected Peer", short_sess_for_relay, app_weak_relay, inc_files, sender_holder, false).await;
                 });
 
                 current_abort_handle = Some(session_task.abort_handle());
@@ -250,7 +244,7 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
                 // Handle Join Mode (iOS as Client connected to macOS / Peer)
                 if let Some(target_code) = triggered_join {
                     let target_session_id = parse_session_id_from_url_or_code(&target_code);
-                    info!("Joining target peer session as client: {}", target_session_id);
+                    info!("🚀 [Join Mode] Connecting to target peer session: {}", target_session_id);
 
                     if let Some(handle) = current_abort_handle.take() {
                         handle.abort();
@@ -266,26 +260,17 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
                         urlencoding_encode(&target_session_id)
                     );
 
-                    let client_task = tokio::spawn(async move {
-                        let w = app_weak_join.clone();
-                        let s_id = sess_id_clone.clone();
-                        let _ = slint::invoke_from_event_loop(move || {
-                            if let Some(app) = w.upgrade() {
-                                app.set_screen_index(3);
-                                app.set_peer_name("Host (macOS / PC)".into());
-                                app.set_derp_info("tailcat.dev (Active Mesh)".into());
-                                app.set_edge_relay_info("Cloudflare Workers (DO)".into());
-                                let display_sess = if s_id.len() >= 12 {
-                                    format!("{}...", &s_id[..12])
-                                } else {
-                                    s_id.clone()
-                                };
-                                app.set_session_info(display_sess.into());
-                                app.set_status_text("Connected to macOS Host!".into());
-                            }
-                        });
+                    // Show Screen 2 (Connecting...) first
+                    let w = app_weak_join.clone();
+                    let _ = slint::invoke_from_event_loop(move || {
+                        if let Some(app) = w.upgrade() {
+                            app.set_screen_index(2);
+                            app.set_status_text("Connecting to macOS Host...".into());
+                        }
+                    });
 
-                        connect_relay_worker(join_ws_url, "Host (macOS / PC)", sess_id_clone, app_weak_join, inc_files_join, sender_holder_join).await;
+                    let client_task = tokio::spawn(async move {
+                        connect_relay_worker(join_ws_url, "Host (macOS)", sess_id_clone, app_weak_join, inc_files_join, sender_holder_join, true).await;
                     });
 
                     current_abort_handle = Some(client_task.abort_handle());
@@ -390,7 +375,7 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
         let _ = regen_tx_disc.send(());
     });
 
-    // ✉️ Compose Text Message Handler (Completely safe synchronous send on Main Thread)
+    // ✉️ Compose Text Message Handler
     let app_weak_text = app.as_weak();
     let active_sender_text = active_sender.clone();
     app.on_compose_text(move |msg| {
@@ -399,8 +384,8 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
             if msg_str.trim().is_empty() {
                 return;
             }
-            info!("Sending text message from iOS: {}", msg_str);
-            let log_text = format!("Sent: {}\n{}", msg_str, app.get_received_message_log());
+            info!("📤 [iOS] Sending text message: {}", msg_str);
+            let log_text = format!("[Me]: {}\n{}", msg_str, app.get_received_message_log());
             app.set_received_message_log(log_text.into());
             app.set_message_input("".into());
 
@@ -413,9 +398,14 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
 
             if let Ok(guard) = active_sender_text.lock() {
                 if let Some(sender) = guard.as_ref() {
-                    let _ = sender.send(payload.to_string());
+                    if let Err(e) = sender.send(payload.to_string()) {
+                        error!("Failed to send text to channel: {}", e);
+                    } else {
+                        info!("✅ [iOS] Successfully pushed text to WS sender queue");
+                    }
                 } else {
-                    error!("No active relay sender available to send text");
+                    error!("❌ No active relay sender available to send text");
+                    app.set_status_text("Error: Not connected to peer".into());
                 }
             }
         }
@@ -428,7 +418,7 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(app) = app_weak_paste_send.upgrade() {
             let msg_str = app.get_message_input().to_string();
             if !msg_str.trim().is_empty() {
-                let log_text = format!("Sent: {}\n{}", msg_str, app.get_received_message_log());
+                let log_text = format!("[Me]: {}\n{}", msg_str, app.get_received_message_log());
                 app.set_received_message_log(log_text.into());
                 app.set_message_input("".into());
 
@@ -504,10 +494,12 @@ async fn connect_relay_worker(
     app_weak: slint::Weak<AppWindow>,
     incoming_files: Arc<tokio::sync::Mutex<HashMap<String, IncomingFileState>>>,
     active_sender: Arc<Mutex<Option<mpsc::UnboundedSender<String>>>>,
+    transition_to_screen_3_on_connect: bool,
 ) {
+    info!("Connecting WebSocket to: {}", relay_ws_url);
     match connect_async(&relay_ws_url).await {
-        Ok((ws_stream, _)) => {
-            info!("Successfully connected to Edge Relay at {}", relay_ws_url);
+        Ok((ws_stream, response)) => {
+            info!("✅ Successfully connected to Edge Relay! HTTP Status: {}", response.status());
             let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
             // Create outbound channel for this connection
@@ -516,11 +508,34 @@ async fn connect_relay_worker(
                 *guard = Some(tx);
             }
 
+            // Transition UI to Screen 3 if client joined
+            if transition_to_screen_3_on_connect {
+                let w = app_weak.clone();
+                let s_id = short_session_id.clone();
+                let p_name = peer_default_name;
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(app) = w.upgrade() {
+                        app.set_screen_index(3);
+                        app.set_peer_name(p_name.into());
+                        app.set_derp_info("tailcat.dev (Active Mesh)".into());
+                        app.set_edge_relay_info("Cloudflare Workers (DO)".into());
+                        let display_sess = if s_id.len() >= 12 {
+                            format!("{}...", &s_id[..12])
+                        } else {
+                            s_id.clone()
+                        };
+                        app.set_session_info(display_sess.into());
+                        app.set_status_text(format!("Connected to {}!", p_name).into());
+                    }
+                });
+            }
+
             // Sender task
             tokio::spawn(async move {
                 while let Some(msg) = rx.recv().await {
+                    info!("🚀 [WS Send] Transmitting payload: {}", msg);
                     if let Err(e) = ws_sender.send(Message::Text(msg.into())).await {
-                        error!("Failed to send relay ws message: {}", e);
+                        error!("❌ [WS Send Error] Failed to send relay ws message: {}", e);
                         break;
                     }
                 }
@@ -528,14 +543,54 @@ async fn connect_relay_worker(
 
             // Receiver loop
             while let Some(msg_res) = ws_receiver.next().await {
-                if let Ok(Message::Text(text)) = msg_res {
-                    if let Ok(payload) = serde_json::from_str::<RelayPayload>(&text) {
-                        match payload.msg_type.as_str() {
-                            "text" => {
-                                if let Some(incoming_text) = payload.text {
+                match msg_res {
+                    Ok(Message::Text(text)) => {
+                        info!("📥 [WS Recv] Got message: {}", text);
+                        if let Ok(payload) = serde_json::from_str::<RelayPayload>(&text) {
+                            match payload.msg_type.as_str() {
+                                "text" => {
+                                    if let Some(incoming_text) = payload.text {
+                                        let w = app_weak.clone();
+                                        let inc_t = incoming_text.clone();
+                                        let s_id = short_session_id.clone();
+                                        let p_name = peer_default_name;
+                                        let _ = slint::invoke_from_event_loop(move || {
+                                            if let Some(app) = w.upgrade() {
+                                                app.set_screen_index(3);
+                                                app.set_peer_name(p_name.into());
+                                                app.set_derp_info("tailcat.dev (Active Mesh)".into());
+                                                app.set_edge_relay_info("Cloudflare Workers (DO)".into());
+                                                let display_sess = if s_id.len() >= 12 {
+                                                    format!("{}...", &s_id[..12])
+                                                } else {
+                                                    s_id.clone()
+                                                };
+                                                app.set_session_info(display_sess.into());
+                                                let new_log = format!("[{}]: {}\n{}", p_name, inc_t, app.get_received_message_log());
+                                                app.set_received_message_log(new_log.into());
+                                                app.set_last_received_text(inc_t.into());
+                                                app.set_status_text(format!("Received message from {}!", p_name).into());
+                                            }
+                                        });
+                                    }
+                                }
+                                "file_start" => {
+                                    let file_id = payload.file_id.unwrap_or_default();
+                                    let filename = payload.filename.unwrap_or_else(|| "received_file.bin".to_string());
+                                    let total_bytes = payload.total_bytes.unwrap_or(0);
+
+                                    let mut map = incoming_files.lock().await;
+                                    map.insert(file_id.clone(), IncomingFileState {
+                                        filename: filename.clone(),
+                                        total_bytes,
+                                        received_bytes: 0,
+                                        start_time: Instant::now(),
+                                        data: Vec::with_capacity(total_bytes),
+                                    });
+
                                     let w = app_weak.clone();
-                                    let inc_t = incoming_text.clone();
-                                    let s_id = short_session_id.clone();
+                                    let fn_clone = filename.clone();
+                                    let s_id_f = short_session_id.clone();
                                     let p_name = peer_default_name;
                                     let _ = slint::invoke_from_event_loop(move || {
                                         if let Some(app) = w.upgrade() {
@@ -543,132 +598,110 @@ async fn connect_relay_worker(
                                             app.set_peer_name(p_name.into());
                                             app.set_derp_info("tailcat.dev (Active Mesh)".into());
                                             app.set_edge_relay_info("Cloudflare Workers (DO)".into());
-                                            let display_sess = if s_id.len() >= 12 {
-                                                format!("{}...", &s_id[..12])
+                                            let display_sess = if s_id_f.len() >= 12 {
+                                                format!("{}...", &s_id_f[..12])
                                             } else {
-                                                s_id.clone()
+                                                s_id_f.clone()
                                             };
                                             app.set_session_info(display_sess.into());
-                                            let new_log = format!("[{}]: {}\n{}", p_name, inc_t, app.get_received_message_log());
-                                            app.set_received_message_log(new_log.into());
-                                            app.set_last_received_text(inc_t.into());
-                                            app.set_status_text(format!("Received message from {}!", p_name).into());
+                                            app.set_is_transferring(true);
+                                            app.set_transfer_completed(false);
+                                            app.set_transfer_status(format!("Receiving from {}...", p_name).into());
+                                            app.set_transfer_filename(fn_clone.into());
+                                            let total_mb = total_bytes as f64 / 1048576.0;
+                                            app.set_transfer_bytes_text(format!("0.0 MB / {:.1} MB", total_mb).into());
+                                            app.set_transfer_progress(0.0);
+                                            app.set_transfer_speed("Starting...".into());
                                         }
                                     });
                                 }
-                            }
-                            "file_start" => {
-                                let file_id = payload.file_id.unwrap_or_default();
-                                let filename = payload.filename.unwrap_or_else(|| "received_file.bin".to_string());
-                                let total_bytes = payload.total_bytes.unwrap_or(0);
+                                "file_chunk" => {
+                                    let file_id = payload.file_id.unwrap_or_default();
+                                    if let Some(b64) = payload.data {
+                                        if let Ok(bytes) = BASE64_STANDARD.decode(&b64) {
+                                            let mut map = incoming_files.lock().await;
+                                            if let Some(state) = map.get_mut(&file_id) {
+                                                state.data.extend_from_slice(&bytes);
+                                                state.received_bytes += bytes.len();
 
-                                let mut map = incoming_files.lock().await;
-                                map.insert(file_id.clone(), IncomingFileState {
-                                    filename: filename.clone(),
-                                    total_bytes,
-                                    received_bytes: 0,
-                                    start_time: Instant::now(),
-                                    data: Vec::with_capacity(total_bytes),
-                                });
+                                                let progress = if state.total_bytes > 0 {
+                                                    (state.received_bytes as f32 / state.total_bytes as f32).clamp(0.0, 1.0)
+                                                } else { 0.0 };
 
-                                let w = app_weak.clone();
-                                let fn_clone = filename.clone();
-                                let s_id_f = short_session_id.clone();
-                                let p_name = peer_default_name;
-                                let _ = slint::invoke_from_event_loop(move || {
-                                    if let Some(app) = w.upgrade() {
-                                        app.set_screen_index(3);
-                                        app.set_peer_name(p_name.into());
-                                        app.set_derp_info("tailcat.dev (Active Mesh)".into());
-                                        app.set_edge_relay_info("Cloudflare Workers (DO)".into());
-                                        let display_sess = if s_id_f.len() >= 12 {
-                                            format!("{}...", &s_id_f[..12])
-                                        } else {
-                                            s_id_f.clone()
-                                        };
-                                        app.set_session_info(display_sess.into());
-                                        app.set_is_transferring(true);
-                                        app.set_transfer_completed(false);
-                                        app.set_transfer_status(format!("Receiving from {}...", p_name).into());
-                                        app.set_transfer_filename(fn_clone.into());
-                                        let total_mb = total_bytes as f64 / 1048576.0;
-                                        app.set_transfer_bytes_text(format!("0.0 MB / {:.1} MB", total_mb).into());
-                                        app.set_transfer_progress(0.0);
-                                        app.set_transfer_speed("Starting...".into());
-                                    }
-                                });
-                            }
-                            "file_chunk" => {
-                                let file_id = payload.file_id.unwrap_or_default();
-                                if let Some(b64) = payload.data {
-                                    if let Ok(bytes) = BASE64_STANDARD.decode(&b64) {
-                                        let mut map = incoming_files.lock().await;
-                                        if let Some(state) = map.get_mut(&file_id) {
-                                            state.data.extend_from_slice(&bytes);
-                                            state.received_bytes += bytes.len();
+                                                let elapsed = state.start_time.elapsed().as_secs_f64();
+                                                let speed = if elapsed > 0.0 {
+                                                    format!("{:.1} MB/s", (state.received_bytes as f64 / 1048576.0) / elapsed)
+                                                } else { "".into() };
 
-                                            let progress = if state.total_bytes > 0 {
-                                                (state.received_bytes as f32 / state.total_bytes as f32).clamp(0.0, 1.0)
-                                            } else { 0.0 };
+                                                let bytes_text = format!(
+                                                    "{:.1} MB / {:.1} MB",
+                                                    state.received_bytes as f64 / 1048576.0,
+                                                    state.total_bytes as f64 / 1048576.0
+                                                );
 
-                                            let elapsed = state.start_time.elapsed().as_secs_f64();
-                                            let speed = if elapsed > 0.0 {
-                                                format!("{:.1} MB/s", (state.received_bytes as f64 / 1048576.0) / elapsed)
-                                            } else { "".into() };
-
-                                            let bytes_text = format!(
-                                                "{:.1} MB / {:.1} MB",
-                                                state.received_bytes as f64 / 1048576.0,
-                                                state.total_bytes as f64 / 1048576.0
-                                            );
-
-                                            let w = app_weak.clone();
-                                            let fn_clone = state.filename.clone();
-                                            let _ = slint::invoke_from_event_loop(move || {
-                                                if let Some(app) = w.upgrade() {
-                                                    app.set_is_transferring(true);
-                                                    app.set_transfer_completed(false);
-                                                    app.set_transfer_status("Receiving...".into());
-                                                    app.set_transfer_filename(fn_clone.into());
-                                                    app.set_transfer_bytes_text(bytes_text.into());
-                                                    app.set_transfer_progress(progress);
-                                                    app.set_transfer_speed(speed.into());
-                                                }
-                                            });
+                                                let w = app_weak.clone();
+                                                let fn_clone = state.filename.clone();
+                                                let _ = slint::invoke_from_event_loop(move || {
+                                                    if let Some(app) = w.upgrade() {
+                                                        app.set_is_transferring(true);
+                                                        app.set_transfer_completed(false);
+                                                        app.set_transfer_status("Receiving...".into());
+                                                        app.set_transfer_filename(fn_clone.into());
+                                                        app.set_transfer_bytes_text(bytes_text.into());
+                                                        app.set_transfer_progress(progress);
+                                                        app.set_transfer_speed(speed.into());
+                                                    }
+                                                });
+                                            }
                                         }
                                     }
                                 }
-                            }
-                            "file_complete" => {
-                                let file_id = payload.file_id.unwrap_or_default();
-                                let mut map = incoming_files.lock().await;
-                                if let Some(state) = map.remove(&file_id) {
-                                    let w = app_weak.clone();
-                                    let fn_clone = state.filename.clone();
-                                    let size_mb = state.total_bytes as f64 / 1048576.0;
-                                    let _ = slint::invoke_from_event_loop(move || {
-                                        if let Some(app) = w.upgrade() {
-                                            app.set_is_transferring(false);
-                                            app.set_transfer_completed(true);
-                                            app.set_transfer_progress(1.0);
-                                            app.set_transfer_status("[Completed] Transfer Successful!".into());
-                                            let new_log = format!(
-                                                "[File Received]: {} ({:.1} MB)\n{}",
-                                                fn_clone, size_mb, app.get_received_message_log()
-                                            );
-                                            app.set_received_message_log(new_log.into());
-                                        }
-                                    });
+                                "file_complete" => {
+                                    let file_id = payload.file_id.unwrap_or_default();
+                                    let mut map = incoming_files.lock().await;
+                                    if let Some(state) = map.remove(&file_id) {
+                                        let w = app_weak.clone();
+                                        let fn_clone = state.filename.clone();
+                                        let size_mb = state.total_bytes as f64 / 1048576.0;
+                                        let _ = slint::invoke_from_event_loop(move || {
+                                            if let Some(app) = w.upgrade() {
+                                                app.set_is_transferring(false);
+                                                app.set_transfer_completed(true);
+                                                app.set_transfer_progress(1.0);
+                                                app.set_transfer_status("[Completed] Transfer Successful!".into());
+                                                let new_log = format!(
+                                                    "[File Received]: {} ({:.1} MB)\n{}",
+                                                    fn_clone, size_mb, app.get_received_message_log()
+                                                );
+                                                app.set_received_message_log(new_log.into());
+                                            }
+                                        });
+                                    }
                                 }
+                                _ => {}
                             }
-                            _ => {}
                         }
                     }
+                    Ok(Message::Ping(_)) => {
+                        info!("Received WS Ping");
+                    }
+                    Err(e) => {
+                        error!("WS Receive Error: {}", e);
+                        break;
+                    }
+                    _ => {}
                 }
             }
         }
         Err(e) => {
-            error!("Failed to connect to Edge Relay at {}: {}", relay_ws_url, e);
+            error!("❌ Failed to connect to Edge Relay at {}: {}", relay_ws_url, e);
+            let w = app_weak.clone();
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(app) = w.upgrade() {
+                    app.set_screen_index(1);
+                    app.set_status_text("Failed to connect to host. Please try again.".into());
+                }
+            });
         }
     }
 }
