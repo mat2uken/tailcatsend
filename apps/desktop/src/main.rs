@@ -61,7 +61,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting TailSend Desktop Native Application (Pure Tailcat P2P)...");
     println!("\n🚀 TailSend Desktop Native App is starting (Pure Tailcat WireGuard/DERP Mesh)...");
 
-    let base_url = "https://tailcat.dev".to_string();
+    let args: Vec<String> = std::env::args().collect();
+    let base_url = if args.len() > 1 {
+        args[1].clone()
+    } else {
+        "https://tailsend-poc.mat2uken.workers.dev".to_string()
+    };
 
     let app = AppWindow::new()?;
     let app_weak = app.as_weak();
