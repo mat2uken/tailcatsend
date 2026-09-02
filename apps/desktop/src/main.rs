@@ -36,6 +36,8 @@ struct RelayPayload {
     msg_type: String,
     channel: Option<u16>,
     text: Option<String>,
+    #[serde(rename = "peerName")]
+    peer_name: Option<String>,
     #[serde(rename = "fileId")]
     file_id: Option<String>,
     filename: Option<String>,
@@ -235,16 +237,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 println!("📥 [Desktop WS Recv] Got message: {}", text);
                                 if let Ok(payload) = serde_json::from_str::<RelayPayload>(&text) {
                                     match payload.msg_type.as_str() {
+                                         "peer_joined" | "peer_welcome" => {
+                                            let p_name = payload.peer_name.unwrap_or_else(|| "iPhone Air".to_string());
+                                            info!("🤝 [Handshake] Peer Joined / Welcome: {}", p_name);
+                                            println!("🤝 [Handshake] Peer Connected: {}", p_name);
+                                            let w = app_weak_relay.clone();
+                                            let s_id = short_sess_for_relay.clone();
+                                            let p_name_clone = p_name.clone();
+                                            let _ = slint::invoke_from_event_loop(move || {
+                                                if let Some(app) = w.upgrade() {
+                                                    app.set_screen_index(3);
+                                                    app.set_peer_name(p_name_clone.into());
+                                                    app.set_derp_info("tailcat.dev (Active Mesh)".into());
+                                                    app.set_edge_relay_info("Cloudflare Workers (DO)".into());
+                                                    let display_sess = if s_id.len() >= 12 {
+                                                        format!("{}...", &s_id[..12])
+                                                    } else {
+                                                        s_id.clone()
+                                                    };
+                                                    app.set_session_info(display_sess.into());
+                                                    app.set_status_text(format!("Connected to {}!", p_name).into());
+                                                }
+                                            });
+                                        }
                                          "text" => {
                                             if let Some(incoming_text) = payload.text {
                                                 info!("✉️ [Desktop] Received text from Peer: {}", incoming_text);
+                                                println!("✉️ [Desktop] Received text: {}", incoming_text);
                                                 let w = app_weak_relay.clone();
                                                 let inc_t = incoming_text.clone();
                                                 let s_id = short_sess_for_relay.clone();
                                                 let _ = slint::invoke_from_event_loop(move || {
                                                     if let Some(app) = w.upgrade() {
                                                         app.set_screen_index(3);
-                                                        app.set_peer_name("iPhone / Peer Device".into());
+                                                        app.set_peer_name("iPhone Air".into());
                                                         app.set_derp_info("tailcat.dev (Active Mesh)".into());
                                                         app.set_edge_relay_info("Cloudflare Workers (DO)".into());
                                                         let display_sess = if s_id.len() >= 12 {
