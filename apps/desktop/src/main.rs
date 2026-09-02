@@ -199,6 +199,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Listen for incoming Tailcat events from Daemon stdout
     let app_weak_daemon = app_weak.clone();
+    let target_peer_addr_daemon = target_peer_addr.clone();
     tokio::spawn(async move {
         while let Ok(Some(line)) = reader.next_line().await {
             info!("[tailcat-event] {}", line);
@@ -207,10 +208,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "incoming_stream" => {
                         let w = app_weak_daemon.clone();
                         let port = ev.port.unwrap_or(0);
+                        if let Some(ref addr) = ev.address {
+                            if let Ok(mut guard) = target_peer_addr_daemon.lock() {
+                                *guard = Some(addr.clone());
+                            }
+                        }
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(app) = w.upgrade() {
                                 app.set_screen_index(3);
-                                app.set_peer_name("Connected iPhone".into());
+                                app.set_peer_name("Connected Peer (WireGuard P2P)".into());
                                 app.set_status_text(format!("Direct P2P Stream Active (Port {})", port).into());
                             }
                         });
@@ -218,13 +224,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "incoming_text" => {
                         if let Some(text) = ev.text {
                             println!("✉️ [P2P Direct Text Received]: {}", text);
+                            if let Some(idx) = text.find("JOIN:") {
+                                let peer_addr = text[idx + 5..].split_whitespace().next().unwrap_or("").trim();
+                                if !peer_addr.is_empty() {
+                                    if let Ok(mut guard) = target_peer_addr_daemon.lock() {
+                                        *guard = Some(peer_addr.to_string());
+                                        info!("🔗 Automatically paired with remote peer: {}", peer_addr);
+                                    }
+                                }
+                            } else if let Some(ref addr) = ev.address {
+                                if let Ok(mut guard) = target_peer_addr_daemon.lock() {
+                                    *guard = Some(addr.clone());
+                                }
+                            }
                             let w = app_weak_daemon.clone();
                             let t = text.clone();
                             let _ = slint::invoke_from_event_loop(move || {
                                 if let Some(app) = w.upgrade() {
                                     app.set_screen_index(3);
-                                    app.set_peer_name("Connected iPhone".into());
-                                    let new_log = format!("[iPhone]: {}\n{}", t, app.get_received_message_log());
+                                    app.set_peer_name("Connected Peer (WireGuard P2P)".into());
+                                    let new_log = format!("[Peer]: {}\n{}", t, app.get_received_message_log());
                                     app.set_received_message_log(new_log.into());
                                     app.set_last_received_text(t.into());
                                     app.set_status_text("Received text message via Tailcat P2P!".into());
@@ -239,7 +258,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(app) = w.upgrade() {
                                 app.set_screen_index(3);
-                                app.set_peer_name("Connected iPhone".into());
+                                app.set_peer_name("Connected Peer (WireGuard P2P)".into());
                                 app.set_is_transferring(true);
                                 app.set_transfer_completed(false);
                                 app.set_transfer_filename(fname.clone().into());
@@ -250,8 +269,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                                 app.set_transfer_speed("Connecting...".into());
                                 app.set_transfer_progress(0.05);
-                                app.set_transfer_status("Receiving file from iPhone...".into());
-                                app.set_status_text(format!("Receiving {} from iPhone...", fname).into());
+                                app.set_transfer_status("Receiving file from Peer...".into());
+                                app.set_status_text(format!("Receiving {} from Peer...", fname).into());
                             }
                         });
                     }
@@ -279,7 +298,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 app.set_transfer_bytes_text(bytes_text.into());
                                 app.set_transfer_speed(speed.into());
                                 app.set_transfer_progress(progress as f32);
-                                app.set_transfer_status("Receiving from iPhone...".into());
+                                app.set_transfer_status("Receiving from Peer...".into());
                             }
                         });
                     }
@@ -470,11 +489,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Share / Open Downloads Folder
     app.on_share_received_text(move || {
         let download_dir = get_download_dir();
+        #[cfg(target_os = "windows")]
+        let _ = std::process::Command::new("explorer").arg(&download_dir).spawn();
         #[cfg(target_os = "macos")]
         let _ = std::process::Command::new("open").arg(&download_dir).spawn();
+        #[cfg(target_os = "linux")]
+        let _ = std::process::Command::new("xdg-open").arg(&download_dir).spawn();
     });
 
     // Save Text as File

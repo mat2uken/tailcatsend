@@ -25,7 +25,7 @@ tailsend-qr = { path = "crates/tailsend-qr" }
 tailsend-ui-controller = { path = "crates/tailsend-ui-controller" }
 
 # Slint
-slint = { version = "1.17.1" }
+slint = { version = "1.17.1", default-features = false }
 
 # Async & Serialization
 ciborium = "0.2"
@@ -71,3 +71,5 @@ web-sys = { version = "0.3", features = [
 # QR code
 qrcode = { version = "0.14", default-features = false }
 image = { version = "0.25", default-features = false, features = ["png"] }
+[profile.release]
+opt-level = 0
