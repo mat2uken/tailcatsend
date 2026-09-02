@@ -51,7 +51,7 @@ struct DaemonCommand {
 }
 
 fn get_download_dir() -> PathBuf {
-    if let Ok(home) = std::env::var("HOME") {
+    if let Ok(home) = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
         PathBuf::from(home).join("Downloads").join("TailSend")
     } else {
         PathBuf::from("TailSend_Downloads")
@@ -76,11 +76,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Store target peer Tailcat address for outgoing P2P transfers
     let target_peer_addr: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
-    let target_peer_addr_clone = target_peer_addr.clone();
+    let _target_peer_addr_clone = target_peer_addr.clone();
 
     // IPC channel to communicate with Tailcat daemon
     let (ipc_tx, mut ipc_rx) = mpsc::unbounded_channel::<DaemonCommand>();
-    let ipc_tx_clone = ipc_tx.clone();
+    let _ipc_tx_clone = ipc_tx.clone();
 
     // Find and spawn native Tailcat daemon
     let daemon_bin_name = if cfg!(windows) {
