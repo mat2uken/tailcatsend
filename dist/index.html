@@ -330,6 +330,9 @@
             if (!targetHostAddr || !window.tailcatDial) return;
             try {
                 console.log("[TailSend Web] Connecting initial P2P handshake to Host...");
+                if (window.updateSlintStatusText) {
+                    window.updateSlintStatusText("Connecting to macOS Host via WireGuard P2P...");
+                }
                 const conn = await window.tailcatDial({
                     addr: targetHostAddr,
                     port: 101,
@@ -340,8 +343,14 @@
                 await conn.closeWrite();
                 conn.close();
                 console.log("✅ [TailSend Web] Direct P2P Handshake successfully delivered to Mac!");
+                if (window.updateSlintStatusText) {
+                    window.updateSlintStatusText("Connected to macOS Host via Pure Tailcat P2P!");
+                }
             } catch (err) {
                 console.warn("[TailSend Web] Handshake notice:", err);
+                if (window.updateSlintStatusText) {
+                    window.updateSlintStatusText("Ready (WireGuard P2P)");
+                }
             }
         }
 
@@ -353,6 +362,12 @@
             }
             console.log("[TailSend Web] Sending text via Tailcat P2P (Port 101):", text);
             updateHUD(true, "Sending via Tailcat P2P...", "memo.txt", "", 0.5, "Direct P2P");
+            if (window.updateSlintTransferState) {
+                window.updateSlintTransferState(true, false, "Sending via Tailcat P2P...", "memo.txt", "", 0.5, "WireGuard P2P");
+            }
+            if (window.updateSlintStatusText) {
+                window.updateSlintStatusText("Sending message to macOS...");
+            }
 
             try {
                 const conn = await window.tailcatDial({
@@ -366,10 +381,22 @@
                 conn.close();
                 console.log("✅ [TailSend Web] Text delivered directly to Mac via Tailcat P2P!");
                 updateHUD(false, "Delivered!", "memo.txt", "", 1.0, "Saved", true);
+                if (window.updateSlintTransferState) {
+                    window.updateSlintTransferState(false, true, "[Completed] Delivered to macOS!", "memo.txt", "", 1.0, "Saved");
+                }
+                if (window.updateSlintStatusText) {
+                    window.updateSlintStatusText("Message delivered to macOS via Tailcat P2P!");
+                }
             } catch (err) {
                 console.error("[TailSend Web] Failed to dial host:", err);
                 alert("Tailcat P2P Dial Error: " + (err.message || err));
                 updateHUD(false, "Failed", "memo.txt", "", 0, "Error");
+                if (window.updateSlintTransferState) {
+                    window.updateSlintTransferState(false, false, "Failed to deliver message", "memo.txt", "", 0, "Error");
+                }
+                if (window.updateSlintStatusText) {
+                    window.updateSlintStatusText("Dial Error: " + (err.message || err));
+                }
             }
         };
 
