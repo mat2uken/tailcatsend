@@ -15,7 +15,7 @@ tailsend-core = { workspace = true }
 tailsend-qr = { workspace = true }
 tailsend-ui-controller = { workspace = true }
 
-slint = { workspace = true, features = ["backend-winit", "renderer-skia", "renderer-femtovg"] }
+slint = { workspace = true, features = ["backend-winit", "renderer-femtovg", "compat-1-2"] }
 
 tokio = { workspace = true }
 futures = { workspace = true }
