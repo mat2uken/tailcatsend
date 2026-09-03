@@ -1,0 +1,274 @@
+name: Release Builds (Multi-Platform)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: 'Create a GitHub Release draft'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  # ============================================================================
+  # 1. Windows x86_64
+  # ============================================================================
+  build-windows:
+    name: Windows (x86_64)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: tailcat/go.sum
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build Go Tailcat Daemon
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path target/release | Out-Null
+          cd tailcat
+          go build -trimpath -ldflags="-s -w" -o ../target/release/tailcat_daemon.exe ./bridge/native/daemon.go
+          cd ..
+
+      - name: Build Rust Desktop Application
+        shell: pwsh
+        run: |
+          cargo build -p tailsend-desktop --release
+
+      - name: Package Windows Release
+        shell: pwsh
+        run: |
+          $dir = "tailsend-windows-x86_64"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Copy-Item "target/release/tailsend.exe" "$dir/"
+          Copy-Item "target/release/tailcat_daemon.exe" "$dir/"
+          Compress-Archive -Path "$dir/*" -DestinationPath "tailsend-windows-x86_64.zip" -Force
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tailsend-windows-x86_64
+          path: tailsend-windows-x86_64.zip
+          retention-days: 14
+
+  # ============================================================================
+  # 2. macOS Universal (Apple Silicon arm64 + Intel x86_64)
+  # ============================================================================
+  build-macos:
+    name: macOS (Universal Binary)
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: tailcat/go.sum
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build Universal Go Tailcat Daemon
+        run: |
+          cd tailcat
+          GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o ../tailcat_daemon_arm64 ./bridge/native/daemon.go
+          GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o ../tailcat_daemon_x86_64 ./bridge/native/daemon.go
+          cd ..
+          mkdir -p target/release
+          lipo -create -output target/release/tailcat_daemon tailcat_daemon_arm64 tailcat_daemon_x86_64
+          chmod +x target/release/tailcat_daemon
+
+      - name: Build Universal Rust Desktop Application
+        run: |
+          cargo build -p tailsend-desktop --release --target aarch64-apple-darwin
+          cargo build -p tailsend-desktop --release --target x86_64-apple-darwin
+          lipo -create -output target/release/tailsend target/aarch64-apple-darwin/release/tailsend target/x86_64-apple-darwin/release/tailsend
+          chmod +x target/release/tailsend
+
+      - name: Package macOS Release
+        run: |
+          mkdir -p tailsend-macos-universal
+          cp target/release/tailsend tailsend-macos-universal/
+          cp target/release/tailcat_daemon tailsend-macos-universal/
+          tar -czvf tailsend-macos-universal.tar.gz -C tailsend-macos-universal .
+          zip -r tailsend-macos-universal.zip tailsend-macos-universal/
+
+      - name: Upload macOS Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tailsend-macos-universal
+          path: |
+            tailsend-macos-universal.tar.gz
+            tailsend-macos-universal.zip
+          retention-days: 14
+
+  # ============================================================================
+  # 3. Android APK (arm64-v8a)
+  # ============================================================================
+  build-android:
+    name: Android (arm64 APK)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: tailcat/go.sum
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Install cargo-apk
+        run: cargo install cargo-apk --locked
+
+      - name: Build Go Tailcat Android Shared Library
+        run: |
+          export CC=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android33-clang
+          export CXX=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android33-clang++
+          mkdir -p target target/aarch64-linux-android/release
+          (cd tailcat/bridge/native && CGO_ENABLED=1 GOOS=android GOARCH=arm64 go build -buildmode=c-shared -o ../../../target/libtailcat_android.so bridge.go)
+          cp target/libtailcat_android.so target/aarch64-linux-android/release/libtailcat_android.so
+
+      - name: Build Android APK
+        run: |
+          cargo apk build -p tailsend-android --target aarch64-linux-android --release
+
+      - name: Package Android Artifact
+        run: |
+          find target -name "*.apk" -exec cp {} ./tailsend-android-arm64.apk \;
+
+      - name: Upload Android Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tailsend-android-arm64
+          path: tailsend-android-arm64.apk
+          retention-days: 14
+
+  # ============================================================================
+  # 4. iOS App / Package (arm64)
+  # ============================================================================
+  build-ios:
+    name: iOS (arm64 App & xcframework)
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: tailcat/go.sum
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios, aarch64-apple-ios-sim
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Build Go Tailcat iOS Archives
+        run: |
+          (cd tailcat && CGO_ENABLED=1 CC="$(xcrun --sdk iphoneos --find clang) -isysroot $(xcrun --sdk iphoneos --show-sdk-path) -arch arm64 -miphoneos-version-min=17.0" GOOS=ios GOARCH=arm64 go build -buildmode=c-archive -o ../libtailcat_ios.a bridge/native/bridge.go)
+          (cd tailcat && CGO_ENABLED=1 CC="$(xcrun --sdk iphonesimulator --find clang) -isysroot $(xcrun --sdk iphonesimulator --show-sdk-path) -arch arm64 -miphoneos-version-min=17.0" GOOS=ios GOARCH=arm64 go build -buildmode=c-archive -o ../libtailcat_ios_sim.a bridge/native/bridge.go)
+
+      - name: Build Rust iOS Static Library
+        run: |
+          cargo build -p tailsend-ios --target aarch64-apple-ios --release
+          cargo build -p tailsend-ios --target aarch64-apple-ios-sim --release
+
+      - name: Generate Xcode Project & Build iOS App
+        run: |
+          cd apps/ios
+          xcodegen generate
+          xcodebuild -project TailSend.xcodeproj -scheme TailSend -destination "generic/platform=iOS" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO -configuration Release clean build
+          cd ../..
+
+      - name: Package iOS Release
+        run: |
+          mkdir -p tailsend-ios-arm64
+          cp -R apps/ios/build/Release-iphoneos/TailSend.app tailsend-ios-arm64/ 2>/dev/null || \
+          find apps/ios -name "TailSend.app" -type d -exec cp -R {} tailsend-ios-arm64/ \; || true
+          cp libtailcat_ios.a tailsend-ios-arm64/
+          cp target/aarch64-apple-ios/release/libtailsend_ios.a tailsend-ios-arm64/
+          zip -r tailsend-ios-arm64.zip tailsend-ios-arm64/
+
+      - name: Upload iOS Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tailsend-ios-arm64
+          path: tailsend-ios-arm64.zip
+          retention-days: 14
+
+  # ============================================================================
+  # 5. Create GitHub Release (on tag or manual trigger)
+  # ============================================================================
+  create-release:
+    name: Publish GitHub Release
+    needs: [build-windows, build-macos, build-android, build-ios]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.create_release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare Release Assets
+        run: |
+          mkdir -p release-assets
+          find artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" -o -name "*.apk" \) -exec cp {} release-assets/ \;
+          ls -la release-assets/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
