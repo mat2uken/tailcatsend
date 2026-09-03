@@ -65,10 +65,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n🚀 TailSend Desktop Native App is starting (Pure Tailcat WireGuard/DERP Mesh)...");
 
     let args: Vec<String> = std::env::args().collect();
-    let base_url = if args.len() > 1 {
-        args[1].clone()
+    let base_url = if args.len() > 1 && !args[1].trim().is_empty() {
+        args[1].trim().to_string()
     } else {
-        std::env::var("TAILSEND_WEB_URL").unwrap_or_else(|_| "https://tailsend.pages.dev".to_string())
+        std::env::var("TAILSEND_WEB_URL").unwrap_or_else(|_| "https://mktailcatsend.pages.dev".to_string())
     };
 
     let app = AppWindow::new()?;

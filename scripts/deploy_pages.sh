@@ -13,10 +13,10 @@ if [ ! -f "dist/index.html" ]; then
     exit 1
 fi
 
-echo "Deploying dist/ directory to project 'tailsend'..."
-npx wrangler pages deploy dist --project-name tailsend --commit-dirty=true
+echo "Deploying dist/ directory to project 'mktailcatsend'..."
+npx wrangler pages deploy dist --project-name mktailcatsend --commit-dirty=true
 
 echo ""
 echo "✅ Cloudflare Pages Deployment Complete!"
-echo "Live URL: https://tailsend.pages.dev"
+echo "Live URL: https://mktailcatsend.pages.dev"
 echo "========================================================"
