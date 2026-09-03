@@ -21,4 +21,4 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: [REDACTED_ACCOUNT_ID]
-          command: pages deploy dist --project-name=tailsend --commit-dirty=true
+          command: pages deploy dist --project-name=mktailcatsend --commit-dirty=true
