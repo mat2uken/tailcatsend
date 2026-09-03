@@ -48,5 +48,5 @@ echo "  ✅ Build Complete! Launching TailSend on macOS...    "
 echo "========================================================"
 echo ""
 
-# Run the app
-./target/release/tailsend "https://tailsend-poc.mat2uken.workers.dev"
+# Run the app (uses https://mktailcatsend.pages.dev by default)
+./target/release/tailsend ${1:-}
