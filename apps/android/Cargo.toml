@@ -38,7 +38,7 @@ tailsend-qr = { workspace = true }
 tailsend-ui-controller = { workspace = true }
 ciborium = { workspace = true }
 
-slint = { workspace = true, features = ["backend-android-activity-06", "renderer-femtovg"] }
+slint = { workspace = true, features = ["backend-android-activity-06", "renderer-femtovg", "compat-1-2"] }
 android-activity = { version = "0.6", features = ["native-activity"] }
 
 tokio = { version = "1.43", features = ["rt-multi-thread", "sync", "time", "macros", "io-util", "fs"] }

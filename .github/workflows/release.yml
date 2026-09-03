@@ -154,10 +154,18 @@ jobs:
         with:
           ndk-version: r26d
 
+      - name: Setup Android SDK Platforms
+        run: |
+          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-30" "platforms;android-34" "build-tools;34.0.0"
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
 
       - name: Install cargo-apk
         run: cargo install cargo-apk --locked
@@ -171,8 +179,10 @@ jobs:
           cp target/libtailcat_android.so target/aarch64-linux-android/release/libtailcat_android.so
 
       - name: Build Android APK
+        env:
+          NDK_HOME: ${{ env.ANDROID_NDK_ROOT }}
         run: |
-          cargo apk build -p tailsend-android --target aarch64-linux-android --release
+          cargo apk build -p tailsend-android --target aarch64-linux-android --lib --release
 
       - name: Package Android Artifact
         run: |
@@ -205,6 +215,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios, aarch64-apple-ios-sim
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
 
       - name: Install XcodeGen
         run: brew install xcodegen
