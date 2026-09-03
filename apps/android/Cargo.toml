@@ -16,9 +16,9 @@ target_sdk_version = 34
 
 [package.metadata.android.signing.release]
 path = "release.keystore"
-keystore_pass = "android"
-key_pass = "android"
+keystore_password = "android"
 key_alias = "android"
+key_password = "android"
 
 [package.metadata.android.application]
 has_code = false
