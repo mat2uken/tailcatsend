@@ -1,6 +1,7 @@
 name: TailSend
 options:
   bundleIdPrefix: dev.tailsend
+  xcodeVersion: "15.4"
   deploymentTarget:
     iOS: "17.0"
 targets:

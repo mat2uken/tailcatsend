@@ -181,6 +181,7 @@ jobs:
       - name: Generate Release Keystore
         run: |
           keytool -genkey -v -keystore apps/android/release.keystore -alias android -keyalg RSA -keysize 2048 -validity 10000 -storepass android -keypass android -dname "CN=TailSend, OU=Dev, O=Tailcat, L=Tokyo, C=JP"
+          cp apps/android/release.keystore ./release.keystore
 
       - name: Build Android APK
         env:
