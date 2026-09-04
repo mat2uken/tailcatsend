@@ -207,7 +207,7 @@ async function main() {
         server = await startStaticServer();
         await testWasmIntegrity();
 
-        const sampleInviteUrl = `http://127.0.0.1:${PORT}/index.html#i=p2ExAWEyAWEzeGp0Y28yRndXQ0JwaXNvSDVsSG5JUWdVelVyUno0b0R3RUZsS2NqcmZqQ1M2V3A2eWhaV1gyRnJXQ0NJalZ1MnRyZTJjQnEyc0pvLW5MQ2dGY2FJWVBRS3o2SnlBUDRQa0l1aFRtRnBHUUV3YTRQmKeA0Cw8g_rCtdbWgNCV4mE1WCDu4Zw0sz-3fhdKeBjZmopiH3vZ3poLJYbBueOcfOSPV2E2GmqXlgdhNxpql5hf`;
+        const sampleInviteUrl = process.argv[2] || `http://127.0.0.1:${PORT}/index.html#i=p2ExAWEyAWEzeGp0Y28yRndXQ0JwaXNvSDVsSG5JUWdVelVyUno0b0R3RUZsS2NqcmZqQ1M2V3A2eWhaV1gyRnJXQ0NJalZ1MnRyZTJjQnEyc0pvLW5MQ2dGY2FJWVBRS3o2SnlBUDRQa0l1aFRtRnBHUUV3YTRQmKeA0Cw8g_rCtdbWgNCV4mE1WCDu4Zw0sz-3fhdKeBjZmopiH3vZ3poLJYbBueOcfOSPV2E2GmqXlgdhNxpql5hf`;
         await testHeadlessChromeWithInvite(sampleInviteUrl);
 
         console.log("\n========================================================");
