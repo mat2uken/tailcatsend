@@ -64,10 +64,60 @@ pub fn run_app() -> Result<(), JsValue> {
         }
     } else {
         app.set_screen_index(1);
-        app.set_status_text("Scan QR Code to Connect (Pure Tailcat P2P)".into());
+        app.set_status_text("Starting Tailcat WireGuard Mesh (Tokyo Region 304)...".into());
         app.set_expires_secs(600);
         app.set_can_disconnect(false);
     }
+
+    // Callback when local browser Tailcat listener is ready with its WireGuard address
+    let app_weak_addr = app.as_weak();
+    let on_host_addr = Closure::wrap(Box::new(move |host_address: String| {
+        if let Some(app) = app_weak_addr.upgrade() {
+            let mut session_id = [0u8; 16];
+            let _ = getrandom::getrandom(&mut session_id);
+            let mut invite_secret = [0u8; 32];
+            let _ = getrandom::getrandom(&mut invite_secret);
+            let now = (js_sys::Date::now() / 1000.0) as u64;
+
+            let invitation = InvitationV1::new(host_address, session_id, invite_secret, now, 600);
+            let base_url = "https://mktailcatsend.pages.dev".to_string();
+            let invite_url = invitation.to_qr_url(&base_url).unwrap_or_default();
+            let session_token = invitation.to_base64url().unwrap_or_default();
+
+            if let Ok(qr) = tailsend_qr::generate_qr_rgba(&invite_url, 236) {
+                let pixel_buffer = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+                    &qr.rgba_pixels,
+                    qr.width,
+                    qr.height,
+                );
+                app.set_qr_code_image(slint::Image::from_rgba8(pixel_buffer));
+                app.set_has_qr_image(true);
+                app.set_invite_url(invite_url.into());
+                let short_tok = if session_token.len() >= 12 { format!("{}...", &session_token[..12]) } else { session_token };
+                app.set_session_info(short_tok.into());
+                app.set_screen_index(1);
+                app.set_status_text("Scan QR Code to Connect (Pure Tailcat P2P)".into());
+            }
+        }
+    }) as Box<dyn FnMut(String)>);
+    let _ = js_sys::Reflect::set(&window, &JsValue::from_str("onTailcatHostAddressReady"), on_host_addr.as_ref().unchecked_ref());
+    on_host_addr.forget();
+
+    // Callback when remote peer connects via WireGuard
+    let app_weak_peer = app.as_weak();
+    let on_peer_connected = Closure::wrap(Box::new(move |peer_name: String| {
+        if let Some(app) = app_weak_peer.upgrade() {
+            app.set_screen_index(3); // Screen 3: Connected Home
+            app.set_peer_name(peer_name.into());
+            app.set_derp_info("tailcat.dev (WireGuard P2P)".into());
+            app.set_edge_relay_info("Pure Tailcat Mesh (No Relay)".into());
+            app.set_status_text("Connected via Pure Tailcat WireGuard P2P!".into());
+            app.set_can_disconnect(true);
+            app.set_can_send(true);
+        }
+    }) as Box<dyn FnMut(String)>);
+    let _ = js_sys::Reflect::set(&window, &JsValue::from_str("onPeerConnectedSlint"), on_peer_connected.as_ref().unchecked_ref());
+    on_peer_connected.forget();
 
     // Set up JS bridge callbacks for UI updates from incoming streams
     let app_weak_msg = app.as_weak();
@@ -179,6 +229,107 @@ pub fn run_app() -> Result<(), JsValue> {
         if let Some(_) = app_weak_file.upgrade() {
             trigger_file_picker();
         }
+    });
+
+    let app_weak_copy_inv = app.as_weak();
+    app.on_copy_invite(move || {
+        if let Some(app) = app_weak_copy_inv.upgrade() {
+            let url = app.get_invite_url();
+            trigger_copy_text(&url);
+            app.set_status_text("Invite link copied to clipboard!".into());
+        }
+    });
+
+    let app_weak_regen = app.as_weak();
+    app.on_regenerate_invite(move || {
+        if let Some(app) = app_weak_regen.upgrade() {
+            let window = web_sys::window().unwrap();
+            if let Ok(addr_val) = js_sys::Reflect::get(&window, &JsValue::from_str("hostTailcatAddress")) {
+                if let Some(host_address) = addr_val.as_string() {
+                    if !host_address.is_empty() {
+                        let mut session_id = [0u8; 16];
+                        let _ = getrandom::getrandom(&mut session_id);
+                        let mut invite_secret = [0u8; 32];
+                        let _ = getrandom::getrandom(&mut invite_secret);
+                        let now = (js_sys::Date::now() / 1000.0) as u64;
+
+                        let invitation = InvitationV1::new(host_address, session_id, invite_secret, now, 600);
+                        let base_url = "https://mktailcatsend.pages.dev".to_string();
+                        let invite_url = invitation.to_qr_url(&base_url).unwrap_or_default();
+                        let session_token = invitation.to_base64url().unwrap_or_default();
+
+                        if let Ok(qr) = tailsend_qr::generate_qr_rgba(&invite_url, 236) {
+                            let pixel_buffer = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
+                                &qr.rgba_pixels,
+                                qr.width,
+                                qr.height,
+                            );
+                            app.set_qr_code_image(slint::Image::from_rgba8(pixel_buffer));
+                            app.set_has_qr_image(true);
+                            app.set_invite_url(invite_url.into());
+                            let short_tok = if session_token.len() >= 12 { format!("{}...", &session_token[..12]) } else { session_token };
+                            app.set_session_info(short_tok.into());
+                            app.set_status_text("New QR Code generated! Scan to connect.".into());
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let app_weak_join = app.as_weak();
+    app.on_join_session(move |input_text| {
+        let text = input_text.to_string();
+        if !text.is_empty() {
+            let now = (js_sys::Date::now() / 1000.0) as u64;
+            let url_to_parse = if text.starts_with("http") {
+                text.clone()
+            } else if text.starts_with("#i=") {
+                format!("https://mktailcatsend.pages.dev/{}", text)
+            } else if text.starts_with("i=") {
+                format!("https://mktailcatsend.pages.dev/#{}", text)
+            } else {
+                format!("https://mktailcatsend.pages.dev/#i={}", text)
+            };
+
+            match InvitationV1::from_url(&url_to_parse, now) {
+                Ok(inv) => {
+                    let window = web_sys::window().unwrap();
+                    let _ = js_sys::Reflect::set(
+                        &window,
+                        &JsValue::from_str("hostTailcatAddress"),
+                        &JsValue::from_str(&inv.host_address),
+                    );
+
+                    let token_str = inv.to_base64url().unwrap_or_default();
+                    let short_tok = if token_str.len() >= 12 { format!("{}...", &token_str[..12]) } else { token_str };
+
+                    if let Some(app) = app_weak_join.upgrade() {
+                        app.set_screen_index(3);
+                        app.set_peer_name("Peer Host (P2P)".into());
+                        app.set_session_info(short_tok.into());
+                        app.set_status_text("Connecting to Peer via WireGuard P2P...".into());
+                        app.set_can_disconnect(true);
+                        app.set_can_send(true);
+                    }
+
+                    if let Ok(func) = js_sys::Reflect::get(&window, &JsValue::from_str("connectToPeerFromInput")) {
+                        if let Some(f) = func.dyn_ref::<js_sys::Function>() {
+                            let _ = f.call1(&JsValue::NULL, &JsValue::from_str(&inv.host_address));
+                        }
+                    }
+                }
+                Err(e) => {
+                    if let Some(app) = app_weak_join.upgrade() {
+                        app.set_status_text(format!("Invalid invite code: {}", e).into());
+                    }
+                }
+            }
+        }
+    });
+
+    app.on_paste_and_join(move || {
+        trigger_paste_and_send();
     });
 
     let app_weak_disc = app.as_weak();

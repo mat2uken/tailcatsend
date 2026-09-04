@@ -372,6 +372,167 @@
             }
         }
 
+        // Host Mode: Start Tailcat WireGuard Listener and notify Slint to render QR Code
+        async function startHostListenerAndGenerateQR() {
+            try {
+                console.log("[TailSend Web] Host Mode: Starting Tailcat WireGuard listener...");
+                if (window.updateSlintStatusText) {
+                    window.updateSlintStatusText("Starting Tailcat WireGuard Mesh (Tokyo Region 304)...");
+                }
+                const listener = await window.tailcatListen({
+                    derpMapURL: "https://tailcat.dev/derpmap.json",
+                    onConnection: (conn) => {
+                        console.log("⚡ [TailSend Web] Incoming WireGuard P2P connection from peer!", conn);
+                        handleIncomingP2PConnection(conn);
+                    }
+                });
+
+                console.log("⚡ [TailSend Web] Tailcat host address acquired:", listener.address);
+                window.hostTailcatAddress = listener.address;
+
+                if (window.onTailcatHostAddressReady) {
+                    window.onTailcatHostAddressReady(listener.address);
+                }
+            } catch (err) {
+                console.error("[TailSend Web] Failed to start Tailcat listener:", err);
+                if (window.updateSlintStatusText) {
+                    window.updateSlintStatusText("Listener Error: " + (err.message || err));
+                }
+            }
+        }
+
+        // Handle incoming connection when acting as Host
+        async function handleIncomingP2PConnection(conn) {
+            try {
+                if (conn.port === 101) {
+                    let text = "";
+                    const decoder = new TextDecoder();
+                    while (true) {
+                        const chunk = await conn.read();
+                        if (!chunk || chunk.length === 0) break;
+                        text += decoder.decode(chunk, { stream: true });
+                    }
+                    text += decoder.decode();
+                    conn.close();
+                    console.log("⚡ [TailSend Web] Received text on Port 101:", text);
+
+                    if (window.onPeerConnectedSlint) {
+                        window.onPeerConnectedSlint("Remote Peer (P2P)");
+                    }
+                    if (text.startsWith("🤝")) {
+                        if (window.updateSlintStatusText) {
+                            window.updateSlintStatusText("Remote peer connected via WireGuard P2P!");
+                        }
+                    } else if (text.trim().length > 0) {
+                        window.lastReceivedMessage = text;
+                        if (window.onIncomingTextMessageSlint) {
+                            window.onIncomingTextMessageSlint(text);
+                        }
+                    }
+                } else if (conn.port === 102) {
+                    await handleIncomingFileStream(conn);
+                }
+            } catch (err) {
+                console.error("[TailSend Web] Incoming connection error:", err);
+            }
+        }
+
+        // Receive File Stream on Port 102
+        async function handleIncomingFileStream(conn) {
+            let filename = "received_file.bin";
+            let totalBytes = 0;
+            let receivedBytes = 0;
+            let fileData = [];
+
+            let headerBuffer = "";
+            const decoder = new TextDecoder();
+            let headerParsed = false;
+            let startTime = performance.now();
+
+            if (window.onPeerConnectedSlint) {
+                window.onPeerConnectedSlint("Remote Peer (P2P)");
+            }
+
+            while (true) {
+                const chunk = await conn.read();
+                if (!chunk || chunk.length === 0) break;
+
+                if (!headerParsed) {
+                    headerBuffer += decoder.decode(chunk, { stream: true });
+                    const newlineIdx = headerBuffer.indexOf("\n");
+                    if (newlineIdx !== -1) {
+                        const headerLine = headerBuffer.substring(0, newlineIdx).trim();
+                        const parts = headerLine.split(":");
+                        if (parts.length >= 3 && parts[0] === "NAME") {
+                            filename = parts[1];
+                            totalBytes = parseInt(parts[2], 10) || 0;
+                        }
+                        headerParsed = true;
+                        console.log(`⚡ [TailSend Web] Incoming file: ${filename} (${totalBytes} bytes)`);
+
+                        const totalMB = (totalBytes / 1048576).toFixed(1);
+                        updateHUD(true, "Receiving...", filename, `0.0 MB / ${totalMB} MB`, 0.0, "Receiving...");
+                        if (window.updateSlintTransferState) {
+                            window.updateSlintTransferState(true, false, "Receiving...", filename, `0.0 MB / ${totalMB} MB`, 0.0, "Receiving...");
+                        }
+
+                        const headerByteLen = new TextEncoder().encode(headerBuffer.substring(0, newlineIdx + 1)).length;
+                        const bodySlice = chunk.slice(headerByteLen);
+                        if (bodySlice.length > 0) {
+                            fileData.push(bodySlice);
+                            receivedBytes += bodySlice.length;
+                        }
+                    }
+                } else {
+                    fileData.push(chunk);
+                    receivedBytes += chunk.length;
+
+                    const progress = totalBytes > 0 ? Math.min(1.0, receivedBytes / totalBytes) : 0.5;
+                    const elapsedSec = (performance.now() - startTime) / 1000;
+                    const speed = elapsedSec > 0 ? ((receivedBytes / 1048576) / elapsedSec).toFixed(1) + " MB/s" : "Calculating...";
+                    const totalMB = (totalBytes / 1048576).toFixed(1);
+                    const bytesText = `${(receivedBytes / 1048576).toFixed(1)} MB / ${totalMB} MB`;
+
+                    updateHUD(true, "Receiving...", filename, bytesText, progress, speed);
+                    if (window.updateSlintTransferState) {
+                        window.updateSlintTransferState(true, false, "Receiving...", filename, bytesText, progress, speed);
+                    }
+                }
+            }
+            conn.close();
+
+            // Trigger browser file download
+            const blob = new Blob(fileData, { type: "application/octet-stream" });
+            const downloadUrl = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = downloadUrl;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(downloadUrl);
+            }, 1000);
+
+            const finalMB = (receivedBytes / 1048576).toFixed(1);
+            updateHUD(false, "Download Complete!", filename, `${finalMB} MB`, 1.0, "Saved", true);
+            if (window.updateSlintTransferState) {
+                window.updateSlintTransferState(false, true, "[Completed] Download Complete!", filename, `${finalMB} MB`, 1.0, "Saved");
+            }
+            if (window.onFileReceivedCompleteSlint) {
+                window.onFileReceivedCompleteSlint(filename, receivedBytes);
+            }
+            console.log(`✅ [TailSend Web] File saved to downloads: ${filename} (${receivedBytes} bytes)`);
+        }
+
+        // Manual connect to peer from join code input
+        window.connectToPeerFromInput = async function(targetAddr) {
+            targetHostAddr = targetAddr;
+            window.hostTailcatAddress = targetAddr;
+            console.log("[TailSend Web] Manual connect requested to peer:", targetAddr);
+            await sendInitialP2PHandshake();
+        };
+
         // Send Text Message via Tailcat Port 101
         window.sendTailcatTextMessage = async function(text) {
             const addr = getHostAddress();
@@ -634,7 +795,12 @@
                     const instance = result.instance || result;
                     go.run(instance);
                     console.log("✅ [TailSend WASM] Tailcat WireGuard engine ready!");
-                    await sendInitialP2PHandshake();
+                    const hostAddr = getHostAddress();
+                    if (hostAddr) {
+                        await sendInitialP2PHandshake();
+                    } else {
+                        await startHostListenerAndGenerateQR();
+                    }
                 }
             } catch (err) {
                 console.error("[TailSend WASM Error]", err);
