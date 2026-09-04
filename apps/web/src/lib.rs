@@ -11,6 +11,9 @@ extern "C" {
     #[wasm_bindgen(js_name = triggerFilePicker)]
     fn trigger_file_picker();
 
+    #[wasm_bindgen(js_name = triggerOpenComposer)]
+    fn trigger_open_composer(initial_text: &str);
+
     #[wasm_bindgen(js_name = triggerPasteAndSend)]
     fn trigger_paste_and_send();
 
@@ -181,18 +184,27 @@ pub fn run_app() -> Result<(), JsValue> {
     on_file_done.forget();
 
     // UI Action Handlers
+    let app_weak_composer = app.as_weak();
+    app.on_open_text_composer(move || {
+        if let Some(app) = app_weak_composer.upgrade() {
+            let current = app.get_message_input().to_string();
+            trigger_open_composer(&current);
+        }
+    });
+
     let app_weak = app.as_weak();
     app.on_compose_text(move |msg| {
         if let Some(app) = app_weak.upgrade() {
-            let text_to_send = if msg.trim().is_empty() {
-                "Hello macOS from iPhone Safari!".to_string()
+            let text_to_send = msg.trim().to_string();
+            if text_to_send.is_empty() {
+                let current = app.get_message_input().to_string();
+                trigger_open_composer(&current);
             } else {
-                msg.to_string()
-            };
-            send_tailcat_text_message(&text_to_send);
-            let log_text = format!("Sent: {}\n{}", text_to_send, app.get_received_message_log());
-            app.set_received_message_log(log_text.into());
-            app.set_message_input("".into());
+                send_tailcat_text_message(&text_to_send);
+                let log_text = format!("Sent: {}\n{}", text_to_send, app.get_received_message_log());
+                app.set_received_message_log(log_text.into());
+                app.set_message_input("".into());
+            }
         }
     });
 

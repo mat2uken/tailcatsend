@@ -164,6 +164,135 @@
             font-size: 11px;
             color: #94a3b8;
         }
+
+        /* Native HTML UTF-8 / Japanese Text Composer Modal */
+        #composer-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 10000;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            padding: 16px;
+        }
+        .composer-backdrop {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(15, 23, 42, 0.75);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+        .composer-card {
+            position: relative;
+            z-index: 1;
+            width: 100%;
+            max-width: 480px;
+            background: #1e293b;
+            border: 1px solid rgba(99, 102, 241, 0.4);
+            box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.7), 0 0 30px rgba(99, 102, 241, 0.25);
+            border-radius: 18px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            animation: modalFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        @keyframes modalFadeIn {
+            from { transform: scale(0.95); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+        .composer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .composer-title {
+            font-size: 15px;
+            font-weight: 700;
+            color: #f8fafc;
+        }
+        .composer-close-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: #94a3b8;
+            width: 32px;
+            height: 32px;
+            border-radius: 16px;
+            cursor: pointer;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.15s;
+        }
+        .composer-close-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+            color: #f8fafc;
+        }
+        #composer-text {
+            width: 100%;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            color: #f8fafc;
+            font-size: 15px;
+            padding: 12px 14px;
+            resize: vertical;
+            min-height: 110px;
+            font-family: inherit;
+            box-sizing: border-box;
+            outline: none;
+            line-height: 1.5;
+        }
+        #composer-text:focus {
+            border-color: #6366f1;
+            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+        }
+        .composer-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .composer-hint {
+            font-size: 11px;
+            color: #64748b;
+        }
+        .composer-btn-group {
+            display: flex;
+            gap: 8px;
+            margin-left: auto;
+        }
+        .composer-btn-group button {
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            transition: opacity 0.15s;
+        }
+        .btn-secondary {
+            background: #334155;
+            color: #cbd5e1;
+        }
+        .btn-secondary:hover {
+            background: #475569;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            color: #ffffff;
+        }
+        .btn-primary:hover {
+            opacity: 0.92;
+        }
     </style>
     <script src="./assets/wasm_exec.js?v=20260902_3"></script>
 </head>
@@ -188,6 +317,25 @@
         <div class="hud-footer">
             <span id="hud-bytes">0.0 MB / 0.0 MB</span>
             <span id="hud-speed">0.0 MB/s</span>
+        </div>
+    </div>
+
+    <!-- Native HTML UTF-8 / Japanese Text Composer Modal -->
+    <div id="composer-modal">
+        <div class="composer-backdrop" id="composer-backdrop"></div>
+        <div class="composer-card">
+            <div class="composer-header">
+                <span class="composer-title">💬 メッセージ入力 (日本語 / UTF-8)</span>
+                <button class="composer-close-btn" id="composer-close-btn" title="閉じる">✕</button>
+            </div>
+            <textarea id="composer-text" rows="4" placeholder="日本語、英語、絵文字など自由に入力してください... (Enter で送信 / Shift+Enter で改行)"></textarea>
+            <div class="composer-footer">
+                <span class="composer-hint">Shift+Enterで改行 / Enterで即時送信</span>
+                <div class="composer-btn-group">
+                    <button class="btn-secondary" id="composer-cancel-btn">キャンセル</button>
+                    <button class="btn-primary" id="composer-submit-btn">送信 (Send via P2P)</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -581,31 +729,78 @@
             }
         };
 
-        // Paste & Send from Clipboard
+        // --- Native UTF-8 / Japanese Text Composer Logic ---
+        const composerModalEl = document.getElementById("composer-modal");
+        const composerTextareaEl = document.getElementById("composer-text");
+        const composerBackdropEl = document.getElementById("composer-backdrop");
+        const composerCloseBtnEl = document.getElementById("composer-close-btn");
+        const composerCancelBtnEl = document.getElementById("composer-cancel-btn");
+        const composerSubmitBtnEl = document.getElementById("composer-submit-btn");
+
+        window.triggerOpenComposer = function(initialText = "") {
+            if (composerModalEl && composerTextareaEl) {
+                if (initialText && typeof initialText === "string") {
+                    composerTextareaEl.value = initialText;
+                }
+                composerModalEl.style.display = "flex";
+                setTimeout(() => {
+                    composerTextareaEl.focus();
+                }, 50);
+            }
+        };
+
+        window.closeComposer = function() {
+            if (composerModalEl) {
+                composerModalEl.style.display = "none";
+            }
+        };
+
+        window.submitComposerText = function() {
+            if (!composerTextareaEl) return;
+            const text = composerTextareaEl.value.trim();
+            if (text) {
+                window.sendTailcatTextMessage(text);
+                if (window.onTextSentSlint) {
+                    window.onTextSentSlint(text);
+                }
+                composerTextareaEl.value = "";
+                window.closeComposer();
+            }
+        };
+
+        if (composerBackdropEl) composerBackdropEl.onclick = window.closeComposer;
+        if (composerCloseBtnEl) composerCloseBtnEl.onclick = window.closeComposer;
+        if (composerCancelBtnEl) composerCancelBtnEl.onclick = window.closeComposer;
+        if (composerSubmitBtnEl) composerSubmitBtnEl.onclick = window.submitComposerText;
+
+        if (composerTextareaEl) {
+            composerTextareaEl.addEventListener("keydown", (e) => {
+                // Enter sends unless Shift is held or Japanese/CJK IME composition is active
+                if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+                    e.preventDefault();
+                    window.submitComposerText();
+                }
+            });
+        }
+
+        // Paste & Send from Clipboard (supports UTF-8 / Japanese)
         window.triggerPasteAndSend = async function() {
             try {
                 let text = "";
                 if (navigator.clipboard && navigator.clipboard.readText) {
                     text = await navigator.clipboard.readText();
                 }
-                if (!text) {
-                    text = prompt("Paste text to send to PC:") || "";
-                }
-                if (text) {
-                    window.sendTailcatTextMessage(text);
+                if (text && text.trim().length > 0) {
+                    window.sendTailcatTextMessage(text.trim());
                     if (window.onTextSentSlint) {
-                        window.onTextSentSlint(text);
+                        window.onTextSentSlint(text.trim());
                     }
+                } else {
+                    window.triggerOpenComposer();
                 }
             } catch (err) {
-                console.warn("[TailSend Clipboard] Could not read directly, using prompt:", err);
-                const text = prompt("Paste text to send to PC:");
-                if (text) {
-                    window.sendTailcatTextMessage(text);
-                    if (window.onTextSentSlint) {
-                        window.onTextSentSlint(text);
-                    }
-                }
+                console.warn("[TailSend Clipboard] Could not read directly from clipboard, opening composer:", err);
+                window.triggerOpenComposer();
             }
         };
 
