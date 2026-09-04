@@ -1,4 +1,4 @@
-// TailSend Web Tailcat WASM Bridge
+﻿// TailSend Web Tailcat WASM Bridge
 package main
 
 import (
@@ -19,7 +19,7 @@ import (
 
 func main() {
 	bridge := js.ValueOf(map[string]any{
-		"bridgeVersion": "1.0.0-tailcat-4a25a91",
+		"bridgeVersion": "1.0.0-tailcat-7465d56",
 		"listen":        js.FuncOf(tailcatListen),
 		"dial":          js.FuncOf(tailcatDial),
 	})
@@ -73,17 +73,25 @@ func tailcatListen(this js.Value, args []js.Value) any {
 		if err := ci.Expand(ctx, tailcat.ExpandForServer, tailcat.DERPMapURL(derpMapURL)); err != nil {
 			return nil, fmt.Errorf("Expand: %w", err)
 		}
+		if pk.Public.PresharedKey.IsZero() {
+			pk.Public.PresharedKey = tailcat.NewPresharedKey()
+		}
 		reg := ci.Region[0]
 		if keyJSON == "" {
 			pk.Public.RegionID = reg.RegionID
 		}
-		blob := pk.Public.ConnBlob()
+		addr := pk.Public.Addr()
 		keyOut, err := json.Marshal(pk)
 		if err != nil {
 			return nil, err
 		}
 
-		srv := &tailcat.Server{Key: pk.Private, Logf: logf, Region: reg}
+		srv := &tailcat.Server{
+			Key:          pk.Private,
+			PresharedKey: pk.Public.PresharedKey,
+			Logf:         logf,
+			Region:       reg,
+		}
 		srv.OnTCP = func(port uint16) (handler func(net.Conn)) {
 			return func(c net.Conn) {
 				onConnection.Invoke(makeJSConn(c, port, nil))
@@ -94,8 +102,8 @@ func tailcatListen(this js.Value, args []js.Value) any {
 			return nil, fmt.Errorf("Server.Start: %w", err)
 		}
 		return map[string]any{
-			"addr":           string(blob),
-			"address":        string(blob),
+			"addr":           string(addr),
+			"address":        string(addr),
 			"privateKeyJSON": string(keyOut),
 			"close": js.FuncOf(func(this js.Value, args []js.Value) any {
 				srv.Close()
@@ -144,7 +152,7 @@ func tailcatDial(this js.Value, args []js.Value) any {
 			priv = pk.Private
 		}
 		cl := &tailcat.Client{
-			Server:     tailcat.ConnBlob(addr),
+			Server:     tailcat.Addr(addr),
 			Key:        priv,
 			Logf:       logf,
 			DERPMapURL: derpMapURL,

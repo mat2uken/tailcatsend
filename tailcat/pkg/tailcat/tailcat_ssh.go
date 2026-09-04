@@ -24,10 +24,13 @@ import (
 
 	ssh "github.com/tailscale/gliderssh"
 	gossh "golang.org/x/crypto/ssh"
+	"tailscale.com/types/key"
 )
 
+const sshInteractiveMOTD = "🐈 Connected via tailcat SSH.\r\n"
+
 // SupportsSSHServer reports whether the platform supports running the built-in
-// auth-free SSH server.
+// SSH server.
 func SupportsSSHServer() bool { return true }
 
 // HandleTailscaleSSHConn handles an incoming TCP connection as an SSH session
@@ -38,7 +41,9 @@ func (s *Server) HandleTailscaleSSHConn(c net.Conn) {
 
 // SSHConnHandler returns a handler that serves an incoming TCP
 // connection as an SSH session with the capabilities in opts.
-// Authentication is not required — the WireGuard tunnel provides identity.
+// Authentication is controlled by opts.AuthorizedKeys. Configured public keys
+// require a client match; zero-value options rely on the WireGuard tunnel for
+// client identity.
 // The connection is served using the gliderlabs/ssh library with a single
 // ed25519 host key generated on first use under tailcat/ssh in the user's
 // config directory (os.UserConfigDir).
@@ -48,14 +53,20 @@ func (s *Server) HandleTailscaleSSHConn(c net.Conn) {
 // Windows); otherwise an interactive login shell is started with a
 // PTY. The SFTP subsystem is served per opts.Files; see [SSHOptions].
 func (s *Server) SSHConnHandler(opts SSHOptions) func(net.Conn) {
+	publicKeyHandler, authErr := sshPublicKeyHandler(opts.AuthorizedKeys)
 	return func(c net.Conn) {
+		if authErr != nil {
+			s.lb.logf("SSH authorized keys: %v", authErr)
+			c.Close()
+			return
+		}
 		keys, err := getHostKeys()
 		if err != nil {
 			s.lb.logf("SSH host keys: %v", err)
 			c.Close()
 			return
 		}
-		handler := sessionHandler
+		handler := s.sessionHandler
 		if !opts.Shell {
 			handler = func(sess ssh.Session) {
 				fmt.Fprintf(sess.Stderr(), "this tailcat server only offers file transfer (SFTP); shell and exec sessions are disabled\r\n")
@@ -67,11 +78,14 @@ func (s *Server) SSHConnHandler(opts SSHOptions) func(net.Conn) {
 			subsystems["sftp"] = h
 		}
 		srv := &ssh.Server{
-			Handler:             handler,
-			NoClientAuthHandler: func(ctx ssh.Context) error { return nil },
-			ChannelHandlers:     map[string]ssh.ChannelHandler{"session": ssh.DefaultSessionHandler},
-			RequestHandlers:     map[string]ssh.RequestHandler{},
-			SubsystemHandlers:   subsystems,
+			Handler:           handler,
+			PublicKeyHandler:  publicKeyHandler,
+			ChannelHandlers:   map[string]ssh.ChannelHandler{"session": ssh.DefaultSessionHandler},
+			RequestHandlers:   map[string]ssh.RequestHandler{},
+			SubsystemHandlers: subsystems,
+		}
+		if publicKeyHandler == nil {
+			srv.NoClientAuthHandler = func(ctx ssh.Context) error { return nil }
 		}
 		for _, k := range keys {
 			srv.AddHostKey(k)
@@ -81,7 +95,7 @@ func (s *Server) SSHConnHandler(opts SSHOptions) func(net.Conn) {
 }
 
 // sessionHandler handles a single SSH session (shell or exec).
-func sessionHandler(sess ssh.Session) {
+func (s *Server) sessionHandler(sess ssh.Session) {
 	u, err := user.Current()
 	if err != nil {
 		fmt.Fprintf(sess.Stderr(), "failed to get current user: %v\r\n", err)
@@ -99,13 +113,38 @@ func sessionHandler(sess ssh.Session) {
 		}
 	}
 
+	// Surface the connecting peer's authenticated node key to the
+	// served process as TAILCAT_PEER_KEY. The tunnel has already
+	// authenticated the peer by this key (and --allow, if set, gated on
+	// it), so a shell wrapper can tell which allowed peer it's talking
+	// to. The value matches --allow's format ("nodekey:...").
+	if k, ok := s.peerKeyForSession(sess); ok {
+		cmd.Env = append(cmd.Env, "TAILCAT_PEER_KEY="+k.String())
+	}
+
 	ptyReq, winCh, isPTY := sess.Pty()
+	if isPTY && sess.RawCommand() == "" {
+		io.WriteString(sess, sshInteractiveMOTD)
+	}
 	if isPTY {
 		sess.DisablePTYEmulation()
 		runWithPTY(sess, cmd, ptyReq, winCh)
 	} else {
 		runWithPipes(sess, cmd)
 	}
+}
+
+// peerKeyForSession returns the node public key of the peer on the
+// other end of sess. The session's remote address is the peer's
+// tailcat IP (derived from its key by tcAddrForKey); peerByIP reverses
+// that back to the key the tunnel authenticated. It returns ok=false
+// if the address can't be mapped to a known peer.
+func (s *Server) peerKeyForSession(sess ssh.Session) (key.NodePublic, bool) {
+	ta, ok := sess.RemoteAddr().(*net.TCPAddr)
+	if !ok {
+		return key.NodePublic{}, false
+	}
+	return s.lb.peerByIP(ta.AddrPort().Addr().Unmap())
 }
 
 // runWithPipes runs cmd with stdin/stdout/stderr pipes (no PTY).

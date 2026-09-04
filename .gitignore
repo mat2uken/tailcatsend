@@ -9,6 +9,8 @@ tailcat_daemon.exe
 *.exe
 libtailcat*.a
 libtailcat*.h
+*.wasm
+!*.wasm.gz
 
 # Node / JS
 node_modules/

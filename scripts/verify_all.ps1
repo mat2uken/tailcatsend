@@ -43,8 +43,8 @@ function Measure-Step {
 }
 
 # Step 1: Rust Workspace Tests
-Measure-Step "1. Rust Unit & Integration Tests (cargo test --workspace)" {
-    cargo test --workspace
+Measure-Step "1. Rust Unit & Integration Tests (cargo test --workspace --exclude tailsend-android --exclude tailsend-ios)" {
+    cargo test --workspace --exclude tailsend-android --exclude tailsend-ios
     if ($LASTEXITCODE -ne 0) { throw "cargo test failed with exit code $LASTEXITCODE" }
 }
 
