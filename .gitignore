@@ -12,7 +12,6 @@ libtailcat*.h
 
 # Node / JS
 node_modules/
-dist/pkg/
 *.log
 
 # Cloudflare Wrangler
