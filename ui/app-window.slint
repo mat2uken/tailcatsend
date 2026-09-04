@@ -1,9 +1,11 @@
 import { Button, VerticalBox, HorizontalBox, LineEdit, ProgressIndicator } from "std-widgets.slint";
+import "./fonts/NotoSansJP.ttf";
 
 export component AppWindow inherits Window {
     title: "TailSend — Direct P2P Transfer";
     background: #0f172a;
     default-font-size: 14px;
+    default-font-family: "Noto Sans JP";
     min-width: 360px;
     min-height: 560px;
 
@@ -43,6 +45,7 @@ export component AppWindow inherits Window {
     callback paste_and_join();
     callback disconnect();
     callback compose_text(string);
+    callback open_text_composer();
     callback paste_and_send();
     callback pick_files();
     callback cancel_transfer();
@@ -201,12 +204,12 @@ export component AppWindow inherits Window {
                     alignment: center;
                     spacing: 8px;
                     Button {
-                        text: "📷 Scan QR Camera";
+                        text: "Scan QR Camera";
                         primary: true;
                         clicked => { root.scan_qr_camera(); }
                     }
                     Button {
-                        text: "📋 Paste & Join";
+                        text: "Paste & Join";
                         clicked => { root.paste_and_join(); }
                     }
                 }
@@ -466,26 +469,36 @@ export component AppWindow inherits Window {
                     }
                     msg_input := LineEdit {
                         text: root.message_input;
-                        placeholder-text: "Type a message...";
+                        placeholder-text: "日本語・多言語メッセージを入力...";
                         edited => { root.message_input = self.text; }
+                        accepted => { root.compose_text(self.text); }
                     }
                     HorizontalLayout {
                         spacing: 8px;
                         Button {
-                            text: "Send Text";
+                            text: "入力 (日本語/UTF-8)";
                             primary: true;
+                            clicked => {
+                                root.open_text_composer();
+                            }
+                        }
+                        Button {
+                            text: "送信 (Send)";
                             clicked => {
                                 root.compose_text(root.message_input);
                             }
                         }
+                    }
+                    HorizontalLayout {
+                        spacing: 8px;
                         Button {
-                            text: "Paste & Send";
+                            text: "貼り付けて送信";
                             clicked => { root.paste_and_send(); }
                         }
-                    }
-                    Button {
-                        text: "Pick File (Photos/Videos)";
-                        clicked => { root.pick_files(); }
+                        Button {
+                            text: "ファイル選択";
+                            clicked => { root.pick_files(); }
+                        }
                     }
                 }
             }
