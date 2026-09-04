@@ -1,0 +1,55 @@
+name: Update Tailcat Dependency
+
+on:
+  schedule:
+    - cron: '0 3 * * 1' # Every Monday at 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Upstream tailcat branch, commit hash, or tag'
+        required: false
+        default: 'main'
+
+jobs:
+  update-tailcat:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+          cache-dependency-path: tailcat/go.sum
+
+      - name: Make scripts executable
+        run: chmod +x scripts/*.sh
+
+      - name: Run Tailcat Update & Build
+        run: |
+          ./scripts/update_tailcat.sh "${{ inputs.target || 'main' }}"
+
+      - name: Check for Changes
+        id: git-diff
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            git status --short
+          else
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            echo "No changes detected. Already up-to-date with upstream."
+          fi
+
+      - name: Commit and Push
+        if: steps.git-diff.outputs.has_changes == 'true'
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add dist/ tailcat/
+          COMMIT_MSG="chore(tailcat): update upstream tailcat to ${{ inputs.target || 'main' }}"
+          git commit -m "$COMMIT_MSG"
+          git push

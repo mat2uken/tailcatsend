@@ -110,13 +110,15 @@ func main() {
 	reg := ci.Region[0]
 	pk.Public.Region = []*tailcfg.DERPRegion{reg}
 	pk.Public.RegionID = reg.RegionID
-	blob := pk.Public.ConnBlob()
-	d.address = string(blob)
+	if pk.Public.PresharedKey.IsZero() {
+		pk.Public.PresharedKey = tailcat.NewPresharedKey()
+	}
 
 	srv := &tailcat.Server{
-		Key:    pk.Private,
-		Logf:   logf,
-		Region: reg,
+		Key:          pk.Private,
+		PresharedKey: pk.Public.PresharedKey,
+		Logf:         logf,
+		Region:       reg,
 	}
 
 	srv.OnTCP = func(port uint16) func(net.Conn) {
@@ -249,6 +251,7 @@ func main() {
 		os.Exit(1)
 	}
 	d.server = srv
+	d.address = string(srv.TailcatAddr())
 	defer srv.Close()
 
 	// 2. Output ready message to stdout for parent process
@@ -353,7 +356,7 @@ func (d *Daemon) getOrCreateClient(addr string) *tailcat.Client {
 	}
 	priv := key.NewNode()
 	cl := &tailcat.Client{
-		Server:       tailcat.ConnBlob(addr),
+		Server:       tailcat.Addr(addr),
 		Key:          priv,
 		Logf:         daemonLogf,
 		DERPMapURL:   *derpMapURL,
@@ -416,7 +419,7 @@ func (d *Daemon) handleSendFile(ipcConn net.Conn, cmd CommandMessage) {
 func (d *Daemon) handleDial(ipcConn net.Conn, cmd CommandMessage) {
 	priv := key.NewNode()
 	cl := &tailcat.Client{
-		Server:       tailcat.ConnBlob(cmd.Address),
+		Server:       tailcat.Addr(cmd.Address),
 		Key:          priv,
 		Logf:         daemonLogf,
 		DERPMapURL:   *derpMapURL,

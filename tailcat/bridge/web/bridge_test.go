@@ -31,15 +31,15 @@ func TestTailcatServerAndClientDirect(t *testing.T) {
 	}
 	reg := ci.Region[0]
 	pk.Public.RegionID = reg.RegionID
-	blob := pk.Public.ConnBlob()
 
 	serverAccepted := make(chan net.Conn, 1)
 	serverPort := make(chan uint16, 1)
 
 	srv := &tailcat.Server{
-		Key:    pk.Private,
-		Logf:   logger.Discard,
-		Region: reg,
+		Key:          pk.Private,
+		PresharedKey: pk.Public.PresharedKey,
+		Logf:         logger.Discard,
+		Region:       reg,
 	}
 	srv.OnTCP = func(port uint16) func(net.Conn) {
 		return func(c net.Conn) {
@@ -52,10 +52,12 @@ func TestTailcatServerAndClientDirect(t *testing.T) {
 	}
 	defer srv.Close()
 
+	addr := srv.TailcatAddr()
+
 	// 2. Initialize Client
 	clientKey := key.NewNode()
 	cl := &tailcat.Client{
-		Server:     tailcat.ConnBlob(blob),
+		Server:     addr,
 		Key:        clientKey,
 		Logf:       logger.Discard,
 		DERPMapURL: derpURL,

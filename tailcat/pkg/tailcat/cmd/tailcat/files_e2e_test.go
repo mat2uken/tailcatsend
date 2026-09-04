@@ -17,10 +17,14 @@ import (
 	"time"
 )
 
-// runSFTPBatch runs the system sftp against blob with the given batch
+// runSFTPBatch runs the system sftp against addr with the given batch
 // commands, returning its combined output and error.
-func runSFTPBatch(t *testing.T, e *testEnv, blob, batch string) ([]byte, error) {
+func runSFTPBatch(t *testing.T, e *testEnv, addr, batch string) ([]byte, error) {
 	t.Helper()
+	proxyCommand, err := sshProxyCommand(e.bin, "new", e.derpMapURL, addr, "22")
+	if err != nil {
+		t.Fatal(err)
+	}
 	batchFile := filepath.Join(t.TempDir(), "batch")
 	if err := os.WriteFile(batchFile, []byte(batch), 0600); err != nil {
 		t.Fatal(err)
@@ -29,9 +33,9 @@ func runSFTPBatch(t *testing.T, e *testEnv, blob, batch string) ([]byte, error) 
 		"-o", "StrictHostKeyChecking no",
 		"-o", "UserKnownHostsFile "+os.DevNull,
 		"-o", "LogLevel ERROR",
-		"-o", "ProxyCommand="+sshProxyCommand(e.bin, "new", e.derpMapURL, blob, "22"),
+		"-o", "ProxyCommand="+proxyCommand,
 		"-b", batchFile,
-		sshDestHost(blob))
+		sshDestHost(addr))
 	cmd.Env = e.env
 	done := make(chan struct{})
 	go func() {
@@ -62,9 +66,9 @@ func TestLS(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, blob, _ := e.startServer("serve", "--files="+serveDir)
+	_, addr, _ := e.startServer("serve", "--files="+serveDir)
 
-	out, err := e.cmd("--key=new", "--derpmap-url="+e.derpMapURL, "ls", blob).CombinedOutput()
+	out, err := e.cmd("--key=new", "--derpmap-url="+e.derpMapURL, "ls", addr).CombinedOutput()
 	if err != nil {
 		t.Fatalf("ls: %v\n%s", err, out)
 	}
@@ -72,7 +76,7 @@ func TestLS(t *testing.T) {
 		t.Errorf("ls output = %q; want %q", got, want)
 	}
 
-	out, err = e.cmd("--key=new", "--derpmap-url="+e.derpMapURL, "ls", "-l", blob+":sub").CombinedOutput()
+	out, err = e.cmd("--key=new", "--derpmap-url="+e.derpMapURL, "ls", "-l", addr+":sub").CombinedOutput()
 	if err != nil {
 		t.Fatalf("ls -l: %v\n%s", err, out)
 	}
@@ -97,11 +101,11 @@ func TestServeFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, blob, _ := e.startServer("serve", "--files="+serveDir+":ro")
+	_, addr, _ := e.startServer("serve", "--files="+serveDir+":ro")
 
 	fetchDir := t.TempDir()
 	got := filepath.Join(fetchDir, "got.txt")
-	out, err := runSFTPBatch(t, e, blob, "get /hello.txt "+got+"\n")
+	out, err := runSFTPBatch(t, e, addr, "get /hello.txt "+got+"\n")
 	if err != nil {
 		t.Fatalf("sftp get: %v\n%s", err, out)
 	}
@@ -113,7 +117,7 @@ func TestServeFiles(t *testing.T) {
 		t.Errorf("fetched content = %q; want %q", v, content)
 	}
 
-	out, err = runSFTPBatch(t, e, blob, "put "+got+" /put-should-fail.txt\n")
+	out, err = runSFTPBatch(t, e, addr, "put "+got+" /put-should-fail.txt\n")
 	if err == nil {
 		t.Errorf("sftp put to a read-only file server succeeded:\n%s", out)
 	}
