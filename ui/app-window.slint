@@ -1,16 +1,495 @@
-import { Button, VerticalBox, HorizontalBox, LineEdit, ProgressIndicator } from "std-widgets.slint";
+import { Button, VerticalBox, HorizontalBox, LineEdit, ProgressIndicator, ScrollView } from "std-widgets.slint";
 import "./fonts/NotoSansJP.ttf";
 
+// ============================================================================
+// Design System Tokens & Theme (Fluent / Material 3 / Modern Slate)
+// ============================================================================
+global Theme {
+    out property <color> bg-main: #0b0f19;
+    out property <color> surface-card: #131d31;
+    out property <color> surface-card-hover: #18253e;
+    out property <color> surface-nested: #0d1524;
+    out property <color> surface-active: #1e2d4a;
+    out property <color> border-subtle: #22324d;
+    out property <color> border-active: #38bdf8;
+    out property <color> primary: #0284c7;
+    out property <color> primary-hover: #0ea5e9;
+    out property <color> primary-pressed: #0369a1;
+    out property <color> accent-cyan: #38bdf8;
+    out property <color> success: #10b981;
+    out property <color> success-bg: #064e3b;
+    out property <color> success-border: #059669;
+    out property <color> text-primary: #f8fafc;
+    out property <color> text-secondary: #94a3b8;
+    out property <color> text-muted: #64748b;
+    out property <color> danger: #ef4444;
+    out property <color> danger-hover: #dc2626;
+    out property <color> danger-bg: #450a0a;
+}
+
+// ============================================================================
+// Reusable Modern UI Components (Refactored, Responsive & Accessible)
+// ============================================================================
+
+// 1. Sleek Action Button with Focus Ring & Hover Animation
+component AppButton inherits Rectangle {
+    in property <string> text: "";
+    in property <bool> primary: false;
+    in property <bool> danger: false;
+    in property <bool> secondary: false;
+    in property <bool> enabled: true;
+    in property <length> custom-height: 38px;
+    in property <length> font-size: 13px;
+    in property <string> icon-text: "";
+
+    callback clicked();
+
+    height: root.custom-height;
+    border-radius: 9px;
+    clip: true;
+
+    background: !root.enabled ? #1e293b :
+                root.danger ? (touch.pressed ? #b91c1c : (touch.has-hover ? #dc2626 : #ef4444)) :
+                root.primary ? (touch.pressed ? Theme.primary-pressed : (touch.has-hover ? Theme.primary-hover : Theme.primary)) :
+                root.secondary ? (touch.pressed ? #1e293b : (touch.has-hover ? #27374d : #1e2b40)) :
+                (touch.pressed ? #0f172a : (touch.has-hover ? #1e293b : #131d31));
+
+    border-width: root.secondary || (!root.primary && !root.danger) ? 1px : 0px;
+    border-color: root.secondary ? #334a6e : (touch.has-hover ? Theme.accent-cyan : Theme.border-subtle);
+
+    animate background { duration: 150ms; easing: ease-out; }
+    animate border-color { duration: 150ms; easing: ease-out; }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? pointer : default;
+        clicked => { root.clicked(); }
+    }
+
+    HorizontalLayout {
+        alignment: center;
+        spacing: 6px;
+        padding-left: 10px;
+        padding-right: 10px;
+
+        if root.icon-text != "" : Text {
+            text: root.icon-text;
+            font-size: root.font-size + 1px;
+            color: !root.enabled ? #64748b : #ffffff;
+            vertical-alignment: center;
+        }
+
+        Text {
+            text: root.text;
+            font-size: root.font-size;
+            font-weight: root.primary ? 700 : 600;
+            color: !root.enabled ? #64748b : #ffffff;
+            vertical-alignment: center;
+        }
+    }
+
+    accessible-role: button;
+    accessible-label: root.text;
+    accessible-action-default => { root.clicked(); }
+}
+
+// 2. Segmented Pill Tab Bar (Responsive & Smooth)
+component SegmentedTab inherits Rectangle {
+    in property <string> label-left: "";
+    in property <string> label-right: "";
+    in-out property <int> active-tab: 0; // 0 or 1
+    in property <string> icon-left: "";
+    in property <string> icon-right: "";
+
+    callback tab-changed(int);
+
+    height: 38px;
+    background: Theme.surface-nested;
+    border-radius: 10px;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+
+    HorizontalLayout {
+        padding: 3px;
+        spacing: 4px;
+
+        tab1 := Rectangle {
+            horizontal-stretch: 1;
+            border-radius: 7px;
+            background: root.active-tab == 0 ? Theme.surface-active : (touch1.has-hover ? #172439 : transparent);
+            border-width: root.active-tab == 0 ? 1px : 0px;
+            border-color: root.active-tab == 0 ? Theme.accent-cyan : transparent;
+
+            accessible-role: tab;
+            accessible-label: root.label-left;
+            accessible-checked: root.active-tab == 0;
+
+            animate background { duration: 150ms; easing: ease-out; }
+
+            touch1 := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.active-tab = 0;
+                    root.tab-changed(0);
+                }
+            }
+
+            HorizontalLayout {
+                alignment: center;
+                spacing: 5px;
+                if root.icon-left != "" : Text {
+                    text: root.icon-left;
+                    font-size: 13px;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: root.label-left;
+                    font-size: 12px;
+                    font-weight: root.active-tab == 0 ? 700 : 500;
+                    color: root.active-tab == 0 ? #ffffff : Theme.text-secondary;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        tab2 := Rectangle {
+            horizontal-stretch: 1;
+            border-radius: 7px;
+            background: root.active-tab == 1 ? Theme.surface-active : (touch2.has-hover ? #172439 : transparent);
+            border-width: root.active-tab == 1 ? 1px : 0px;
+            border-color: root.active-tab == 1 ? Theme.accent-cyan : transparent;
+
+            accessible-role: tab;
+            accessible-label: root.label-right;
+            accessible-checked: root.active-tab == 1;
+
+            animate background { duration: 150ms; easing: ease-out; }
+
+            touch2 := TouchArea {
+                mouse-cursor: pointer;
+                clicked => {
+                    root.active-tab = 1;
+                    root.tab-changed(1);
+                }
+            }
+
+            HorizontalLayout {
+                alignment: center;
+                spacing: 5px;
+                if root.icon-right != "" : Text {
+                    text: root.icon-right;
+                    font-size: 13px;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: root.label-right;
+                    font-size: 12px;
+                    font-weight: root.active-tab == 1 ? 700 : 500;
+                    color: root.active-tab == 1 ? #ffffff : Theme.text-secondary;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}
+
+// 3. Compact Status Badge
+component StatusBadge inherits Rectangle {
+    in property <string> text: "";
+    in property <color> dot-color: Theme.accent-cyan;
+
+    height: 24px;
+    background: #111e33;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: Theme.border-subtle;
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 5px;
+        alignment: center;
+
+        Rectangle {
+            width: 6px;
+            height: 6px;
+            border-radius: 3px;
+            background: root.dot-color;
+            y: (parent.height - self.height) / 2;
+        }
+
+        Text {
+            text: root.text;
+            font-size: 10px;
+            font-weight: 600;
+            color: Theme.text-secondary;
+            vertical-alignment: center;
+        }
+    }
+}
+
+// 4. Base Surface Card
+component ModernCard inherits Rectangle {
+    in property <color> card-bg: Theme.surface-card;
+    in property <color> card-border: Theme.border-subtle;
+    in property <length> border-radius-custom: 14px;
+    in property <length> border-width-custom: 1px;
+
+    background: root.card-bg;
+    border-radius: root.border-radius-custom;
+    border-width: root.border-width-custom;
+    border-color: root.card-border;
+}
+
+// 5. Peer Header Card Component
+component PeerHeaderCard inherits ModernCard {
+    in property <string> peer-name: "Peer";
+    in property <bool> is-ja: true;
+
+    border-radius-custom: 12px;
+    card-border: #1e3a8a;
+
+    HorizontalLayout {
+        padding-left: 12px;
+        padding-right: 12px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        alignment: space-between;
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+
+            Rectangle {
+                width: 32px;
+                height: 32px;
+                border-radius: 16px;
+                background: #172554;
+                border-width: 1px;
+                border-color: #3b82f6;
+                y: (parent.height - self.height) / 2;
+                Text { text: "💻"; font-size: 16px; horizontal-alignment: center; vertical-alignment: center; }
+            }
+
+            VerticalLayout {
+                alignment: center;
+                spacing: 1px;
+                Text {
+                    text: root.peer-name;
+                    font-size: 13px;
+                    font-weight: 700;
+                    color: Theme.text-primary;
+                }
+                HorizontalLayout {
+                    spacing: 4px;
+                    Rectangle {
+                        width: 6px;
+                        height: 6px;
+                        border-radius: 3px;
+                        background: Theme.success;
+                        y: (parent.height - self.height) / 2;
+                    }
+                    Text {
+                        text: root.is-ja ? "P2P直接暗号化接続中" : "Encrypted Direct P2P";
+                        font-size: 10px;
+                        font-weight: 600;
+                        color: Theme.success;
+                        vertical-alignment: center;
+                    }
+                }
+            }
+        }
+
+        StatusBadge { text: root.is-ja ? "高速P2P" : "Fast P2P"; dot-color: Theme.accent-cyan; }
+    }
+}
+
+// 6. Transfer Progress Card Component
+component TransferProgressCard inherits Rectangle {
+    in property <bool> is-transferring: false;
+    in property <bool> transfer-completed: false;
+    in property <string> transfer-status: "";
+    in property <string> transfer-filename: "";
+    in property <string> transfer-bytes-text: "";
+    in property <string> transfer-speed: "";
+    in property <float> transfer-progress: 0.0;
+    in property <bool> is-ja: true;
+
+    callback cancel-clicked();
+
+    background: root.transfer-completed ? Theme.success-bg : #0c2340;
+    border-radius: 12px;
+    border-width: 1px;
+    border-color: root.transfer-completed ? Theme.success-border : Theme.accent-cyan;
+
+    VerticalLayout {
+        padding: 10px;
+        spacing: 6px;
+
+        HorizontalLayout {
+            alignment: space-between;
+            HorizontalLayout {
+                spacing: 6px;
+                Text {
+                    text: root.transfer-completed ? "✓" : "⬇";
+                    font-size: 13px;
+                    font-weight: 800;
+                    color: root.transfer-completed ? Theme.success-border : Theme.accent-cyan;
+                }
+                Text {
+                    text: root.transfer-status;
+                    font-size: 12px;
+                    font-weight: 700;
+                    color: root.transfer-completed ? #a7f3d0 : #e0f2fe;
+                }
+            }
+            Text {
+                text: Math.round(root.transfer-progress * 100) + "%";
+                font-size: 12px;
+                font-weight: 800;
+                color: root.transfer-completed ? #a7f3d0 : Theme.accent-cyan;
+            }
+        }
+
+        if root.transfer-filename != "" : HorizontalLayout {
+            alignment: space-between;
+            Text { text: root.transfer-filename; font-size: 11px; font-weight: 600; color: #f8fafc; }
+            Text { text: root.transfer-bytes-text; font-size: 11px; color: Theme.text-secondary; }
+        }
+
+        ProgressIndicator { progress: root.transfer-progress; height: 5px; }
+
+        HorizontalLayout {
+            alignment: space-between;
+            Text { text: root.transfer-speed; font-size: 11px; color: Theme.text-secondary; }
+            if root.is-transferring : AppButton {
+                text: root.is-ja ? "キャンセル" : "Cancel";
+                danger: true;
+                custom-height: 28px;
+                font-size: 11px;
+                clicked => { root.cancel-clicked(); }
+            }
+            if root.transfer-completed : AppButton {
+                text: root.is-ja ? "閉じる" : "Dismiss";
+                secondary: true;
+                custom-height: 28px;
+                font-size: 11px;
+                clicked => { root.cancel-clicked(); }
+            }
+        }
+    }
+}
+
+// 7. Activity History Log Card Component with Copy Feedback
+component ActivityStreamCard inherits ModernCard {
+    in property <string> log-text: "";
+    in property <bool> is-ja: true;
+    in property <bool> text-copied: false;
+
+    callback copy-clicked();
+    callback save-clicked();
+    callback share-clicked();
+
+    VerticalLayout {
+        padding: 10px;
+        spacing: 6px;
+
+        HorizontalLayout {
+            alignment: space-between;
+            Text {
+                text: root.is-ja ? "送受信ログ" : "Activity Stream";
+                font-size: 12px;
+                font-weight: 700;
+                color: Theme.text-secondary;
+            }
+            HorizontalLayout {
+                spacing: 4px;
+                AppButton {
+                    text: root.text-copied ? (root.is-ja ? "コピー完了！" : "Copied!") : (root.is-ja ? "コピー" : "Copy");
+                    icon-text: root.text-copied ? "✓" : "";
+                    secondary: !root.text-copied;
+                    primary: root.text-copied;
+                    custom-height: 28px;
+                    font-size: 11px;
+                    clicked => { root.copy-clicked(); }
+                }
+                AppButton {
+                    text: root.is-ja ? "保存" : "Save";
+                    secondary: true;
+                    custom-height: 28px;
+                    font-size: 11px;
+                    clicked => { root.save-clicked(); }
+                }
+                AppButton {
+                    text: root.is-ja ? "共有" : "Share";
+                    secondary: true;
+                    custom-height: 28px;
+                    font-size: 11px;
+                    clicked => { root.share-clicked(); }
+                }
+            }
+        }
+
+        Rectangle {
+            background: Theme.surface-nested;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: Theme.border-subtle;
+            min-height: 52px;
+
+            VerticalLayout {
+                padding: 8px;
+                Text {
+                    text: root.log-text;
+                    font-size: 12px;
+                    color: #e2e8f0;
+                    wrap: word-wrap;
+                }
+            }
+        }
+    }
+}
+
+// 8. Elegant Empty State Card
+component EmptyActivityCard inherits ModernCard {
+    in property <bool> is-ja: true;
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 6px;
+        alignment: center;
+        Text { text: "💬"; font-size: 20px; horizontal-alignment: center; }
+        Text {
+            text: root.is-ja ? "送受信したメッセージやファイルがここに表示されます" : "Received files and messages will appear here";
+            font-size: 11px;
+            color: Theme.text-secondary;
+            horizontal-alignment: center;
+            wrap: word-wrap;
+        }
+    }
+}
+
+// ============================================================================
+// Main Application Window
+// ============================================================================
 export component AppWindow inherits Window {
-    title: "TailSend — Direct P2P Transfer";
-    background: #0f172a;
+    title: root.is_ja ? "TailSend — P2Pファイル転送" : "TailSend — Direct P2P Transfer";
+    background: Theme.bg-main;
     default-font-size: 14px;
     default-font-family: "Noto Sans JP";
-    min-width: 360px;
-    min-height: 560px;
 
+    // Adaptive window limits for mobile portrait/landscape & desktop
+    min-width: 320px;
+    min-height: 320px;
+    preferred-width: 440px;
+    preferred-height: 660px;
+
+    // Responsive detection: true on desktop wide windows or mobile landscape
+    property <bool> is_landscape: (root.width > root.height && root.height < 520px) || root.width >= 700px;
+
+    // Core Platform Properties (Maintained for 100% backwards compatibility)
     in-out property <int> screen_index: 0; // 0: Boot, 1: Invite, 2: Joining, 3: Connected
-    in-out property <string> status_text: "Initializing TailSend...";
+    in-out property <string> status_text: root.is_ja ? "P2Pネットワークを準備しています…" : "Starting secure P2P network…";
     in-out property <string> peer_name: "PC Host";
     in-out property <string> invite_url: "";
     in-out property <int> expires_secs: 600;
@@ -28,16 +507,27 @@ export component AppWindow inherits Window {
     in-out property <bool> is_transferring: false;
     in-out property <bool> transfer_completed: false;
 
-    in-out property <string> message_input: "Hello from Mobile Device!";
+    in-out property <string> message_input: "";
     in-out property <string> received_message_log: "";
     in-out property <string> last_received_text: "";
 
     in-out property <string> derp_info: "tailcat.dev (Active Mesh)";
-    in-out property <string> edge_relay_info: "Cloudflare Workers (DO)";
-    in-out property <string> session_info: "session-active";
+    in-out property <string> edge_relay_info: "WireGuard P2P";
+    in-out property <string> session_info: "";
     in-out property <string> join_input_text: "";
     in-out property <length> top_safe_area: 0px;
+    in-out property <length> bottom_safe_area: 0px;
 
+    // Enhanced UX & i18n Properties
+    in-out property <string> current_language: "ja"; // "ja" or "en"
+    property <bool> is_ja: root.current_language == "ja";
+
+    in-out property <int> invite_tab_index: 0; // 0: QR Share, 1: Join Peer
+    in-out property <int> send_mode_tab: 0;    // 0: File Send, 1: Text Send
+    in-out property <bool> copy_feedback_active: false;
+    in-out property <bool> text_copied_feedback: false;
+
+    // Callbacks
     callback copy_invite();
     callback regenerate_invite();
     callback scan_qr_camera();
@@ -52,570 +542,808 @@ export component AppWindow inherits Window {
     callback share_received_text();
     callback save_received_text();
     callback copy_received_text();
+    callback switch_language(string);
 
-    VerticalLayout {
-        padding-left: 14px;
-        padding-right: 14px;
-        padding-bottom: 14px;
-        padding-top: 14px + root.top_safe_area;
-        spacing: 12px;
-        alignment: start;
+    // Centered Responsive Main Container (Constrains on wide monitors, fills on mobile)
+    Rectangle {
+        width: Math.min(root.width, 820px);
+        x: (root.width - self.width) / 2;
 
-        // Top Navigation Header
-        HorizontalLayout {
-            alignment: space-between;
-            Text {
-                text: "TailSend";
-                font-size: 22px;
-                font-weight: 800;
-                color: #38bdf8;
-                vertical-alignment: center;
-            }
-            if root.screen_index == 3 : Button {
-                text: "Disconnect";
-                clicked => { root.disconnect(); }
-            }
-        }
+        VerticalLayout {
+            padding-left: 14px;
+            padding-right: 14px;
+            padding-bottom: 12px + root.bottom_safe_area;
+            padding-top: 10px + root.top_safe_area;
+            spacing: 10px;
 
-        // Screen 0: Booting / Connecting to DERP
-        if root.screen_index == 0 : Rectangle {
-            background: #1e293b;
-            border-radius: 12px;
-            border-width: 1px;
-            border-color: #334155;
-
-            VerticalLayout {
-                padding: 24px;
-                spacing: 16px;
-                alignment: center;
-                Text {
-                    text: root.status_text;
-                    horizontal-alignment: center;
-                    font-size: 15px;
-                    font-weight: 600;
-                    color: #f8fafc;
-                }
-                ProgressIndicator {
-                    indeterminate: true;
-                    height: 6px;
-                }
-            }
-        }
-
-        // Screen 1: Invite (QR Code Waiting)
-        if root.screen_index == 1 : Rectangle {
-            background: #1e293b;
-            border-radius: 12px;
-            border-width: 1px;
-            border-color: #334155;
-
-            VerticalLayout {
-                padding: 16px;
-                spacing: 12px;
-                alignment: center;
-
-                Text {
-                    text: "Scan QR Code with Phone";
-                    horizontal-alignment: center;
-                    font-size: 16px;
-                    font-weight: 700;
-                    color: #f8fafc;
-                }
-
-                // Perfectly Centered QR Container
+                // ============================================================
+                // Sticky Header: Branding, Live State, Language Switcher
+                // ============================================================
                 HorizontalLayout {
-                    alignment: center;
+                    alignment: space-between;
+                    height: 38px;
 
-                    Rectangle {
-                        width: 240px;
-                        height: 240px;
-                        background: #ffffff;
-                        border-radius: 12px;
+                    // Brand Logo & Live Status
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: start;
+
+                        Rectangle {
+                            width: 34px;
+                            height: 34px;
+                            border-radius: 9px;
+                            background: #0284c7;
+                            y: (parent.height - self.height) / 2;
+
+                            Path {
+                                width: 14px;
+                                height: 18px;
+                                fill: #ffffff;
+                                commands: "M 8 0 L 0 10 L 6 10 L 4 18 L 14 7 L 8 7 Z";
+                                x: (parent.width - self.width) / 2;
+                                y: (parent.height - self.height) / 2;
+                            }
+                        }
 
                         VerticalLayout {
                             alignment: center;
-                            padding: 6px;
+                            spacing: 0px;
+                            Text {
+                                text: "TailSend";
+                                font-size: 18px;
+                                font-weight: 800;
+                                color: Theme.text-primary;
+                            }
+                            Text {
+                                text: root.screen_index == 3 ? (root.is_ja ? "P2P 接続中" : "P2P Connected") :
+                                      root.screen_index == 1 ? (root.is_ja ? "待機中" : "Waiting for Peer") :
+                                      (root.is_ja ? "メッシュ接続中…" : "Connecting…");
+                                font-size: 10px;
+                                font-weight: 600;
+                                color: root.screen_index == 3 ? Theme.success : Theme.accent-cyan;
+                            }
+                        }
+                    }
+
+                    // Right Controls: Language Switcher & Disconnect Button
+                    HorizontalLayout {
+                        spacing: 8px;
+                        alignment: end;
+
+                        // Minimalist Bilingual Switcher
+                        Rectangle {
+                            height: 32px;
+                            background: Theme.surface-nested;
+                            border-radius: 16px;
+                            border-width: 1px;
+                            border-color: Theme.border-subtle;
+                            y: (parent.height - self.height) / 2;
 
                             HorizontalLayout {
+                                padding: 2px;
+                                spacing: 2px;
+
+                                // Japanese Switch
+                                Rectangle {
+                                    width: 38px;
+                                    border-radius: 14px;
+                                    background: root.is_ja ? Theme.primary : transparent;
+                                    animate background { duration: 150ms; }
+
+                                    TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => {
+                                            root.current_language = "ja";
+                                            root.switch_language("ja");
+                                        }
+                                    }
+                                    Text {
+                                        text: "JP";
+                                        font-size: 11px;
+                                        font-weight: root.is_ja ? 700 : 500;
+                                        color: root.is_ja ? #ffffff : Theme.text-secondary;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                // English Switch
+                                Rectangle {
+                                    width: 38px;
+                                    border-radius: 14px;
+                                    background: !root.is_ja ? Theme.primary : transparent;
+                                    animate background { duration: 150ms; }
+
+                                    TouchArea {
+                                        mouse-cursor: pointer;
+                                        clicked => {
+                                            root.current_language = "en";
+                                            root.switch_language("en");
+                                        }
+                                    }
+                                    Text {
+                                        text: "EN";
+                                        font-size: 11px;
+                                        font-weight: !root.is_ja ? 700 : 500;
+                                        color: !root.is_ja ? #ffffff : Theme.text-secondary;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Disconnect Button (Screen 3 only)
+                        if root.screen_index == 3 : AppButton {
+                            text: root.is_ja ? "切断" : "Disconnect";
+                            icon-text: "✕";
+                            danger: true;
+                            custom-height: 32px;
+                            font-size: 11px;
+                            clicked => { root.disconnect(); }
+                        }
+                    }
+                }
+
+                // ============================================================
+                // Scrollable Body Content (Adaptive Layouts)
+                // ============================================================
+                ScrollView {
+                    vertical-stretch: 1;
+
+                    VerticalLayout {
+                        spacing: 10px;
+                        alignment: start;
+
+                        // ----------------------------------------------------
+                        // Screen 0: Initializing Mesh Network
+                        // ----------------------------------------------------
+                        if root.screen_index == 0 : ModernCard {
+                            border-radius-custom: 16px;
+
+                            VerticalLayout {
+                                padding: 28px;
+                                spacing: 18px;
                                 alignment: center;
 
-                                if root.has_qr_image : Image {
-                                    source: root.qr_code_image;
-                                    width: 228px;
-                                    height: 228px;
-                                    image-fit: contain;
+                                Rectangle {
+                                    width: 50px;
+                                    height: 50px;
+                                    border-radius: 25px;
+                                    background: #0c4a6e;
+                                    border-width: 2px;
+                                    border-color: Theme.accent-cyan;
+
+                                    Path {
+                                        width: 20px;
+                                        height: 26px;
+                                        fill: Theme.accent-cyan;
+                                        commands: "M 11 0 L 0 14 L 8 14 L 6 26 L 20 10 L 11 10 Z";
+                                        x: (parent.width - self.width) / 2;
+                                        y: (parent.height - self.height) / 2;
+                                    }
                                 }
-                                if !root.has_qr_image : Text {
-                                    text: "Generating QR Code...";
-                                    horizontal-alignment: center;
-                                    font-size: 14px;
-                                    color: #0f172a;
-                                    vertical-alignment: center;
-                                }
-                            }
-                        }
-                    }
-                }
 
-                HorizontalLayout {
-                    alignment: center;
-                    spacing: 8px;
-                    Button {
-                        text: "Copy Invite Link";
-                        primary: true;
-                        clicked => { root.copy_invite(); }
-                    }
-                    Button {
-                        text: "Regenerate";
-                        clicked => { root.regenerate_invite(); }
-                    }
-                }
-
-                Text {
-                    text: "Expires in: " + Math.floor(root.expires_secs / 60) + "m " + (root.expires_secs - Math.floor(root.expires_secs / 60) * 60) + "s";
-                    horizontal-alignment: center;
-                    font-size: 12px;
-                    color: #94a3b8;
-                }
-
-                Text {
-                    text: root.status_text;
-                    horizontal-alignment: center;
-                    font-size: 13px;
-                    color: #38bdf8;
-                }
-
-                // Divider
-                Rectangle {
-                    height: 1px;
-                    background: #334155;
-                }
-
-                // Join Another Peer Section
-                Text {
-                    text: "— or Connect to Another Peer —";
-                    horizontal-alignment: center;
-                    font-size: 12px;
-                    font-weight: 700;
-                    color: #94a3b8;
-                }
-
-                HorizontalLayout {
-                    alignment: center;
-                    spacing: 8px;
-                    Button {
-                        text: "Scan QR Camera";
-                        primary: true;
-                        clicked => { root.scan_qr_camera(); }
-                    }
-                    Button {
-                        text: "Paste & Join";
-                        clicked => { root.paste_and_join(); }
-                    }
-                }
-
-                HorizontalLayout {
-                    spacing: 6px;
-                    LineEdit {
-                        placeholder-text: "Invite URL or Session ID...";
-                        text <=> root.join_input_text;
-                        accepted => { root.join_session(self.text); }
-                    }
-                    Button {
-                        text: "Join";
-                        clicked => { root.join_session(root.join_input_text); }
-                    }
-                }
-
-                Rectangle {
-                    background: #0f172a;
-                    border-radius: 8px;
-                    border-width: 1px;
-                    border-color: #334155;
-
-                    VerticalLayout {
-                        padding-top: 6px;
-                        padding-bottom: 6px;
-                        padding-left: 10px;
-                        padding-right: 10px;
-                        spacing: 4px;
-
-                        HorizontalLayout {
-                            alignment: space-between;
-                            Text {
-                                text: "⚡ Tailcat DERP:";
-                                font-size: 11px;
-                                color: #94a3b8;
-                            }
-                            Text {
-                                text: root.derp_info;
-                                font-size: 11px;
-                                font-weight: 600;
-                                color: #38bdf8;
-                            }
-                        }
-                        HorizontalLayout {
-                            alignment: space-between;
-                            Text {
-                                text: "🌐 Edge Relay:";
-                                font-size: 11px;
-                                color: #94a3b8;
-                            }
-                            Text {
-                                text: root.edge_relay_info;
-                                font-size: 11px;
-                                font-weight: 600;
-                                color: #38bdf8;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Screen 2: Joining / Verifying Invite
-        if root.screen_index == 2 : Rectangle {
-            background: #1e293b;
-            border-radius: 12px;
-            border-width: 1px;
-            border-color: #334155;
-
-            VerticalLayout {
-                padding: 24px;
-                spacing: 16px;
-                alignment: center;
-                Text {
-                    text: "Connecting to Peer...";
-                    horizontal-alignment: center;
-                    font-size: 16px;
-                    font-weight: 700;
-                    color: #f8fafc;
-                }
-                Text {
-                    text: root.status_text;
-                    horizontal-alignment: center;
-                    font-size: 13px;
-                    color: #38bdf8;
-                }
-                ProgressIndicator {
-                    indeterminate: true;
-                    height: 6px;
-                }
-            }
-        }
-
-        // Screen 3: Connected Home (Active WireGuard P2P Session)
-        if root.screen_index == 3 : VerticalLayout {
-            spacing: 12px;
-
-            // Connection Status & Network Info Card
-            Rectangle {
-                background: #172554;
-                border-radius: 12px;
-                border-width: 1px;
-                border-color: #3b82f6;
-
-                VerticalLayout {
-                    padding-top: 10px;
-                    padding-bottom: 10px;
-                    padding-left: 14px;
-                    padding-right: 14px;
-                    spacing: 8px;
-
-                    // Row 1: Status Indicator + Protocol Badge
-                    HorizontalLayout {
-                        alignment: space-between;
-
-                        HorizontalLayout {
-                            spacing: 6px;
-                            alignment: start;
-
-                            // Green Status Dot Indicator
-                            Rectangle {
-                                width: 8px;
-                                height: 8px;
-                                border-radius: 4px;
-                                background: #22c55e;
-                                y: (parent.height - self.height) / 2;
-                            }
-
-                            Text {
-                                text: "Connected";
-                                font-size: 13px;
-                                font-weight: 700;
-                                color: #4ade80;
-                                vertical-alignment: center;
-                            }
-                        }
-
-                        // Protocol Badge
-                        Rectangle {
-                            background: #1e3a8a;
-                            border-radius: 4px;
-                            border-width: 1px;
-                            border-color: #60a5fa;
-
-                            HorizontalLayout {
-                                padding-left: 6px;
-                                padding-right: 6px;
-                                padding-top: 2px;
-                                padding-bottom: 2px;
                                 Text {
-                                    text: "WireGuard P2P";
-                                    font-size: 10px;
+                                    text: root.is_ja ? "安全なP2P通信を準備しています…" : "Starting secure P2P network…";
+                                    horizontal-alignment: center;
+                                    font-size: 15px;
                                     font-weight: 700;
-                                    color: #67e8f9;
-                                    vertical-alignment: center;
+                                    color: Theme.text-primary;
+                                }
+
+                                Text {
+                                    text: root.status_text;
+                                    horizontal-alignment: center;
+                                    font-size: 12px;
+                                    color: Theme.text-secondary;
+                                }
+
+                                ProgressIndicator {
+                                    indeterminate: true;
+                                    height: 4px;
                                 }
                             }
                         }
-                    }
 
-                    // Row 2: Peer Name (Clear and spacious)
-                    HorizontalLayout {
-                        alignment: start;
-                        spacing: 4px;
-                        Text {
-                            text: "Peer:";
-                            font-size: 12px;
-                            color: #94a3b8;
-                            vertical-alignment: center;
-                        }
-                        Text {
-                            text: root.peer_name;
-                            font-size: 13px;
-                            font-weight: 700;
-                            color: #f8fafc;
-                            vertical-alignment: center;
-                        }
-                    }
+                        // ----------------------------------------------------
+                        // Screen 1: Invite & Connect Hub
+                        // ----------------------------------------------------
+                        if root.screen_index == 1 : VerticalLayout {
+                            spacing: 10px;
 
-                    // Subtle Divider
-                    Rectangle {
-                        height: 1px;
-                        background: #1e40af;
-                    }
-
-                    // Connection Details Sub-Grid
-                    VerticalLayout {
-                        spacing: 4px;
-                        HorizontalLayout {
-                            alignment: space-between;
-                            Text {
-                                text: "• DERP Relay:";
-                                font-size: 11px;
-                                color: #94a3b8;
-                                vertical-alignment: center;
+                            // Tab Selector: Share QR vs Join Peer
+                            SegmentedTab {
+                                label-left: root.is_ja ? "接続を待つ (QR)" : "Share Invite (QR)";
+                                label-right: root.is_ja ? "相手に接続" : "Join Peer";
+                                active-tab <=> root.invite_tab_index;
                             }
-                            Text {
-                                text: root.derp_info;
-                                font-size: 11px;
-                                font-weight: 600;
-                                color: #cbd5e1;
-                                vertical-alignment: center;
+
+                            // Tab A: Share QR (Portrait vs Landscape Responsive Layout)
+                            if root.invite_tab_index == 0 : ModernCard {
+                                border-radius-custom: 16px;
+
+                                VerticalLayout {
+                                    padding: 14px;
+                                    spacing: 12px;
+
+                                    // Instruction Header
+                                    Text {
+                                        text: root.is_ja ? "スマホ等のカメラでスキャンして接続" : "Scan QR code with phone to connect";
+                                        horizontal-alignment: center;
+                                        font-size: 13px;
+                                        font-weight: 700;
+                                        color: Theme.text-primary;
+                                    }
+
+                                    // Portrait View: Vertical Stack
+                                    if !root.is_landscape : VerticalLayout {
+                                        spacing: 12px;
+                                        alignment: center;
+
+                                        HorizontalLayout {
+                                            alignment: center;
+                                            Rectangle {
+                                                width: root.height < 580px ? 168px : 216px;
+                                                height: root.height < 580px ? 168px : 216px;
+                                                background: #ffffff;
+                                                border-radius: 12px;
+                                                border-width: 3px;
+                                                border-color: #f1f5f9;
+
+                                                VerticalLayout {
+                                                    alignment: center;
+                                                    padding: 4px;
+                                                    HorizontalLayout {
+                                                        alignment: center;
+                                                        if root.has_qr_image : Image {
+                                                            source: root.qr_code_image;
+                                                            width: root.height < 580px ? 154px : 202px;
+                                                            height: root.height < 580px ? 154px : 202px;
+                                                            image-fit: contain;
+                                                        }
+                                                        if !root.has_qr_image : VerticalLayout {
+                                                            alignment: center;
+                                                            spacing: 6px;
+                                                            ProgressIndicator { indeterminate: true; height: 4px; }
+                                                            Text {
+                                                                text: root.is_ja ? "QR生成中…" : "Generating…";
+                                                                font-size: 12px;
+                                                                color: #475569;
+                                                                horizontal-alignment: center;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Expiry Countdown Gauge
+                                        VerticalLayout {
+                                            spacing: 4px;
+                                            HorizontalLayout {
+                                                alignment: space-between;
+                                                Text { text: root.is_ja ? "有効期限" : "Valid For"; font-size: 11px; color: Theme.text-muted; }
+                                                Text {
+                                                    text: root.expires_secs <= 0 ? (root.is_ja ? "期限切れ" : "Expired") : (Math.floor(root.expires_secs / 60) + (root.is_ja ? "分 " : "m ") + (root.expires_secs - Math.floor(root.expires_secs / 60) * 60) + (root.is_ja ? "秒" : "s"));
+                                                    font-size: 11px;
+                                                    font-weight: 700;
+                                                    color: root.expires_secs < 60 ? Theme.danger : Theme.accent-cyan;
+                                                }
+                                            }
+                                            Rectangle {
+                                                height: 4px;
+                                                background: Theme.surface-nested;
+                                                border-radius: 2px;
+                                                clip: true;
+                                                Rectangle {
+                                                    width: parent.width * Math.min(1.0, Math.max(0.0, root.expires_secs / 600.0));
+                                                    height: parent.height;
+                                                    background: root.expires_secs < 60 ? Theme.danger : Theme.accent-cyan;
+                                                    animate width { duration: 300ms; }
+                                                }
+                                            }
+                                        }
+
+                                        // Action Buttons
+                                        HorizontalLayout {
+                                            spacing: 8px;
+                                            alignment: center;
+
+                                            AppButton {
+                                                horizontal-stretch: 2;
+                                                text: root.copy_feedback_active ? (root.is_ja ? "コピー完了！" : "Copied!") : (root.is_ja ? "招待リンクをコピー" : "Copy Invite Link");
+                                                icon-text: root.copy_feedback_active ? "✓" : "";
+                                                primary: !root.copy_feedback_active;
+                                                secondary: root.copy_feedback_active;
+                                                clicked => { root.copy_feedback_active = true; root.copy_invite(); }
+                                            }
+
+                                            AppButton {
+                                                horizontal-stretch: 1;
+                                                text: root.is_ja ? "再生成" : "Regenerate";
+                                                secondary: true;
+                                                clicked => { root.copy_feedback_active = false; root.regenerate_invite(); }
+                                            }
+                                        }
+
+                                        HorizontalLayout {
+                                            alignment: center;
+                                            StatusBadge { text: root.is_ja ? "P2P直接暗号化通信" : "Direct P2P Encrypted"; dot-color: Theme.success; }
+                                        }
+                                    }
+
+                                    // Landscape / Wide View: 2-Column Responsive Layout
+                                    if root.is_landscape : HorizontalLayout {
+                                        spacing: 16px;
+                                        alignment: center;
+
+                                        // Left Column: Compact QR
+                                        Rectangle {
+                                            width: 210px;
+                                            height: 210px;
+                                            background: #ffffff;
+                                            border-radius: 12px;
+
+                                            Image {
+                                                source: root.qr_code_image;
+                                                image-fit: contain;
+                                                width: parent.width - 12px;
+                                                height: parent.height - 12px;
+                                                x: 6px;
+                                                y: 6px;
+                                            }
+                                        }
+
+                                        // Right Column: Controls & Expiry
+                                        VerticalLayout {
+                                            horizontal-stretch: 1;
+                                            spacing: 10px;
+                                            alignment: center;
+
+                                            VerticalLayout {
+                                                spacing: 4px;
+                                                HorizontalLayout {
+                                                    alignment: space-between;
+                                                    Text { text: root.is_ja ? "有効期限" : "Valid For"; font-size: 11px; color: Theme.text-muted; }
+                                                    Text {
+                                                        text: root.expires_secs <= 0 ? (root.is_ja ? "期限切れ" : "Expired") : (Math.floor(root.expires_secs / 60) + (root.is_ja ? "分 " : "m ") + (root.expires_secs - Math.floor(root.expires_secs / 60) * 60) + (root.is_ja ? "秒" : "s"));
+                                                        font-size: 12px;
+                                                        font-weight: 700;
+                                                        color: root.expires_secs < 60 ? Theme.danger : Theme.accent-cyan;
+                                                    }
+                                                }
+                                                Rectangle {
+                                                    height: 4px;
+                                                    background: Theme.surface-nested;
+                                                    border-radius: 2px;
+                                                    clip: true;
+                                                    Rectangle {
+                                                        width: parent.width * Math.min(1.0, Math.max(0.0, root.expires_secs / 600.0));
+                                                        height: parent.height;
+                                                        background: root.expires_secs < 60 ? Theme.danger : Theme.accent-cyan;
+                                                        animate width { duration: 300ms; }
+                                                    }
+                                                }
+                                            }
+
+                                            AppButton {
+                                                text: root.copy_feedback_active ? (root.is_ja ? "コピー完了！" : "Copied!") : (root.is_ja ? "招待リンクをコピー" : "Copy Invite Link");
+                                                icon-text: root.copy_feedback_active ? "✓" : "";
+                                                primary: !root.copy_feedback_active;
+                                                secondary: root.copy_feedback_active;
+                                                clicked => { root.copy_feedback_active = true; root.copy_invite(); }
+                                            }
+
+                                            AppButton {
+                                                text: root.is_ja ? "再生成" : "Regenerate";
+                                                secondary: true;
+                                                clicked => { root.copy_feedback_active = false; root.regenerate_invite(); }
+                                            }
+
+                                            HorizontalLayout {
+                                                alignment: start;
+                                                StatusBadge { text: root.is_ja ? "P2P直接暗号化通信" : "Direct P2P Encrypted"; dot-color: Theme.success; }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Tab B: Join Another Peer Session
+                            if root.invite_tab_index == 1 : ModernCard {
+                                border-radius-custom: 16px;
+
+                                VerticalLayout {
+                                    padding: 16px;
+                                    spacing: 12px;
+                                    alignment: start;
+
+                                    Text {
+                                        text: root.is_ja ? "相手の招待情報を使って接続" : "Connect using peer's invitation";
+                                        font-size: 13px;
+                                        font-weight: 700;
+                                        color: Theme.text-primary;
+                                    }
+
+                                    HorizontalLayout {
+                                        spacing: 8px;
+                                        AppButton {
+                                            horizontal-stretch: 1;
+                                            text: root.is_ja ? "QRカメラ起動" : "Scan QR Camera";
+                                            primary: true;
+                                            clicked => { root.scan_qr_camera(); }
+                                        }
+                                        AppButton {
+                                            horizontal-stretch: 1;
+                                            text: root.is_ja ? "貼付して接続" : "Paste & Join";
+                                            secondary: true;
+                                            clicked => { root.paste_and_join(); }
+                                        }
+                                    }
+
+                                    VerticalLayout {
+                                        spacing: 4px;
+                                        Text {
+                                            text: root.is_ja ? "または URL / セッションID を入力:" : "Or enter Invite URL / Session ID:";
+                                            font-size: 11px;
+                                            color: Theme.text-secondary;
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 6px;
+                                            LineEdit {
+                                                horizontal-stretch: 1;
+                                                placeholder-text: root.is_ja ? "招待URLまたはセッションIDを入力…" : "Paste URL or Session ID…";
+                                                accessible-label: root.is_ja ? "招待URLまたはセッションID" : "Invite URL or Session ID";
+                                                text <=> root.join_input_text;
+                                                accepted => { root.join_session(self.text); }
+                                            }
+                                            AppButton {
+                                                text: root.is_ja ? "接続" : "Join";
+                                                icon-text: "→";
+                                                primary: true;
+                                                custom-height: 38px;
+                                                clicked => { root.join_session(root.join_input_text); }
+                                            }
+                                        }
+                                    }
+
+                                    Rectangle {
+                                        background: Theme.surface-nested;
+                                        border-radius: 8px;
+                                        border-width: 1px;
+                                        border-color: Theme.border-subtle;
+
+                                        HorizontalLayout {
+                                            padding: 8px;
+                                            spacing: 6px;
+                                            alignment: start;
+                                            Rectangle {
+                                                width: 14px;
+                                                height: 14px;
+                                                border-radius: 7px;
+                                                border-width: 1px;
+                                                border-color: Theme.accent-cyan;
+                                                y: 1px;
+                                                Text {
+                                                    text: "i";
+                                                    font-size: 10px;
+                                                    font-weight: 700;
+                                                    color: Theme.accent-cyan;
+                                                    horizontal-alignment: center;
+                                                    vertical-alignment: center;
+                                                }
+                                            }
+                                            Text {
+                                                text: root.is_ja ? "同じWi-Fi内でも離れた場所でも、直接暗号化通信で安全につながります。" : "Connects directly and securely across any network.";
+                                                font-size: 11px;
+                                                color: Theme.text-secondary;
+                                                wrap: word-wrap;
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
-                        HorizontalLayout {
-                            alignment: space-between;
-                            Text {
-                                text: "• Edge Relay:";
-                                font-size: 11px;
-                                color: #94a3b8;
-                                vertical-alignment: center;
-                            }
-                            Text {
-                                text: root.edge_relay_info;
-                                font-size: 11px;
-                                font-weight: 600;
-                                color: #cbd5e1;
-                                vertical-alignment: center;
-                            }
-                        }
-                        if root.session_info != "" : HorizontalLayout {
-                            alignment: space-between;
-                            Text {
-                                text: "• Session ID:";
-                                font-size: 11px;
-                                color: #94a3b8;
-                                vertical-alignment: center;
-                            }
-                            Text {
-                                text: root.session_info;
-                                font-size: 11px;
-                                font-weight: 600;
-                                color: #38bdf8;
-                                vertical-alignment: center;
+
+                        // ----------------------------------------------------
+                        // Screen 2: Connecting
+                        // ----------------------------------------------------
+                        if root.screen_index == 2 : ModernCard {
+                            border-radius-custom: 16px;
+
+                            VerticalLayout {
+                                padding: 28px;
+                                spacing: 16px;
+                                alignment: center;
+
+                                ProgressIndicator { indeterminate: true; height: 4px; }
+                                Text {
+                                    text: root.is_ja ? "相手のデバイスと接続中…" : "Connecting to Peer Device…";
+                                    horizontal-alignment: center;
+                                    font-size: 15px;
+                                    font-weight: 700;
+                                    color: Theme.text-primary;
+                                }
+                                Text {
+                                    text: root.status_text;
+                                    horizontal-alignment: center;
+                                    font-size: 12px;
+                                    color: Theme.accent-cyan;
+                                }
                             }
                         }
-                    }
-                }
-            }
 
-            // Message & File Actions Card
-            Rectangle {
-                background: #1e293b;
-                border-radius: 12px;
-                border-width: 1px;
-                border-color: #334155;
+                        // ----------------------------------------------------
+                        // Screen 3: Connected Home (Adaptive Portrait vs Landscape)
+                        // ----------------------------------------------------
+                        if root.screen_index == 3 : VerticalLayout {
+                            spacing: 10px;
 
-                VerticalLayout {
-                    padding: 14px;
-                    spacing: 10px;
-                    Text {
-                        text: "Send Text or File:";
-                        font-size: 14px;
-                        font-weight: 700;
-                        color: #f8fafc;
-                    }
-                    msg_input := LineEdit {
-                        text: root.message_input;
-                        placeholder-text: "日本語・多言語メッセージを入力...";
-                        edited => { root.message_input = self.text; }
-                        accepted => { root.compose_text(self.text); }
-                    }
-                    HorizontalLayout {
-                        spacing: 8px;
-                        Button {
-                            text: "入力 (日本語/UTF-8)";
-                            primary: true;
-                            clicked => {
-                                root.open_text_composer();
+                            // Always show Peer Header at the top
+                            PeerHeaderCard {
+                                peer-name: root.peer_name;
+                                is-ja: root.is_ja;
                             }
-                        }
-                        Button {
-                            text: "送信 (Send)";
-                            clicked => {
-                                root.compose_text(root.message_input);
+
+                            // 1-Column Flow for Mobile Portrait
+                            if !root.is_landscape : VerticalLayout {
+                                spacing: 10px;
+
+                                if root.is_transferring || root.transfer_completed : TransferProgressCard {
+                                    is-transferring: root.is_transferring;
+                                    transfer-completed: root.transfer_completed;
+                                    transfer-status: root.transfer_status;
+                                    transfer-filename: root.transfer_filename;
+                                    transfer-bytes-text: root.transfer_bytes_text;
+                                    transfer-speed: root.transfer_speed;
+                                    transfer-progress: root.transfer_progress;
+                                    is-ja: root.is_ja;
+                                    cancel-clicked => {
+                                        root.is_transferring = false;
+                                        root.transfer_completed = false;
+                                        root.cancel_transfer();
+                                    }
+                                }
+
+                                SegmentedTab {
+                                    label-left: root.is_ja ? "ファイル送信" : "Send File";
+                                    label-right: root.is_ja ? "テキスト送信" : "Send Text";
+                                    active-tab <=> root.send_mode_tab;
+                                }
+
+                                if root.send_mode_tab == 0 : ModernCard {
+                                    VerticalLayout {
+                                        padding: 14px;
+                                        spacing: 10px;
+                                        Rectangle {
+                                            height: 95px;
+                                            background: drop_t1.has-hover ? #172642 : Theme.surface-nested;
+                                            border-radius: 10px;
+                                            border-width: 1.5px;
+                                            border-color: drop_t1.has-hover ? Theme.accent-cyan : #2b3d5c;
+                                            animate background { duration: 150ms; }
+                                            animate border-color { duration: 150ms; }
+                                            drop_t1 := TouchArea { mouse-cursor: pointer; clicked => { root.pick_files(); } }
+                                            VerticalLayout {
+                                                alignment: center;
+                                                spacing: 4px;
+                                                Text { text: "＋"; font-size: 24px; font-weight: 800; color: Theme.accent-cyan; horizontal-alignment: center; }
+                                                Text {
+                                                    text: root.is_ja ? "送信するファイルを選択" : "Choose File to Send";
+                                                    font-size: 13px; font-weight: 700; color: Theme.text-primary; horizontal-alignment: center;
+                                                }
+                                                Text {
+                                                    text: root.is_ja ? "クリックしてファイルを開く" : "Click to browse files";
+                                                    font-size: 10px; color: Theme.text-secondary; horizontal-alignment: center;
+                                                }
+                                            }
+                                        }
+                                        AppButton {
+                                            text: root.is_ja ? "ファイルを選択して送信" : "Select & Send File";
+                                            icon-text: "↑";
+                                            primary: true;
+                                            clicked => { root.pick_files(); }
+                                        }
+                                    }
+                                }
+
+                                if root.send_mode_tab == 1 : ModernCard {
+                                    VerticalLayout {
+                                        padding: 12px;
+                                        spacing: 8px;
+                                        HorizontalLayout {
+                                            spacing: 6px;
+                                            msg_field := LineEdit {
+                                                horizontal-stretch: 1;
+                                                text <=> root.message_input;
+                                                placeholder-text: root.is_ja ? "メッセージを入力…" : "Type a message…";
+                                                accessible-label: root.is_ja ? "メッセージ入力欄" : "Message input field";
+                                                accepted => {
+                                                    root.compose_text(self.text);
+                                                    self.text = "";
+                                                }
+                                            }
+                                            AppButton {
+                                                text: root.is_ja ? "送信" : "Send";
+                                                icon-text: "→";
+                                                primary: true;
+                                                custom-height: 38px;
+                                                clicked => {
+                                                    root.compose_text(root.message_input);
+                                                    root.message_input = "";
+                                                }
+                                            }
+                                        }
+                                        HorizontalLayout {
+                                            spacing: 6px;
+                                            AppButton {
+                                                horizontal-stretch: 1;
+                                                text: root.is_ja ? "貼付して即送信" : "Paste & Send";
+                                                secondary: true;
+                                                custom-height: 32px;
+                                                clicked => { root.paste_and_send(); }
+                                            }
+                                            AppButton {
+                                                horizontal-stretch: 1;
+                                                text: root.is_ja ? "外部入力 (IME)" : "Open Composer";
+                                                secondary: true;
+                                                custom-height: 32px;
+                                                clicked => { root.open_text_composer(); }
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if root.received_message_log != "" : ActivityStreamCard {
+                                    log-text: root.received_message_log;
+                                    is-ja: root.is_ja;
+                                    text-copied: root.text_copied_feedback;
+                                    copy-clicked => { root.copy_received_text(); }
+                                    save-clicked => { root.save_received_text(); }
+                                    share-clicked => { root.share_received_text(); }
+                                }
+
+                                if root.received_message_log == "" && !root.is_transferring && !root.transfer_completed : EmptyActivityCard {
+                                    is-ja: root.is_ja;
+                                }
                             }
-                        }
-                    }
-                    HorizontalLayout {
-                        spacing: 8px;
-                        Button {
-                            text: "貼り付けて送信";
-                            clicked => { root.paste_and_send(); }
-                        }
-                        Button {
-                            text: "ファイル選択";
-                            clicked => { root.pick_files(); }
-                        }
-                    }
-                }
-            }
 
-            // Permanent Transfer Progress Card with Clear Completion Feedback
-            Rectangle {
-                background: root.transfer_completed ? #064e3b : (root.is_transferring ? #0f2744 : #1e293b);
-                border-radius: 12px;
-                border-width: (root.transfer_completed || root.is_transferring) ? 1.5px : 1px;
-                border-color: root.transfer_completed ? #10b981 : (root.is_transferring ? #38bdf8 : #334155);
+                            // 2-Column Responsive Dashboard for Mobile Landscape & Wide Screens
+                            if root.is_landscape : HorizontalLayout {
+                                spacing: 12px;
+                                alignment: start;
 
-                VerticalLayout {
-                    padding: 14px;
-                    spacing: 8px;
+                                // Left Column: Send Controls
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 8px;
 
-                    HorizontalLayout {
-                        alignment: space-between;
-                        Text {
-                            text: root.transfer_status;
-                            font-size: 14px;
-                            font-weight: 700;
-                            color: root.transfer_completed ? #34d399 : (root.is_transferring ? #38bdf8 : #94a3b8);
-                        }
-                        Text {
-                            text: Math.round(root.transfer_progress * 100) + "%";
-                            font-size: 14px;
-                            font-weight: 700;
-                            color: root.transfer_completed ? #6ee7b7 : (root.is_transferring ? #60a5fa : #64748b);
-                        }
-                    }
+                                    SegmentedTab {
+                                        label-left: root.is_ja ? "ファイル送信" : "Send File";
+                                        label-right: root.is_ja ? "テキスト送信" : "Send Text";
+                                        active-tab <=> root.send_mode_tab;
+                                    }
 
-                    if root.transfer_filename != "" : HorizontalLayout {
-                        alignment: space-between;
-                        Text {
-                            text: root.transfer_filename;
-                            font-size: 12px;
-                            color: #f8fafc;
-                        }
-                        Text {
-                            text: root.transfer_bytes_text;
-                            font-size: 12px;
-                            color: #94a3b8;
-                        }
-                    }
+                                    if root.send_mode_tab == 0 : ModernCard {
+                                        VerticalLayout {
+                                            padding: 12px;
+                                            spacing: 8px;
+                                            Rectangle {
+                                                height: 75px;
+                                                background: drop_t2.has-hover ? #172642 : Theme.surface-nested;
+                                                border-radius: 9px;
+                                                border-width: 1.5px;
+                                                border-color: drop_t2.has-hover ? Theme.accent-cyan : #2b3d5c;
+                                                animate background { duration: 150ms; }
+                                                animate border-color { duration: 150ms; }
+                                                drop_t2 := TouchArea { mouse-cursor: pointer; clicked => { root.pick_files(); } }
+                                                VerticalLayout {
+                                                    alignment: center;
+                                                    spacing: 3px;
+                                                    Text { text: "＋"; font-size: 20px; font-weight: 800; color: Theme.accent-cyan; horizontal-alignment: center; }
+                                                    Text {
+                                                        text: root.is_ja ? "ファイルを選択" : "Choose File";
+                                                        font-size: 12px; font-weight: 700; color: Theme.text-primary; horizontal-alignment: center;
+                                                    }
+                                                }
+                                            }
+                                            AppButton {
+                                                text: root.is_ja ? "ファイルを選択して送信" : "Select & Send File";
+                                                icon-text: "↑";
+                                                primary: true;
+                                                custom-height: 36px;
+                                                clicked => { root.pick_files(); }
+                                            }
+                                        }
+                                    }
 
-                    ProgressIndicator {
-                        progress: root.transfer_progress;
-                        height: 8px;
-                    }
+                                    if root.send_mode_tab == 1 : ModernCard {
+                                        VerticalLayout {
+                                            padding: 10px;
+                                            spacing: 8px;
+                                            HorizontalLayout {
+                                                spacing: 6px;
+                                                LineEdit {
+                                                    horizontal-stretch: 1;
+                                                    text <=> root.message_input;
+                                                    placeholder-text: root.is_ja ? "メッセージを入力…" : "Type a message…";
+                                                    accessible-label: root.is_ja ? "メッセージ入力欄" : "Message input field";
+                                                    accepted => {
+                                                        root.compose_text(self.text);
+                                                        self.text = "";
+                                                    }
+                                                }
+                                                AppButton {
+                                                    text: root.is_ja ? "送信" : "Send";
+                                                    icon-text: "→";
+                                                    primary: true;
+                                                    custom-height: 36px;
+                                                    clicked => {
+                                                        root.compose_text(root.message_input);
+                                                        root.message_input = "";
+                                                    }
+                                                }
+                                            }
+                                            HorizontalLayout {
+                                                spacing: 6px;
+                                                AppButton {
+                                                    horizontal-stretch: 1;
+                                                    text: root.is_ja ? "貼付送信" : "Paste & Send";
+                                                    secondary: true;
+                                                    custom-height: 30px;
+                                                    clicked => { root.paste_and_send(); }
+                                                }
+                                                AppButton {
+                                                    horizontal-stretch: 1;
+                                                    text: root.is_ja ? "外部入力" : "Composer";
+                                                    secondary: true;
+                                                    custom-height: 30px;
+                                                    clicked => { root.open_text_composer(); }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
 
-                    HorizontalLayout {
-                        alignment: space-between;
-                        Text {
-                            text: root.transfer_speed;
-                            font-size: 12px;
-                            color: #94a3b8;
-                        }
-                        if root.is_transferring : Button {
-                            text: "Cancel";
-                            clicked => { root.cancel_transfer(); }
-                        }
-                    }
-                }
-            }
+                                // Right Column: Progress & Activity Stream
+                                VerticalLayout {
+                                    horizontal-stretch: 1;
+                                    spacing: 8px;
 
-            // Message & Transfer History Card with Share / Save / Copy Actions
-            if root.received_message_log != "" : Rectangle {
-                background: #1e293b;
-                border-radius: 12px;
-                border-width: 1px;
-                border-color: #334155;
+                                    if root.is_transferring || root.transfer_completed : TransferProgressCard {
+                                        is-transferring: root.is_transferring;
+                                        transfer-completed: root.transfer_completed;
+                                        transfer-status: root.transfer_status;
+                                        transfer-filename: root.transfer_filename;
+                                        transfer-bytes-text: root.transfer_bytes_text;
+                                        transfer-speed: root.transfer_speed;
+                                        transfer-progress: root.transfer_progress;
+                                        is-ja: root.is_ja;
+                                        cancel-clicked => {
+                                            root.is_transferring = false;
+                                            root.transfer_completed = false;
+                                            root.cancel_transfer();
+                                        }
+                                    }
 
-                VerticalLayout {
-                    padding: 14px;
-                    spacing: 8px;
-                    HorizontalLayout {
-                        alignment: space-between;
-                        Text {
-                            text: "Activity & Received Log:";
-                            font-size: 13px;
-                            font-weight: 700;
-                            color: #94a3b8;
-                        }
-                    }
-                    Rectangle {
-                        background: #0f172a;
-                        border-radius: 8px;
-                        border-width: 1px;
-                        border-color: #334155;
-                        min-height: 60px;
+                                    if root.received_message_log != "" : ActivityStreamCard {
+                                        log-text: root.received_message_log;
+                                        is-ja: root.is_ja;
+                                        text-copied: root.text_copied_feedback;
+                                        copy-clicked => { root.copy_received_text(); }
+                                        save-clicked => { root.save_received_text(); }
+                                        share-clicked => { root.share_received_text(); }
+                                    }
 
-                        VerticalLayout {
-                            padding: 10px;
-                            Text {
-                                text: root.received_message_log;
-                                font-size: 13px;
-                                color: #f8fafc;
+                                    if root.received_message_log == "" && !root.is_transferring && !root.transfer_completed : EmptyActivityCard {
+                                        is-ja: root.is_ja;
+                                    }
+                                }
                             }
-                        }
-                    }
-                    HorizontalLayout {
-                        spacing: 6px;
-                        Button {
-                            text: "Share to App";
-                            clicked => { root.share_received_text(); }
-                        }
-                        Button {
-                            text: "Save as .txt";
-                            clicked => { root.save_received_text(); }
-                        }
-                        Button {
-                            text: "Copy Text";
-                            clicked => { root.copy_received_text(); }
                         }
                     }
                 }
             }
         }
-    }
 }
