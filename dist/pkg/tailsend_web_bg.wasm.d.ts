@@ -3,7 +3,7 @@
 export const memory: WebAssembly.Memory;
 export const run_app: () => [number, number];
 export const wasm_bindgen__convert__closures_____invoke__hd7ea921419bc3a67: (a: number, b: number, c: number, d: number, e: number) => void;
-export const wasm_bindgen__convert__closures_____invoke__hf549755e23016557: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number) => void;
+export const wasm_bindgen__convert__closures_____invoke__hfd52fad5beeac19d: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number, l: number, m: number, n: number) => void;
 export const wasm_bindgen__convert__closures_____invoke__hf91b4afbb12111aa: (a: number, b: number, c: any) => [number, number];
 export const wasm_bindgen__convert__closures_____invoke__h3db16f3bf34843f0: (a: number, b: number, c: any, d: any) => void;
 export const wasm_bindgen__convert__closures_____invoke__hb87c02f12e27ea47: (a: number, b: number, c: number, d: number) => void;

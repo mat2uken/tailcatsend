@@ -322,6 +322,7 @@ component PeerHeaderCard inherits ModernCard {
 component TransferProgressCard inherits Rectangle {
     in property <bool> is-transferring: false;
     in property <bool> transfer-completed: false;
+    in property <bool> is-sender: false;
     in property <string> transfer-status: "";
     in property <string> transfer-filename: "";
     in property <string> transfer-bytes-text: "";
@@ -348,13 +349,21 @@ component TransferProgressCard inherits Rectangle {
             HorizontalLayout {
                 spacing: 6px;
                 Text {
-                    text: root.transfer-completed ? "✓" : "↓";
+                    text: root.transfer-completed ? "✓" : (root.is-sender ? "↑" : "↓");
                     font-size: 13px;
                     font-weight: 800;
                     color: root.transfer-completed ? Theme.success-border : Theme.accent-cyan;
                 }
                 Text {
-                    text: root.transfer-status;
+                    text: root.transfer-completed
+                        ? (root.is-sender
+                            ? (root.is-ja ? "ファイル送信完了" : "File Sent Successfully!")
+                            : (root.is-ja ? "ファイル受信完了" : "File Received Successfully!"))
+                        : (root.transfer-status != ""
+                            ? root.transfer-status
+                            : (root.is-sender
+                                ? (root.is-ja ? "ファイルを送信中…" : "Sending file…")
+                                : (root.is-ja ? "ファイルを受信中…" : "Receiving file…")));
                     font-size: 12px;
                     font-weight: 700;
                     color: root.transfer-completed ? #a7f3d0 : #e0f2fe;
@@ -376,7 +385,7 @@ component TransferProgressCard inherits Rectangle {
 
         ProgressIndicator { progress: root.transfer-progress; height: 5px; }
 
-        if root.transfer-completed && root.saved-file-path != "" : Rectangle {
+        if root.transfer-completed && !root.is-sender && root.saved-file-path != "" : Rectangle {
             background: path-touch.has-hover ? #064e3b : #022c22;
             border-radius: 8px;
             border-width: 1px;
@@ -438,7 +447,7 @@ component TransferProgressCard inherits Rectangle {
                     clicked => { root.cancel-clicked(); }
                 }
 
-                if root.transfer-completed && root.saved-file-path != "" : AppButton {
+                if root.transfer-completed && !root.is-sender && root.saved-file-path != "" : AppButton {
                     text: root.path-copied ? (root.is-ja ? "コピー完了！" : "Copied!") : (root.is-ja ? "パスをコピー" : "Copy Path");
                     icon-text: root.path-copied ? "✓" : "";
                     primary: root.path-copied;
@@ -600,6 +609,7 @@ export component AppWindow inherits Window {
     in-out property <float> transfer_progress: 0.0;
     in-out property <bool> is_transferring: false;
     in-out property <bool> transfer_completed: false;
+    in-out property <bool> is_sender_transfer: false;
     in-out property <string> saved_file_path: "";
     in-out property <bool> path_copied_feedback: false;
 
@@ -1190,6 +1200,7 @@ export component AppWindow inherits Window {
                                 if root.is_transferring || root.transfer_completed : TransferProgressCard {
                                     is-transferring: root.is_transferring;
                                     transfer-completed: root.transfer_completed;
+                                    is-sender: root.is_sender_transfer;
                                     transfer-status: root.transfer_status;
                                     transfer-filename: root.transfer_filename;
                                     transfer-bytes-text: root.transfer_bytes_text;
@@ -1418,6 +1429,7 @@ export component AppWindow inherits Window {
                                     if root.is_transferring || root.transfer_completed : TransferProgressCard {
                                         is-transferring: root.is_transferring;
                                         transfer-completed: root.transfer_completed;
+                                        is-sender: root.is_sender_transfer;
                                         transfer-status: root.transfer_status;
                                         transfer-filename: root.transfer_filename;
                                         transfer-bytes-text: root.transfer_bytes_text;

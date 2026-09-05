@@ -346,6 +346,7 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
                                         app.set_screen_index(3);
                                         app.set_is_transferring(true);
                                         app.set_transfer_completed(false);
+                                        app.set_is_sender_transfer(false);
                                         app.set_transfer_filename(fn_start.clone().into());
                                         if total_mb > 0.0 {
                                             app.set_transfer_bytes_text(format!("0.0 MB / {:.1} MB", total_mb).into());
@@ -415,11 +416,12 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
                                             app.set_screen_index(3);
                                             app.set_is_transferring(false);
                                             app.set_transfer_completed(true);
+                                            app.set_is_sender_transfer(false);
                                             app.set_transfer_filename(fn_done.clone().into());
                                             app.set_transfer_bytes_text(format!("{:.1} MB", final_mb).into());
-                                            app.set_transfer_speed("Saved".into());
+                                            app.set_transfer_speed("保存完了".into());
                                             app.set_transfer_progress(1.0);
-                                            app.set_transfer_status("[Completed] File Transfer Successful!".into());
+                                            app.set_transfer_status("ファイル受信完了".into());
                                             app.set_status_text(format!("Received {} — Saved to Download/TailSend!", fn_done).into());
                                             let new_log = format!(
                                                 "[File Received]: {} ({:.1} MB)\nSaved: {}\n{}",
@@ -753,12 +755,13 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
                         if let Some(app) = w_cb.upgrade() {
                             app.set_is_transferring(false);
                             app.set_transfer_completed(true);
+                            app.set_is_sender_transfer(true);
                             app.set_transfer_filename(fn_cb.clone().into());
                             app.set_transfer_bytes_text(format!("{:.1} MB", total_mb).into());
-                            app.set_transfer_speed("Saved".into());
+                            app.set_transfer_speed("送信完了".into());
                             app.set_transfer_progress(1.0);
-                            app.set_transfer_status("[Completed] Transfer Successful!".into());
-                            app.set_status_text(format!("Delivered {} to macOS!", fn_cb).into());
+                            app.set_transfer_status("ファイル送信完了".into());
+                            app.set_status_text(format!("{} の送信が完了しました！", fn_cb).into());
                         }
                     });
                 }

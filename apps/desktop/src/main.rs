@@ -460,6 +460,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 app.set_peer_name(I18n::connected_peer(is_ja).into());
                                 app.set_is_transferring(true);
                                 app.set_transfer_completed(false);
+                                app.set_is_sender_transfer(false);
                                 app.set_saved_file_path("".into());
                                 app.set_path_copied_feedback(false);
                                 app.set_transfer_filename(fname.clone().into());
@@ -497,6 +498,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 let is_ja = app.get_current_language() == "ja";
                                 app.set_is_transferring(true);
                                 app.set_transfer_completed(false);
+                                app.set_is_sender_transfer(false);
                                 app.set_transfer_filename(fname.clone().into());
                                 app.set_transfer_bytes_text(bytes_text.into());
                                 app.set_transfer_speed(speed.into());
@@ -525,6 +527,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 app.set_screen_index(3);
                                 app.set_is_transferring(false);
                                 app.set_transfer_completed(true);
+                                app.set_is_sender_transfer(false);
                                 app.set_transfer_filename(fname_clone.clone().into());
                                 app.set_transfer_bytes_text(format!("{:.1} MB", fsize).into());
                                 app.set_transfer_speed(if is_ja { "保存完了" } else { "Saved" }.into());
@@ -540,6 +543,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     recv_label, fname_clone, fsize, saved_label, saved_path_clone, app.get_received_message_log()
                                 );
                                 app.set_received_message_log(new_log.into());
+                            }
+                        });
+                    }
+                    "send_file_success" => {
+                        let fname = ev.filename.unwrap_or_else(|| "file.bin".to_string());
+                        let total_mb = ev.size.unwrap_or(0) as f64 / 1048576.0;
+                        let w = app_weak_daemon.clone();
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(app) = w.upgrade() {
+                                let is_ja = app.get_current_language() == "ja";
+                                app.set_is_transferring(false);
+                                app.set_transfer_completed(true);
+                                app.set_is_sender_transfer(true);
+                                app.set_transfer_filename(fname.clone().into());
+                                app.set_transfer_bytes_text(format!("{:.1} MB", total_mb).into());
+                                app.set_transfer_speed(if is_ja { "送信完了" } else { "Sent" }.into());
+                                app.set_transfer_progress(1.0);
+                                app.set_transfer_status(if is_ja { "ファイル送信完了" } else { "File Sent Successfully!" }.into());
+                                app.set_status_text(if is_ja { format!("{} ({:.1} MB) を送信しました", fname, total_mb).into() } else { format!("Sent {} ({:.1} MB) successfully!", fname, total_mb).into() });
                             }
                         });
                     }
@@ -669,6 +691,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             app.set_status_text(I18n::disconnected(is_ja).into());
             app.set_is_transferring(false);
             app.set_transfer_completed(false);
+            app.set_is_sender_transfer(false);
             app.set_saved_file_path("".into());
             app.set_path_copied_feedback(false);
         }
@@ -836,6 +859,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 app.set_is_transferring(true);
                 app.set_transfer_completed(false);
+                app.set_is_sender_transfer(true);
                 app.set_transfer_filename(file_name.clone().into());
                 app.set_transfer_status(I18n::file_sending(is_ja).into());
                 app.set_transfer_progress(0.1);

@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="ja" translate="no">
 <head>
     <meta charset="UTF-8">
+    <meta name="google" content="notranslate">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>tailcatSend — Direct P2P Transfer</title>
+    <title>tailcatSend — P2P暗号化ファイル転送</title>
     <style>
         * {
             box-sizing: border-box;
@@ -273,6 +274,27 @@
         // Dedicated Slint TransferProgressCard handles all progress UI
         function updateHUD() {}
 
+        // Wrap window.updateSlintTransferState to seamlessly support both 7-arg and 8-arg calls
+        let _rawUpdateSlintTransferState = null;
+        Object.defineProperty(window, "updateSlintTransferState", {
+            get() {
+                return function(is_transferring, completed, is_sender_or_status, status_or_filename, filename_or_bytes, bytes_or_prog, prog_or_speed, speed_opt) {
+                    if (!_rawUpdateSlintTransferState) return;
+                    if (typeof is_sender_or_status === "boolean") {
+                        // 8 arguments: (is_transferring, completed, is_sender, status, filename, bytes_text, progress, speed)
+                        _rawUpdateSlintTransferState(is_transferring, completed, is_sender_or_status, status_or_filename, filename_or_bytes, bytes_or_prog, prog_or_speed, speed_opt);
+                    } else {
+                        // 7 arguments: (is_transferring, completed, status, filename, bytes_text, progress, speed)
+                        _rawUpdateSlintTransferState(is_transferring, completed, false, is_sender_or_status, status_or_filename, filename_or_bytes, bytes_or_prog, prog_or_speed);
+                    }
+                };
+            },
+            set(fn) {
+                _rawUpdateSlintTransferState = fn;
+            },
+            configurable: true
+        });
+
         async function fetchAndDecompressWasmBytes(url) {
             const cacheBustedUrl = url.includes("?") ? `${url}&_cb=${BUILD_TIMESTAMP}` : `${url}?_cb=${BUILD_TIMESTAMP}`;
             const response = await fetch(cacheBustedUrl, { cache: "no-store" });
@@ -477,77 +499,115 @@
                 window.onPeerConnectedSlint("Remote Peer (P2P)");
             }
 
-            while (true) {
-                const chunk = await conn.read();
-                if (!chunk || chunk.length === 0) break;
-
-                if (!headerParsed) {
-                    headerBuffer += decoder.decode(chunk, { stream: true });
-                    const newlineIdx = headerBuffer.indexOf("\n");
-                    if (newlineIdx !== -1) {
-                        const headerLine = headerBuffer.substring(0, newlineIdx).trim();
-                        const parts = headerLine.split(":");
-                        if (parts.length >= 3 && parts[0] === "NAME") {
-                            filename = parts[1];
-                            totalBytes = parseInt(parts[2], 10) || 0;
-                        }
-                        headerParsed = true;
-                        console.log(`⚡ [TailSend Web] Incoming file: ${filename} (${totalBytes} bytes)`);
-
-                        const totalMB = (totalBytes / 1048576).toFixed(1);
-                        updateHUD(true, "Receiving...", filename, `0.0 MB / ${totalMB} MB`, 0.0, "Receiving...");
-                        if (window.updateSlintTransferState) {
-                            window.updateSlintTransferState(true, false, "Receiving...", filename, `0.0 MB / ${totalMB} MB`, 0.0, "Receiving...");
-                        }
-
-                        const headerByteLen = new TextEncoder().encode(headerBuffer.substring(0, newlineIdx + 1)).length;
-                        const bodySlice = chunk.slice(headerByteLen);
-                        if (bodySlice.length > 0) {
-                            fileData.push(bodySlice);
-                            receivedBytes += bodySlice.length;
-                        }
+            try {
+                while (true) {
+                    if (totalBytes > 0 && receivedBytes >= totalBytes) {
+                        console.log(`⚡ [tailcatSend Web] Reached totalBytes (${receivedBytes}/${totalBytes}), completing read loop.`);
+                        break;
                     }
-                } else {
-                    fileData.push(chunk);
-                    receivedBytes += chunk.length;
 
-                    const progress = totalBytes > 0 ? Math.min(1.0, receivedBytes / totalBytes) : 0.5;
-                    const elapsedSec = (performance.now() - startTime) / 1000;
-                    const speed = elapsedSec > 0 ? ((receivedBytes / 1048576) / elapsedSec).toFixed(1) + " MB/s" : "Calculating...";
-                    const totalMB = (totalBytes / 1048576).toFixed(1);
-                    const bytesText = `${(receivedBytes / 1048576).toFixed(1)} MB / ${totalMB} MB`;
+                    const chunk = await conn.read();
+                    if (!chunk || chunk.length === 0) {
+                        console.log("⚡ [tailcatSend Web] Received EOF on Port 102");
+                        break;
+                    }
 
-                    updateHUD(true, "Receiving...", filename, bytesText, progress, speed);
-                    if (window.updateSlintTransferState) {
-                        window.updateSlintTransferState(true, false, "Receiving...", filename, bytesText, progress, speed);
+                    if (!headerParsed) {
+                        headerBuffer += decoder.decode(chunk, { stream: true });
+                        const newlineIdx = headerBuffer.indexOf("\n");
+                        if (newlineIdx !== -1) {
+                            const headerLine = headerBuffer.substring(0, newlineIdx).trim();
+                            const parts = headerLine.split(":");
+                            if (parts.length >= 3 && parts[0] === "NAME") {
+                                filename = parts[1];
+                                totalBytes = parseInt(parts[2], 10) || 0;
+                            }
+                            headerParsed = true;
+                            console.log(`⚡ [tailcatSend Web] Incoming file: ${filename} (${totalBytes} bytes)`);
+
+                            const totalMB = (totalBytes / 1048576).toFixed(1);
+                            if (window.updateSlintTransferState) {
+                                window.updateSlintTransferState(true, false, false, "ファイル受信中…", filename, `0.0 MB / ${totalMB} MB`, 0.0, "受信中…");
+                            }
+
+                            const headerByteLen = new TextEncoder().encode(headerBuffer.substring(0, newlineIdx + 1)).length;
+                            const bodySlice = chunk.slice(headerByteLen);
+                            if (bodySlice.length > 0) {
+                                fileData.push(bodySlice);
+                                receivedBytes += bodySlice.length;
+                            }
+
+                            if (totalBytes > 0 && receivedBytes >= totalBytes) {
+                                console.log(`⚡ [tailcatSend Web] Entire file received in header chunk (${receivedBytes}/${totalBytes})`);
+                                break;
+                            }
+                        }
+                    } else {
+                        fileData.push(chunk);
+                        receivedBytes += chunk.length;
+
+                        const progress = totalBytes > 0 ? Math.min(1.0, receivedBytes / totalBytes) : 0.5;
+                        const elapsedSec = (performance.now() - startTime) / 1000;
+                        const speed = elapsedSec > 0 ? ((receivedBytes / 1048576) / elapsedSec).toFixed(1) + " MB/s" : "計算中…";
+                        const totalMB = (totalBytes / 1048576).toFixed(1);
+                        const bytesText = `${(receivedBytes / 1048576).toFixed(1)} MB / ${totalMB} MB`;
+
+                        if (window.updateSlintTransferState) {
+                            window.updateSlintTransferState(true, false, false, "ファイル受信中…", filename, bytesText, progress, speed);
+                        }
+
+                        if (totalBytes > 0 && receivedBytes >= totalBytes) {
+                            console.log(`⚡ [tailcatSend Web] All bytes received (${receivedBytes}/${totalBytes}), breaking loop.`);
+                            break;
+                        }
                     }
                 }
+            } catch (err) {
+                console.warn("[tailcatSend Web] Stream read interrupted:", err);
+                if (totalBytes > 0 && receivedBytes < totalBytes) {
+                    console.error(`[tailcatSend Web] Incomplete file transfer: ${receivedBytes}/${totalBytes} bytes`);
+                    if (window.updateSlintTransferState) {
+                        window.updateSlintTransferState(false, false, false, "受信エラー: 転送が中断されました", filename, `${(receivedBytes / 1048576).toFixed(1)} MB / ${(totalBytes / 1048576).toFixed(1)} MB`, receivedBytes / totalBytes, "エラー");
+                    }
+                    if (window.updateSlintStatusText) {
+                        window.updateSlintStatusText(`受信エラー: 転送が中断されました (${filename})`);
+                    }
+                    try { conn.close(); } catch (_) {}
+                    return;
+                }
             }
-            conn.close();
+
+            try { await conn.closeWrite(); } catch (_) {}
+            try { conn.close(); } catch (_) {}
 
             // Trigger browser file download
-            const blob = new Blob(fileData, { type: "application/octet-stream" });
-            const downloadUrl = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = downloadUrl;
-            a.download = filename;
-            document.body.appendChild(a);
-            a.click();
-            setTimeout(() => {
-                document.body.removeChild(a);
-                URL.revokeObjectURL(downloadUrl);
-            }, 1000);
+            if (fileData.length > 0 && receivedBytes > 0) {
+                const blob = new Blob(fileData, { type: "application/octet-stream" });
+                const downloadUrl = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = downloadUrl;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(downloadUrl);
+                }, 1500);
 
-            const finalMB = (receivedBytes / 1048576).toFixed(1);
-            updateHUD(false, "Download Complete!", filename, `${finalMB} MB`, 1.0, "Saved", true);
-            if (window.updateSlintTransferState) {
-                window.updateSlintTransferState(false, true, "[Completed] Download Complete!", filename, `${finalMB} MB`, 1.0, "Saved");
+                const finalMB = (receivedBytes / 1048576).toFixed(1);
+                if (window.updateSlintTransferState) {
+                    window.updateSlintTransferState(false, true, false, "ファイル受信完了", filename, `${finalMB} MB`, 1.0, "保存完了");
+                }
+                if (window.onFileReceivedCompleteSlint) {
+                    window.onFileReceivedCompleteSlint(filename, receivedBytes);
+                }
+                if (window.updateSlintStatusText) {
+                    window.updateSlintStatusText(`${filename} (${finalMB} MB) の受信が完了しました！`);
+                }
+                console.log(`✅ [tailcatSend Web] File saved to downloads: ${filename} (${receivedBytes} bytes)`);
             }
-            if (window.onFileReceivedCompleteSlint) {
-                window.onFileReceivedCompleteSlint(filename, receivedBytes);
-            }
-            console.log(`✅ [TailSend Web] File saved to downloads: ${filename} (${receivedBytes} bytes)`);
         }
+        window.handleIncomingFileStream = handleIncomingFileStream;
 
         // Manual connect to peer from join code input
         window.connectToPeerFromInput = async function(targetAddr) {
@@ -729,30 +789,32 @@
         window.sendTailcatFileChunked = async function(file) {
             const addr = getHostAddress();
             if (!file || !addr) {
-                alert("Error: Target host address not found. Please scan QR again.");
+                alert("エラー: 接続先ホストアドレスが見つかりません。QRコードを再スキャンしてください。");
                 return;
             }
-            console.log("[TailSend Web] Streaming file via Tailcat P2P (Port 102) to " + addr + ":", file.name, file.size, "bytes");
+            console.log("[tailcatSend Web] Streaming file via Tailcat P2P (Port 102) to " + addr + ":", file.name, file.size, "bytes");
             const totalMB = (file.size / 1048576).toFixed(1);
 
-            updateHUD(true, "Connecting P2P...", file.name, `0.0 MB / ${totalMB} MB`, 0.0, "Connecting...");
             if (window.updateSlintTransferState) {
-                window.updateSlintTransferState(true, false, "Connecting P2P...", file.name, `0.0 MB / ${totalMB} MB`, 0.0, "Connecting...");
+                window.updateSlintTransferState(true, false, true, "接続中…", file.name, `0.0 MB / ${totalMB} MB`, 0.0, "接続中…");
             }
             if (window.updateSlintStatusText) {
-                window.updateSlintStatusText(`Connecting file transfer: ${file.name}`);
+                window.updateSlintStatusText(`ファイル送信の準備中: ${file.name}`);
             }
 
+            let conn = null;
             try {
-                const conn = await window.tailcatDial({
+                conn = await window.tailcatDial({
                     addr: addr,
                     port: 102,
                     derpMapURL: "https://tailcat.dev/derpmap.json"
                 });
 
-                updateHUD(true, "Sending to macOS...", file.name, `0.0 MB / ${totalMB} MB`, 0.1, "Transferring...");
+                if (window.updateSlintTransferState) {
+                    window.updateSlintTransferState(true, false, true, "ファイル送信中…", file.name, `0.0 MB / ${totalMB} MB`, 0.05, "送信中…");
+                }
                 if (window.updateSlintStatusText) {
-                    window.updateSlintStatusText(`Transferring ${file.name}...`);
+                    window.updateSlintStatusText(`ファイル送信中: ${file.name}…`);
                 }
                 
                 // 1. Send filename and size header
@@ -766,6 +828,7 @@
 
                 for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
                     if (window.isTransferCancelled) {
+                        console.log("[tailcatSend Web] File transfer cancelled by user");
                         break;
                     }
 
@@ -780,43 +843,59 @@
                     transferredBytes = end;
                     const progress = transferredBytes / file.size;
                     const elapsedSec = (performance.now() - startTime) / 1000;
-                    const speedMBs = elapsedSec > 0 ? ((transferredBytes / 1048576) / elapsedSec).toFixed(1) + " MB/s" : "Calculating...";
+                    const speedMBs = elapsedSec > 0 ? ((transferredBytes / 1048576) / elapsedSec).toFixed(1) + " MB/s" : "計算中…";
                     const bytesText = `${(transferredBytes / 1048576).toFixed(1)} MB / ${totalMB} MB`;
 
-                    updateHUD(true, "Sending to macOS...", file.name, bytesText, progress, speedMBs);
                     if (window.updateSlintTransferState) {
-                        window.updateSlintTransferState(true, false, "Sending...", file.name, bytesText, progress, speedMBs);
+                        window.updateSlintTransferState(true, false, true, "ファイル送信中…", file.name, bytesText, progress, speedMBs);
                     }
 
-                    if (chunkIdx % 4 === 0) {
-                        await new Promise(r => requestAnimationFrame(r));
+                    // Yield event loop every chunk (critical on iOS Safari / mobile WebSockets)
+                    if (totalChunks > 1) {
+                        await new Promise(r => setTimeout(r, 4));
                     }
                 }
+
+                // Ensure the last chunk has cleared the browser network socket buffer
+                await new Promise(r => setTimeout(r, 150));
 
                 try {
                     await conn.closeWrite();
                 } catch (e) {
-                    console.warn("closeWrite warning:", e);
+                    console.warn("[tailcatSend Web] closeWrite warning:", e);
                 }
-                conn.close();
 
-                updateHUD(false, "Transfer Complete!", file.name, `${totalMB} MB`, 1.0, "", true);
+                // Wait for receiver to read remaining bytes and close its side (or 3-sec timeout)
+                try {
+                    const readEOF = conn.read();
+                    const timeout = new Promise(r => setTimeout(r, 3000));
+                    await Promise.race([readEOF, timeout]);
+                } catch (_) {}
+
+                // Small delay before tearing down client
+                await new Promise(r => setTimeout(r, 200));
+                try {
+                    conn.close();
+                } catch (_) {}
+
                 if (window.updateSlintTransferState) {
-                    window.updateSlintTransferState(false, true, "[Completed] Transfer Successful!", file.name, `${totalMB} MB`, 1.0, "Saved");
+                    window.updateSlintTransferState(false, true, true, "ファイル送信完了", file.name, `${totalMB} MB`, 1.0, "送信完了");
                 }
                 if (window.updateSlintStatusText) {
-                    window.updateSlintStatusText(`Delivered ${file.name} (${totalMB} MB) to macOS!`);
+                    window.updateSlintStatusText(`${file.name} (${totalMB} MB) の送信が完了しました！`);
                 }
-                console.log("✅ [TailSend Web] File successfully delivered to Mac via Tailcat P2P!");
+                console.log("✅ [tailcatSend Web] File successfully delivered to peer via Tailcat P2P!");
             } catch (err) {
-                console.error("[TailSend Web] Failed to send file via Tailcat P2P:", err);
-                alert("File transfer error: " + (err.message || err));
-                updateHUD(false, "Transfer Failed", file.name, "0.0 MB", 0.0, "Error");
+                console.error("[tailcatSend Web] Failed to send file via Tailcat P2P:", err);
+                alert("ファイル送信エラー: " + (err.message || err));
                 if (window.updateSlintTransferState) {
-                    window.updateSlintTransferState(false, false, "Transfer Failed", file.name, "0.0 MB", 0.0, "Error");
+                    window.updateSlintTransferState(false, false, true, "送信エラー", file.name, "0.0 MB", 0.0, "エラー");
                 }
                 if (window.updateSlintStatusText) {
-                    window.updateSlintStatusText("Transfer Error: " + (err.message || err));
+                    window.updateSlintStatusText("送信エラー: " + (err.message || err));
+                }
+                if (conn) {
+                    try { conn.close(); } catch (_) {}
                 }
             }
         };

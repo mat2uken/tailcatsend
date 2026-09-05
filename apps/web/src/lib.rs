@@ -58,7 +58,11 @@ impl I18nWeb {
         if is_ja { format!("{} ({:.1} MB) を保存しました", fname, size_mb) } else { format!("Downloaded {} ({:.1} MB) successfully!", fname, size_mb) }
     }
     pub fn download_completed_badge(is_ja: bool) -> &'static str {
-        if is_ja { "ダウンロードが完了しました！" } else { "Download Complete!" }
+        if is_ja { "ファイル受信完了" } else { "Download Complete!" }
+    }
+    #[allow(dead_code)]
+    pub fn send_completed_badge(is_ja: bool) -> &'static str {
+        if is_ja { "ファイル送信完了" } else { "File Sent Successfully!" }
     }
     pub fn securely_connected(is_ja: bool) -> &'static str {
         if is_ja { "相手端末と直接安全に接続されています" } else { "Securely connected to Peer" }
@@ -259,17 +263,18 @@ pub fn run_app() -> Result<(), JsValue> {
     on_text_sent.forget();
 
     let app_weak_progress = app.as_weak();
-    let update_transfer_state = Closure::wrap(Box::new(move |is_transferring: bool, completed: bool, status: String, filename: String, bytes_text: String, progress: f64, speed: String| {
+    let update_transfer_state = Closure::wrap(Box::new(move |is_transferring: bool, completed: bool, is_sender: bool, status: String, filename: String, bytes_text: String, progress: f64, speed: String| {
         if let Some(app) = app_weak_progress.upgrade() {
             app.set_is_transferring(is_transferring);
             app.set_transfer_completed(completed);
+            app.set_is_sender_transfer(is_sender);
             app.set_transfer_status(status.into());
             app.set_transfer_filename(filename.into());
             app.set_transfer_bytes_text(bytes_text.into());
             app.set_transfer_progress(progress as f32);
             app.set_transfer_speed(speed.into());
         }
-    }) as Box<dyn FnMut(bool, bool, String, String, String, f64, String)>);
+    }) as Box<dyn FnMut(bool, bool, bool, String, String, String, f64, String)>);
     let _ = js_sys::Reflect::set(&window, &JsValue::from_str("updateSlintTransferState"), update_transfer_state.as_ref().unchecked_ref());
     update_transfer_state.forget();
 
@@ -283,6 +288,7 @@ pub fn run_app() -> Result<(), JsValue> {
             app.set_received_message_log(new_log.into());
             app.set_is_transferring(false);
             app.set_transfer_completed(true);
+            app.set_is_sender_transfer(false);
             app.set_transfer_status(I18nWeb::download_completed_badge(is_ja).into());
             app.set_status_text(I18nWeb::file_download_done(is_ja, &filename, mb).into());
             app.set_saved_file_path(filename.into());
@@ -566,6 +572,7 @@ pub fn run_app() -> Result<(), JsValue> {
             app.set_status_text(I18nWeb::disconnected(is_ja).into());
             app.set_is_transferring(false);
             app.set_transfer_completed(false);
+            app.set_is_sender_transfer(false);
             app.set_saved_file_path("".into());
             app.set_path_copied_feedback(false);
         }
