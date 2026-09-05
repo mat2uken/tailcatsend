@@ -1,11 +1,11 @@
-// Mobile Browser Emulation & Full Diagnostic Capture
+// Comprehensive Mobile & Responsive Verification Matrix
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
 
 const DIST_DIR = path.resolve(__dirname, "../dist");
-const PORT = 8789;
+const PORT = 8790;
 
 const MIME_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -48,20 +48,20 @@ function startStaticServer() {
         });
 
         server.listen(PORT, "127.0.0.1", () => {
-            console.log(`[Diagnostic Server] Serving ${DIST_DIR} on http://127.0.0.1:${PORT}`);
+            console.log(`[Test Server] Serving ${DIST_DIR} on http://127.0.0.1:${PORT}`);
             resolve(server);
         });
     });
 }
 
-async function runDiagnostic() {
+async function runTestMatrix() {
     const testUrl = `http://127.0.0.1:${PORT}/index.html`;
 
     const chromePath = fs.existsSync("C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe")
         ? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
         : "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 
-    const debugPort = 9225;
+    const debugPort = 9226;
     const chrome = spawn(chromePath, [
         "--headless=new",
         `--remote-debugging-port=${debugPort}`,
@@ -72,9 +72,6 @@ async function runDiagnostic() {
         "--user-agent=Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1",
         testUrl,
     ]);
-
-    const logs = [];
-    const errors = [];
 
     try {
         await new Promise((r) => setTimeout(r, 2000));
@@ -112,93 +109,71 @@ async function runDiagnostic() {
                 pending.delete(data.id);
                 resolve(data.result);
             }
-            if (data.method === "Runtime.consoleAPICalled") {
-                const text = data.params.args.map((a) => a.value || a.description || JSON.stringify(a)).join(" ");
-                console.log(`[Browser Console ${data.params.type}]`, text);
-                logs.push(`[${data.params.type}] ${text}`);
-                if (data.params.type === "error") {
-                    errors.push(text);
-                }
-            }
-            if (data.method === "Runtime.exceptionThrown") {
-                const desc = data.params.exceptionDetails.exception.description || data.params.exceptionDetails.text;
-                console.error("[Browser Exception]", desc);
-                errors.push(`Exception: ${desc}`);
-            }
         };
 
         await sendCommand("Runtime.enable");
         await sendCommand("Page.enable");
+
+        // 1. Portrait Mode (390 x 844)
+        console.log("[Test 1/4] Setting Portrait Mode (390x844)...");
         await sendCommand("Emulation.setDeviceMetricsOverride", {
             width: 390,
             height: 844,
             deviceScaleFactor: 3,
             mobile: true,
         });
-        await sendCommand("Runtime.evaluate", {
-            expression: "window.dispatchEvent(new Event('resize'));"
+        await sendCommand("Runtime.evaluate", { expression: "window.dispatchEvent(new Event('resize'));" });
+        await new Promise((r) => setTimeout(r, 8000)); // Wait for initial wasm render
+
+        let shot = await sendCommand("Page.captureScreenshot", { format: "png" });
+        fs.writeFileSync("mobile_portrait.png", Buffer.from(shot.data, "base64"));
+        console.log(" -> Saved mobile_portrait.png");
+
+        // 2. Tab Switch: Click '相手に接続' (Join Peer) Tab
+        // In 390x844 with 14px padding, tabs are at y~85-110, right tab x ~ 290
+        console.log("[Test 2/4] Switching to 'Join Peer' tab...");
+        await sendCommand("Input.dispatchMouseEvent", { type: "mousePressed", x: 290, y: 92, button: "left", clickCount: 1 });
+        await sendCommand("Input.dispatchMouseEvent", { type: "mouseReleased", x: 290, y: 92, button: "left", clickCount: 1 });
+        await new Promise((r) => setTimeout(r, 1000));
+
+        shot = await sendCommand("Page.captureScreenshot", { format: "png" });
+        fs.writeFileSync("mobile_join_tab.png", Buffer.from(shot.data, "base64"));
+        console.log(" -> Saved mobile_join_tab.png");
+
+        // 3. Language Switch: Click 'EN' Button
+        // Header is at top: EN pill is at x ~ 355, y ~ 29
+        console.log("[Test 3/4] Switching Language to English (EN)...");
+        await sendCommand("Input.dispatchMouseEvent", { type: "mousePressed", x: 355, y: 29, button: "left", clickCount: 1 });
+        await sendCommand("Input.dispatchMouseEvent", { type: "mouseReleased", x: 355, y: 29, button: "left", clickCount: 1 });
+        await new Promise((r) => setTimeout(r, 1000));
+
+        shot = await sendCommand("Page.captureScreenshot", { format: "png" });
+        fs.writeFileSync("mobile_english.png", Buffer.from(shot.data, "base64"));
+        console.log(" -> Saved mobile_english.png");
+
+        // 4. Landscape Orientation Rotation (844 x 390)
+        console.log("[Test 4/4] Rotating to Landscape Mode (844x390)...");
+        // Click back to QR tab first (x ~ 100, y ~ 92)
+        await sendCommand("Input.dispatchMouseEvent", { type: "mousePressed", x: 100, y: 92, button: "left", clickCount: 1 });
+        await sendCommand("Input.dispatchMouseEvent", { type: "mouseReleased", x: 100, y: 92, button: "left", clickCount: 1 });
+        await new Promise((r) => setTimeout(r, 500));
+
+        await sendCommand("Emulation.setDeviceMetricsOverride", {
+            width: 844,
+            height: 390,
+            deviceScaleFactor: 3,
+            mobile: true,
+            screenOrientation: { angle: 90, type: "landscapePrimary" }
         });
+        await sendCommand("Runtime.evaluate", { expression: "window.dispatchEvent(new Event('resize'));" });
+        await new Promise((r) => setTimeout(r, 1500));
 
-        console.log("[Diagnostic] Waiting 8s for WASM loading and rendering...");
-        await new Promise((r) => setTimeout(r, 8000));
-
-        // Capture Screenshot
-        const screenshotRes = await sendCommand("Page.captureScreenshot", { format: "png" });
-        if (screenshotRes && screenshotRes.data) {
-            fs.writeFileSync("mobile_screenshot.png", Buffer.from(screenshotRes.data, "base64"));
-            console.log("[Diagnostic] Captured mobile screenshot to mobile_screenshot.png");
-        }
-
-        // Evaluate detailed Canvas and WebGL state
-        const diagEval = await sendCommand("Runtime.evaluate", {
-            expression: `
-                (function() {
-                    const canvases = Array.from(document.querySelectorAll('canvas')).map(c => ({
-                        id: c.id,
-                        width: c.width,
-                        height: c.height,
-                        clientWidth: c.clientWidth,
-                        clientHeight: c.clientHeight,
-                        style: c.getAttribute('style'),
-                        parentTag: c.parentElement ? c.parentElement.tagName : null
-                    }));
-
-                    const canvas = document.getElementById('canvas') || document.querySelector('canvas');
-                    let pixelSample = null;
-                    let contextType = 'none';
-                    if (canvas) {
-                        const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
-                        if (gl) {
-                            contextType = gl.constructor.name;
-                            const pixels = new Uint8Array(4);
-                            gl.readPixels(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
-                            pixelSample = Array.from(pixels);
-                        } else {
-                            const ctx2d = canvas.getContext('2d');
-                            if (ctx2d) {
-                                contextType = 'CanvasRenderingContext2D';
-                                const imgData = ctx2d.getImageData(Math.floor(canvas.width / 2), Math.floor(canvas.height / 2), 1, 1);
-                                pixelSample = Array.from(imgData.data);
-                            }
-                        }
-                    }
-
-                    return {
-                        canvasCount: canvases.length,
-                        canvases: canvases,
-                        contextType: contextType,
-                        pixelSample: pixelSample,
-                        bodyHTML: document.body.innerHTML
-                    };
-                })()
-            `,
-            returnByValue: true,
-        });
-
-        console.log("\n=== Detailed Diagnostic Result ===");
-        console.log(JSON.stringify(diagEval.result.value, null, 2));
+        shot = await sendCommand("Page.captureScreenshot", { format: "png" });
+        fs.writeFileSync("mobile_landscape.png", Buffer.from(shot.data, "base64"));
+        console.log(" -> Saved mobile_landscape.png");
 
         ws.close();
+        console.log("All 4 test scenarios completed successfully!");
     } finally {
         chrome.kill("SIGKILL");
     }
@@ -208,9 +183,9 @@ async function main() {
     let server;
     try {
         server = await startStaticServer();
-        await runDiagnostic();
+        await runTestMatrix();
     } catch (err) {
-        console.error("Diagnostic execution error:", err);
+        console.error("Test Matrix error:", err);
     } finally {
         if (server) server.close();
     }

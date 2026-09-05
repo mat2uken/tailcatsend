@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use arboard::Clipboard;
-use log::info;
+use log::{info, warn};
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use slint::{Image, SharedPixelBuffer};
@@ -58,6 +58,128 @@ fn get_download_dir() -> PathBuf {
     }
 }
 
+#[cfg(windows)]
+extern "system" {
+    fn GetUserDefaultUILanguage() -> u16;
+}
+
+fn detect_system_language() -> &'static str {
+    #[cfg(windows)]
+    unsafe {
+        let lang_id = GetUserDefaultUILanguage();
+        // Primary language ID 0x11 is Japanese (0x0411)
+        if (lang_id & 0x3ff) == 0x11 {
+            return "ja";
+        }
+    }
+    for var in &["LANG", "LC_ALL", "LANGUAGE", "UI_LANG"] {
+        if let Ok(val) = std::env::var(var) {
+            let lower = val.to_lowercase();
+            if lower.starts_with("ja") {
+                return "ja";
+            }
+        }
+    }
+    "en"
+}
+
+struct I18n;
+
+impl I18n {
+    pub fn boot_status(is_ja: bool) -> &'static str {
+        if is_ja { "安全なP2P通信を準備しています…" } else { "Starting secure P2P network…" }
+    }
+    pub fn scan_qr_status(is_ja: bool) -> &'static str {
+        if is_ja { "スマホのカメラでQRコードをスキャンして接続" } else { "Scan QR with Phone to Connect" }
+    }
+    pub fn waiting_for_peer(is_ja: bool) -> &'static str {
+        if is_ja { "相手端末の接続待機中…" } else { "Waiting for Peer..." }
+    }
+    pub fn connected_peer(is_ja: bool) -> &'static str {
+        if is_ja { "接続された相手端末" } else { "Connected Peer" }
+    }
+    pub fn connecting_peer(is_ja: bool) -> &'static str {
+        if is_ja { "相手端末に接続中…" } else { "Connecting to Peer Device..." }
+    }
+    pub fn direct_connected(is_ja: bool) -> &'static str {
+        if is_ja { "直接暗号化P2Pで接続しました！" } else { "Connected via Direct Encrypted P2P!" }
+    }
+    pub fn stream_active(is_ja: bool) -> &'static str {
+        if is_ja { "直接P2P通信が確立しました" } else { "Direct P2P Connection Active" }
+    }
+    pub fn msg_received(is_ja: bool) -> &'static str {
+        if is_ja { "メッセージを受信しました！" } else { "Received text message!" }
+    }
+    pub fn file_recv_start(is_ja: bool, fname: &str) -> String {
+        if is_ja { format!("{} を受信中…", fname) } else { format!("Receiving {} from Peer...", fname) }
+    }
+    pub fn file_recv_status(is_ja: bool) -> &'static str {
+        if is_ja { "ファイルを受信中…" } else { "Receiving file from Peer..." }
+    }
+    pub fn file_recv_done(is_ja: bool, fname: &str, size_mb: f64) -> String {
+        if is_ja {
+            format!("{} ({:.1} MB) を保存しました", fname, size_mb)
+        } else {
+            format!("Received {} ({:.1} MB) — Saved!", fname, size_mb)
+        }
+    }
+    pub fn file_recv_completed_badge(is_ja: bool) -> &'static str {
+        if is_ja { "✓ ファイル受信が完了しました！" } else { "✓ File Transfer Successful!" }
+    }
+    pub fn file_sending(is_ja: bool) -> &'static str {
+        if is_ja { "ファイル送信中…" } else { "Sending file via P2P..." }
+    }
+    pub fn ready_for_transfer(is_ja: bool) -> &'static str {
+        if is_ja { "ファイル転送の準備完了" } else { "Ready for Transfer" }
+    }
+    pub fn securely_connected(is_ja: bool) -> &'static str {
+        if is_ja { "相手端末と直接安全に接続されています" } else { "Securely connected to Peer" }
+    }
+    pub fn qr_regenerated(is_ja: bool) -> &'static str {
+        if is_ja { "新しいQRコードを生成しました！" } else { "New QR Code generated! Scan with phone." }
+    }
+    pub fn disconnected(is_ja: bool) -> &'static str {
+        if is_ja { "切断しました。新しいQRコードをスキャンしてください。" } else { "Disconnected. Please scan new QR code." }
+    }
+    pub fn invite_copied(is_ja: bool) -> &'static str {
+        if is_ja { "招待URLをクリップボードにコピーしました！" } else { "Invite URL copied to clipboard!" }
+    }
+    pub fn text_copied(is_ja: bool) -> &'static str {
+        if is_ja { "テキストをクリップボードにコピーしました！" } else { "Text copied to clipboard!" }
+    }
+    pub fn text_saved(is_ja: bool, path: &str) -> String {
+        if is_ja { format!("テキストを保存しました: {}", path) } else { format!("Text saved to {}", path) }
+    }
+    pub fn label_me(is_ja: bool) -> &'static str {
+        if is_ja { "[自分]" } else { "[Me]" }
+    }
+    pub fn label_peer(is_ja: bool) -> &'static str {
+        if is_ja { "[相手]" } else { "[Peer]" }
+    }
+    pub fn label_file_recv(is_ja: bool) -> &'static str {
+        if is_ja { "[ファイル受信]" } else { "[File Received]" }
+    }
+    pub fn label_saved(is_ja: bool) -> &'static str {
+        if is_ja { "保存先" } else { "Saved" }
+    }
+    pub fn transfer_cancelled(is_ja: bool) -> &'static str {
+        if is_ja { "転送をキャンセルしました" } else { "Transfer cancelled" }
+    }
+    pub fn invite_expired(is_ja: bool) -> &'static str {
+        if is_ja { "招待の有効期限が切れました。再生成してください。" } else { "Invite expired. Please click Regenerate." }
+    }
+    pub fn camera_unsupported(is_ja: bool) -> &'static str {
+        if is_ja {
+            "カメラスキャンはモバイル端末のみ対応しています。「貼付して接続」をご利用ください。"
+        } else {
+            "Camera scanning is only available on mobile. Please use 'Paste & Join' instead."
+        }
+    }
+    pub fn peer_not_connected(is_ja: bool) -> &'static str {
+        if is_ja { "相手端末が接続されていません" } else { "No peer device connected" }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
@@ -74,9 +196,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = AppWindow::new()?;
     let app_weak = app.as_weak();
 
+    // Set detected language (ja/en)
+    let initial_lang = detect_system_language();
+    let is_ja_init = initial_lang == "ja";
+    app.set_current_language(initial_lang.into());
+    info!("Detected system language: {} (Auto-initialized)", initial_lang);
+
     // Show window immediately so user sees UI instantly
     app.set_screen_index(0);
-    app.set_status_text("Starting Tailcat WireGuard Mesh (Tokyo Region 304)...".into());
+    app.set_status_text(I18n::boot_status(is_ja_init).into());
     app.show()?;
 
     // Store target peer Tailcat address for outgoing P2P transfers
@@ -123,29 +251,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         info!("Spawning Tailcat native daemon from path: {}", daemon_path.display());
 
-        let mut child = Command::new(&daemon_path)
+        let child_res = Command::new(&daemon_path)
             .arg("-derp=https://tailcat.dev/derpmap.json")
             .arg("-ipc-port=49152")
             .arg("-v")
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
-            .spawn()
-            .unwrap_or_else(|e| panic!("Failed to spawn Tailcat daemon at {}: {}", daemon_path.display(), e));
+            .spawn();
 
-        let stdout = child.stdout.take().expect("Failed to get stdout of daemon");
-        let mut reader = BufReader::new(stdout).lines();
-
-        // Read initial ready event from daemon
         let mut real_host_address = String::new();
-        while let Ok(Some(line)) = reader.next_line().await {
-            info!("[tailcat-daemon] {}", line);
-            if let Ok(ev) = serde_json::from_str::<DaemonEvent>(&line) {
-                if ev.event == "ready" {
-                    if let Some(addr) = ev.address {
-                        real_host_address = addr;
-                        break;
+        let mut reader_opt = None;
+
+        match child_res {
+            Ok(mut child) => {
+                if let Some(stdout) = child.stdout.take() {
+                    let mut reader = BufReader::new(stdout).lines();
+                    while let Ok(Some(line)) = reader.next_line().await {
+                        info!("[tailcat-daemon] {}", line);
+                        if let Ok(ev) = serde_json::from_str::<DaemonEvent>(&line) {
+                            if ev.event == "ready" {
+                                if let Some(addr) = ev.address {
+                                    real_host_address = addr;
+                                    break;
+                                }
+                            }
+                        }
                     }
+                    reader_opt = Some(reader);
                 }
+            }
+            Err(e) => {
+                warn!("Tailcat daemon could not be spawned ({}): {}. Using standalone mode.", daemon_path.display(), e);
             }
         }
 
@@ -196,18 +332,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let _ = slint::invoke_from_event_loop(move || {
                 if let Some(app) = w_init.upgrade() {
+                    let is_ja = app.get_current_language() == "ja";
                     let slint_qr_img = Image::from_rgba8(pixel_buffer);
                     app.set_qr_code_image(slint_qr_img);
                     app.set_has_qr_image(true);
                     app.set_invite_url(inv_u.into());
                     app.set_screen_index(1);
-                    app.set_status_text("Scan QR with Phone to Connect (Direct P2P)".into());
+                    app.set_status_text(I18n::scan_qr_status(is_ja).into());
                     app.set_expires_secs(600);
                     app.set_can_disconnect(true);
                     app.set_can_send(true);
-                    app.set_peer_name("Waiting for Peer...".into());
-                    app.set_derp_info("tailcat.dev (WireGuard P2P)".into());
-                    app.set_edge_relay_info("Pure Tailcat Mesh (No Relay)".into());
+                    app.set_peer_name(I18n::waiting_for_peer(is_ja).into());
+                    app.set_derp_info(if is_ja { "暗号化メッシュ" } else { "Encrypted Mesh" }.into());
+                    app.set_edge_relay_info(if is_ja { "P2P直接通信" } else { "Direct P2P" }.into());
                     let display_sess = if sess_t.len() >= 12 {
                         format!("{}...", &sess_t[..12])
                     } else {
@@ -218,15 +355,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             });
         }
 
-        // Connect to Daemon IPC Port
+        // Connect to Daemon IPC Port with retry loop
         tokio::spawn(async move {
-            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-            if let Ok(mut stream) = TcpStream::connect("127.0.0.1:49152").await {
-                info!("Connected to Tailcat daemon local IPC");
+            let mut stream_opt = None;
+            for _ in 0..10 {
+                tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+                if let Ok(stream) = TcpStream::connect("127.0.0.1:49152").await {
+                    info!("Connected to Tailcat daemon local IPC");
+                    stream_opt = Some(stream);
+                    break;
+                }
+            }
+            if let Some(mut stream) = stream_opt {
                 while let Some(cmd) = ipc_rx.recv().await {
                     if let Ok(data) = serde_json::to_vec(&cmd) {
-                        let _ = stream.write_all(&data).await;
-                        let _ = stream.write_all(b"\n").await;
+                        if stream.write_all(&data).await.is_err() || stream.write_all(b"\n").await.is_err() {
+                            warn!("Failed to write command to daemon IPC stream");
+                            break;
+                        }
                     }
                 }
             }
@@ -234,13 +380,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Listen for incoming Tailcat events from Daemon stdout
         let app_weak_daemon = app_weak_boot.clone();
-        while let Ok(Some(line)) = reader.next_line().await {
+        if let Some(mut reader) = reader_opt {
+            while let Ok(Some(line)) = reader.next_line().await {
             info!("[tailcat-event] {}", line);
             if let Ok(ev) = serde_json::from_str::<DaemonEvent>(&line) {
                 match ev.event.as_str() {
                     "incoming_stream" => {
                         let w = app_weak_daemon.clone();
-                        let port = ev.port.unwrap_or(0);
+                        let _port = ev.port.unwrap_or(0);
                         if let Some(ref addr) = ev.address {
                             if let Ok(mut guard) = target_peer_addr_daemon.lock() {
                                 *guard = Some(addr.clone());
@@ -248,9 +395,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         }
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(app) = w.upgrade() {
+                                let is_ja = app.get_current_language() == "ja";
                                 app.set_screen_index(3);
-                                app.set_peer_name("Connected Peer (WireGuard P2P)".into());
-                                app.set_status_text(format!("Direct P2P Stream Active (Port {})", port).into());
+                                app.set_peer_name(I18n::connected_peer(is_ja).into());
+                                app.set_status_text(I18n::stream_active(is_ja).into());
                             }
                         });
                     }
@@ -274,12 +422,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let t = text.clone();
                             let _ = slint::invoke_from_event_loop(move || {
                                 if let Some(app) = w.upgrade() {
+                                    let is_ja = app.get_current_language() == "ja";
                                     app.set_screen_index(3);
-                                    app.set_peer_name("Connected Peer (WireGuard P2P)".into());
-                                    let new_log = format!("[Peer]: {}\n{}", t, app.get_received_message_log());
+                                    app.set_peer_name(I18n::connected_peer(is_ja).into());
+                                    let peer_label = I18n::label_peer(is_ja);
+                                    let new_log = format!("{}: {}\n{}", peer_label, t, app.get_received_message_log());
                                     app.set_received_message_log(new_log.into());
                                     app.set_last_received_text(t.into());
-                                    app.set_status_text("Received text message via Tailcat P2P!".into());
+                                    app.set_status_text(I18n::msg_received(is_ja).into());
                                 }
                             });
                         }
@@ -290,20 +440,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let w = app_weak_daemon.clone();
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(app) = w.upgrade() {
+                                let is_ja = app.get_current_language() == "ja";
                                 app.set_screen_index(3);
-                                app.set_peer_name("Connected Peer (WireGuard P2P)".into());
+                                app.set_peer_name(I18n::connected_peer(is_ja).into());
                                 app.set_is_transferring(true);
                                 app.set_transfer_completed(false);
                                 app.set_transfer_filename(fname.clone().into());
                                 if total_mb > 0.0 {
                                     app.set_transfer_bytes_text(format!("0.0 MB / {:.1} MB", total_mb).into());
                                 } else {
-                                    app.set_transfer_bytes_text("Starting download...".into());
+                                    app.set_transfer_bytes_text(if is_ja { "受信を開始中…" } else { "Starting download..." }.into());
                                 }
-                                app.set_transfer_speed("Connecting...".into());
+                                app.set_transfer_speed(if is_ja { "接続中…" } else { "Connecting..." }.into());
                                 app.set_transfer_progress(0.05);
-                                app.set_transfer_status("Receiving file from Peer...".into());
-                                app.set_status_text(format!("Receiving {} from Peer...", fname).into());
+                                app.set_transfer_status(I18n::file_recv_status(is_ja).into());
+                                app.set_status_text(I18n::file_recv_start(is_ja, &fname).into());
                             }
                         });
                     }
@@ -320,18 +471,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let bytes_text = if total_mb > 0.0 {
                             format!("{:.1} MB / {:.1} MB", bytes_mb, total_mb)
                         } else {
-                            format!("{:.1} MB received", bytes_mb)
+                            format!("{:.1} MB", bytes_mb)
                         };
                         let w = app_weak_daemon.clone();
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(app) = w.upgrade() {
+                                let is_ja = app.get_current_language() == "ja";
                                 app.set_is_transferring(true);
                                 app.set_transfer_completed(false);
                                 app.set_transfer_filename(fname.clone().into());
                                 app.set_transfer_bytes_text(bytes_text.into());
                                 app.set_transfer_speed(speed.into());
                                 app.set_transfer_progress(progress as f32);
-                                app.set_transfer_status("Receiving from Peer...".into());
+                                app.set_transfer_status(I18n::file_recv_status(is_ja).into());
                             }
                         });
                     }
@@ -344,18 +496,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let w = app_weak_daemon.clone();
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(app) = w.upgrade() {
+                                let is_ja = app.get_current_language() == "ja";
                                 app.set_screen_index(3);
                                 app.set_is_transferring(false);
                                 app.set_transfer_completed(true);
                                 app.set_transfer_filename(fname.clone().into());
                                 app.set_transfer_bytes_text(format!("{:.1} MB", fsize).into());
-                                app.set_transfer_speed("Saved".into());
+                                app.set_transfer_speed(if is_ja { "保存完了" } else { "Saved" }.into());
                                 app.set_transfer_progress(1.0);
-                                app.set_transfer_status("[Completed] File Transfer Successful!".into());
-                                app.set_status_text(format!("Received {} ({:.1} MB) — Saved to Downloads/TailSend!", fname, fsize).into());
+                                app.set_transfer_status(I18n::file_recv_completed_badge(is_ja).into());
+                                app.set_status_text(I18n::file_recv_done(is_ja, &fname, fsize).into());
+                                let recv_label = I18n::label_file_recv(is_ja);
+                                let saved_label = I18n::label_saved(is_ja);
                                 let new_log = format!(
-                                    "[File Received]: {} ({:.1} MB)\nSaved: {}\n{}",
-                                    fname, fsize, fpath, app.get_received_message_log()
+                                    "{}: {} ({:.1} MB)\n{}: {}\n{}",
+                                    recv_label, fname, fsize, saved_label, fpath, app.get_received_message_log()
                                 );
                                 app.set_received_message_log(new_log.into());
                             }
@@ -365,16 +520,56 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
+        }
     });
 
-    // Clipboard Copy Handler
+    // Language Switch Callback
+    let app_weak_lang = app_weak.clone();
+    app.on_switch_language(move |lang| {
+        if let Some(app) = app_weak_lang.upgrade() {
+            let l_str = lang.to_string();
+            info!("User switched language to: {}", l_str);
+            app.set_current_language(l_str.clone().into());
+            let is_ja = l_str == "ja";
+            match app.get_screen_index() {
+                0 => app.set_status_text(I18n::boot_status(is_ja).into()),
+                1 => {
+                    app.set_status_text(I18n::scan_qr_status(is_ja).into());
+                    app.set_peer_name(I18n::waiting_for_peer(is_ja).into());
+                },
+                2 => app.set_status_text(I18n::connecting_peer(is_ja).into()),
+                3 => {
+                    app.set_peer_name(I18n::connected_peer(is_ja).into());
+                    if !app.get_is_transferring() && !app.get_transfer_completed() {
+                        app.set_status_text(I18n::securely_connected(is_ja).into());
+                        app.set_transfer_status(I18n::ready_for_transfer(is_ja).into());
+                    }
+                },
+                _ => {}
+            }
+        }
+    });
+
+    // Clipboard Copy Handler with Automatic Feedback Reset Timer
     let app_weak_copy = app_weak.clone();
     app.on_copy_invite(move || {
         if let Some(app) = app_weak_copy.upgrade() {
             let copy_url = app.get_invite_url().to_string();
             if let Ok(mut clipboard) = Clipboard::new() {
                 let _ = clipboard.set_text(&copy_url);
-                app.set_status_text("Invite URL copied to clipboard!".into());
+                let is_ja = app.get_current_language() == "ja";
+                app.set_status_text(I18n::invite_copied(is_ja).into());
+                app.set_copy_feedback_active(true);
+
+                let w_timer = app_weak_copy.clone();
+                tokio::spawn(async move {
+                    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                    let _ = slint::invoke_from_event_loop(move || {
+                        if let Some(app) = w_timer.upgrade() {
+                            app.set_copy_feedback_active(false);
+                        }
+                    });
+                });
             }
         }
     });
@@ -427,17 +622,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     session_token
                 };
                 app.set_session_info(display_sess.into());
-                app.set_status_text("New QR Code generated! Scan with phone.".into());
+                let is_ja = app.get_current_language() == "ja";
+                app.set_status_text(I18n::qr_regenerated(is_ja).into());
             }
         }
     });
 
     // Disconnect Handler
     let app_weak_disc = app_weak.clone();
+    let target_addr_disc = target_peer_addr.clone();
     app.on_disconnect(move || {
         if let Some(app) = app_weak_disc.upgrade() {
+            if let Ok(mut guard) = target_addr_disc.lock() {
+                *guard = None;
+            }
+            let is_ja = app.get_current_language() == "ja";
             app.set_screen_index(1);
-            app.set_status_text("Disconnected. Please scan new QR code.".into());
+            app.set_peer_name(I18n::waiting_for_peer(is_ja).into());
+            app.set_status_text(I18n::disconnected(is_ja).into());
+            app.set_is_transferring(false);
+            app.set_transfer_completed(false);
         }
     });
 
@@ -453,9 +657,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 *guard = Some(addr.clone());
             }
             if let Some(app) = app_weak_join.upgrade() {
+                let is_ja = app.get_current_language() == "ja";
                 app.set_screen_index(3);
-                app.set_peer_name("Remote iPhone (P2P)".into());
-                app.set_status_text("Connected via Tailcat WireGuard P2P!".into());
+                app.set_peer_name(I18n::connected_peer(is_ja).into());
+                app.set_status_text(I18n::direct_connected(is_ja).into());
             }
             // Send test handshake ping over Tailcat
             let _ = ipc_tx_join.send(DaemonCommand {
@@ -463,10 +668,54 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 address: Some(addr),
                 port: Some(101),
                 handle: None,
-                text: Some("🤝 [Connected] TailSend Mac Native connected via Tailcat WireGuard Mesh!".to_string()),
+                text: Some("🤝 [Connected] TailSend connected via Tailcat WireGuard Mesh!".to_string()),
                 filename: None,
                 path: None,
             });
+        }
+    });
+
+    // Paste & Join Handler (Read Invitation from Clipboard and Connect)
+    let app_weak_paste_join = app_weak.clone();
+    let target_addr_paste_join = target_peer_addr.clone();
+    let ipc_tx_paste_join = ipc_tx_clone.clone();
+    app.on_paste_and_join(move || {
+        if let Some(app) = app_weak_paste_join.upgrade() {
+            if let Ok(mut clipboard) = Clipboard::new() {
+                if let Ok(text) = clipboard.get_text() {
+                    let trimmed = text.trim();
+                    if !trimmed.is_empty() {
+                        app.set_join_input_text(trimmed.into());
+                        let addr = parse_tailcat_address(trimmed);
+                        if let Ok(mut guard) = target_addr_paste_join.lock() {
+                            *guard = Some(addr.clone());
+                        }
+                        let is_ja = app.get_current_language() == "ja";
+                        app.set_screen_index(3);
+                        app.set_peer_name(I18n::connected_peer(is_ja).into());
+                        app.set_status_text(I18n::direct_connected(is_ja).into());
+
+                        let _ = ipc_tx_paste_join.send(DaemonCommand {
+                            action: "send_text".to_string(),
+                            address: Some(addr),
+                            port: Some(101),
+                            handle: None,
+                            text: Some("🤝 [Connected] TailSend connected via Tailcat WireGuard Mesh!".to_string()),
+                            filename: None,
+                            path: None,
+                        });
+                    }
+                }
+            }
+        }
+    });
+
+    // QR Camera Scan Handler (Desktop guidance)
+    let app_weak_cam = app_weak.clone();
+    app.on_scan_qr_camera(move || {
+        if let Some(app) = app_weak_cam.upgrade() {
+            let is_ja = app.get_current_language() == "ja";
+            app.set_status_text(I18n::camera_unsupported(is_ja).into());
         }
     });
 
@@ -481,7 +730,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             }
 
-            let log_text = format!("[Me]: {}\n{}", msg_str, app.get_received_message_log());
+            let is_ja = app.get_current_language() == "ja";
+            let has_target = if let Ok(guard) = target_addr_text.lock() {
+                guard.is_some()
+            } else {
+                false
+            };
+
+            if !has_target {
+                app.set_status_text(I18n::peer_not_connected(is_ja).into());
+                return;
+            }
+
+            let me_label = I18n::label_me(is_ja);
+            let log_text = format!("{}: {}\n{}", me_label, msg_str, app.get_received_message_log());
             app.set_received_message_log(log_text.into());
             app.set_message_input("".into());
 
@@ -502,6 +764,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // Open Text Composer Callback
+    app.on_open_text_composer(move || {});
+
+    // Paste & Send Callback
+    let app_weak_paste_send = app_weak.clone();
+    app.on_paste_and_send(move || {
+        if let Some(app) = app_weak_paste_send.upgrade() {
+            if let Ok(mut clipboard) = Clipboard::new() {
+                if let Ok(text) = clipboard.get_text() {
+                    app.set_message_input(text.into());
+                }
+            }
+        }
+    });
+
     // Pick File Handler (Direct P2P via Tailcat Port 102)
     let app_weak_pick = app_weak.clone();
     let ipc_tx_file = ipc_tx_clone.clone();
@@ -512,11 +789,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let path_str = path.to_string_lossy().to_string();
 
             if let Some(app) = app_weak_pick.upgrade() {
+                let is_ja = app.get_current_language() == "ja";
+                let has_target = if let Ok(guard) = target_addr_file.lock() {
+                    guard.is_some()
+                } else {
+                    false
+                };
+
+                if !has_target {
+                    app.set_status_text(I18n::peer_not_connected(is_ja).into());
+                    return;
+                }
+
                 app.set_is_transferring(true);
                 app.set_transfer_completed(false);
                 app.set_transfer_filename(file_name.clone().into());
-                app.set_transfer_status("Sending via Tailcat P2P...".into());
-                app.set_transfer_progress(0.5);
+                app.set_transfer_status(I18n::file_sending(is_ja).into());
+                app.set_transfer_progress(0.1);
 
                 if let Ok(guard) = target_addr_file.lock() {
                     if let Some(target) = guard.as_ref() {
@@ -535,6 +824,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // Cancel Transfer Callback
+    let app_weak_cancel = app_weak.clone();
+    let ipc_tx_cancel = ipc_tx_clone.clone();
+    app.on_cancel_transfer(move || {
+        if let Some(app) = app_weak_cancel.upgrade() {
+            let is_ja = app.get_current_language() == "ja";
+            app.set_is_transferring(false);
+            app.set_transfer_progress(0.0);
+            app.set_transfer_status(I18n::transfer_cancelled(is_ja).into());
+            let _ = ipc_tx_cancel.send(DaemonCommand {
+                action: "cancel_transfer".to_string(),
+                address: None,
+                port: None,
+                handle: None,
+                text: None,
+                filename: None,
+                path: None,
+            });
+        }
+    });
+
     app.on_share_received_text(move || {
         let download_dir = get_download_dir();
         #[cfg(target_os = "windows")]
@@ -545,31 +855,66 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = std::process::Command::new("xdg-open").arg(&download_dir).spawn();
     });
 
-    // Save Text as File
+    // Save Text as File (Fall back to activity log if last received is empty)
     let app_weak_save = app_weak.clone();
     app.on_save_received_text(move || {
         if let Some(app) = app_weak_save.upgrade() {
-            let text = app.get_last_received_text().to_string();
+            let mut text = app.get_last_received_text().to_string();
+            if text.is_empty() {
+                text = app.get_received_message_log().to_string();
+            }
             if !text.is_empty() {
                 let download_dir = get_download_dir();
                 let _ = std::fs::create_dir_all(&download_dir);
                 let now_str = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
                 let txt_path = download_dir.join(format!("received_text_{}.txt", now_str));
                 let _ = std::fs::write(&txt_path, text);
-                app.set_status_text(format!("Text saved to {}", txt_path.display()).into());
+                let is_ja = app.get_current_language() == "ja";
+                app.set_status_text(I18n::text_saved(is_ja, &txt_path.display().to_string()).into());
             }
         }
     });
 
-    // Copy Received Text to Clipboard
+    // Copy Received Text to Clipboard (Fall back to activity log if last received is empty)
     let app_weak_copy_text = app_weak.clone();
     app.on_copy_received_text(move || {
         if let Some(app) = app_weak_copy_text.upgrade() {
-            let text = app.get_last_received_text().to_string();
+            let mut text = app.get_last_received_text().to_string();
+            if text.is_empty() {
+                text = app.get_received_message_log().to_string();
+            }
             if !text.is_empty() {
                 if let Ok(mut clipboard) = Clipboard::new() {
                     let _ = clipboard.set_text(&text);
-                    app.set_status_text("Text copied to clipboard!".into());
+                    let is_ja = app.get_current_language() == "ja";
+                    app.set_status_text(I18n::text_copied(is_ja).into());
+                    app.set_text_copied_feedback(true);
+                    let w_timer = app_weak_copy_text.clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(app) = w_timer.upgrade() {
+                                app.set_text_copied_feedback(false);
+                            }
+                        });
+                    });
+                }
+            }
+        }
+    });
+
+    // Active Countdown Timer for QR Expiration
+    let _countdown_timer = slint::Timer::default();
+    let app_weak_countdown = app_weak.clone();
+    _countdown_timer.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(1), move || {
+        if let Some(app) = app_weak_countdown.upgrade() {
+            if app.get_screen_index() == 1 {
+                let cur = app.get_expires_secs();
+                if cur > 0 {
+                    app.set_expires_secs(cur - 1);
+                } else {
+                    let is_ja = app.get_current_language() == "ja";
+                    app.set_status_text(I18n::invite_expired(is_ja).into());
                 }
             }
         }
