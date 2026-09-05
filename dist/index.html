@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>TailSend — Direct P2P Transfer</title>
+    <title>tailcatSend — Direct P2P Transfer</title>
     <style>
         * {
             box-sizing: border-box;
@@ -27,142 +27,52 @@
             left: 0 !important;
             width: 100vw !important;
             height: 100vh !important;
-            max-width: 100vw !important;
-            max-height: 100vh !important;
-            display: block !important;
-            touch-action: none;
-            background-color: #0f172a;
+            display: block;
+            touch-action: manipulation;
+            z-index: 1;
         }
         #loader {
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
-            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
+            inset: 0;
             display: flex;
             flex-direction: column;
-            justify-content: center;
             align-items: center;
-            z-index: 100;
+            justify-content: center;
+            background: #0f172a;
+            z-index: 99999;
+            font-family: sans-serif;
+            color: #f8fafc;
             transition: opacity 0.3s ease-out;
-            padding: 20px;
-            text-align: center;
         }
         .spinner {
             width: 48px;
             height: 48px;
             border: 4px solid rgba(99, 102, 241, 0.2);
-            border-top: 4px solid #6366f1;
+            border-top-color: #6366f1;
             border-radius: 50%;
             animation: spin 1s linear infinite;
-            margin-bottom: 20px;
         }
         @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
+            to { transform: rotate(360deg); }
         }
         .title {
-            font-size: 24px;
+            margin-top: 20px;
+            font-size: 20px;
             font-weight: 700;
-            letter-spacing: -0.5px;
-            margin-bottom: 8px;
-            background: linear-gradient(to right, #6366f1, #a855f7);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            letter-spacing: 0.5px;
         }
         .status {
-            font-size: 14px;
+            margin-top: 8px;
+            font-size: 13px;
             color: #94a3b8;
-            word-break: break-all;
-            max-width: 90vw;
         }
         #debug-log {
-            margin-top: 15px;
+            margin-top: 24px;
+            max-width: 80%;
             font-size: 11px;
             color: #ef4444;
-            max-width: 90vw;
             word-break: break-all;
             font-family: monospace;
-        }
-
-        /* Floating iOS / Native Progress HUD */
-        #transfer-hud {
-            display: none;
-            position: fixed;
-            top: 24px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: calc(100% - 32px);
-            max-width: 400px;
-            background: rgba(30, 41, 59, 0.95);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            border: 1px solid rgba(99, 102, 241, 0.3);
-            box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.5), 0 0 20px rgba(99, 102, 241, 0.2);
-            border-radius: 16px;
-            padding: 16px;
-            z-index: 9999;
-            flex-direction: column;
-            gap: 8px;
-            animation: slideDown 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        @keyframes slideDown {
-            from { transform: translate(-50%, -20px); opacity: 0; }
-            to { transform: translate(-50%, 0); opacity: 1; }
-        }
-        #transfer-hud.completed {
-            border-color: rgba(34, 197, 94, 0.4);
-            box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.5), 0 0 20px rgba(34, 197, 94, 0.2);
-        }
-        .hud-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 13px;
-            font-weight: 600;
-        }
-        .hud-status {
-            color: #6366f1;
-        }
-        #transfer-hud.completed .hud-status {
-            color: #22c55e;
-        }
-        .hud-percent {
-            color: #f8fafc;
-            font-variant-numeric: tabular-nums;
-        }
-        .hud-file {
-            font-size: 14px;
-            font-weight: 500;
-            color: #f8fafc;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .hud-bar-bg {
-            width: 100%;
-            height: 6px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 3px;
-            overflow: hidden;
-            margin-top: 4px;
-        }
-        .hud-bar-fill {
-            width: 0%;
-            height: 100%;
-            background: linear-gradient(90deg, #6366f1, #a855f7);
-            border-radius: 3px;
-            transition: width 0.1s linear;
-        }
-        #transfer-hud.completed .hud-bar-fill {
-            background: #22c55e;
-        }
-        .hud-footer {
-            display: flex;
-            justify-content: space-between;
-            font-size: 11px;
-            color: #94a3b8;
         }
 
         /* Native HTML UTF-8 / Japanese Text Composer Modal */
@@ -299,25 +209,9 @@
 <body>
     <div id="loader">
         <div class="spinner"></div>
-        <div class="title">TailSend</div>
-        <div class="status" id="status">Loading TailSend...</div>
+        <div class="title">tailcatSend</div>
+        <div class="status" id="status">Loading tailcatSend...</div>
         <div id="debug-log"></div>
-    </div>
-
-    <!-- Floating Native Progress HUD -->
-    <div id="transfer-hud">
-        <div class="hud-header">
-            <span class="hud-status" id="hud-status">Sending...</span>
-            <span class="hud-percent" id="hud-percent">0%</span>
-        </div>
-        <div class="hud-file" id="hud-file">filename.mp4</div>
-        <div class="hud-bar-bg">
-            <div class="hud-bar-fill" id="hud-bar-fill"></div>
-        </div>
-        <div class="hud-footer">
-            <span id="hud-bytes">0.0 MB / 0.0 MB</span>
-            <span id="hud-speed">0.0 MB/s</span>
-        </div>
     </div>
 
     <!-- Native HTML UTF-8 / Japanese Text Composer Modal -->
@@ -346,24 +240,17 @@
         const statusEl = document.getElementById("status");
         const loaderEl = document.getElementById("loader");
         const debugEl = document.getElementById("debug-log");
-        const hudEl = document.getElementById("transfer-hud");
-        const hudStatusEl = document.getElementById("hud-status");
-        const hudPercentEl = document.getElementById("hud-percent");
-        const hudFileEl = document.getElementById("hud-file");
-        const hudBarFillEl = document.getElementById("hud-bar-fill");
-        const hudBytesEl = document.getElementById("hud-bytes");
-        const hudSpeedEl = document.getElementById("hud-speed");
         const BUILD_TIMESTAMP = Date.now();
 
         window.lastReceivedMessage = "";
 
         function updateStatus(msg) {
             if (statusEl) statusEl.textContent = msg;
-            console.log("[TailSend Loader]", msg);
+            console.log("[tailcatSend Loader]", msg);
         }
 
         function showDebugError(err) {
-            console.error("[TailSend Debug]", err);
+            console.error("[tailcatSend Debug]", err);
             if (debugEl) {
                 debugEl.textContent = "Error: " + (err.message || String(err));
             }
@@ -383,40 +270,8 @@
             }
         }
 
-        let hudDismissTimer = null;
-        function updateHUD(visible, status, filename, bytesText, progress, speed, isComplete = false) {
-            if (!hudEl) return;
-            if (hudDismissTimer) {
-                clearTimeout(hudDismissTimer);
-                hudDismissTimer = null;
-            }
-
-            if (visible) {
-                hudEl.classList.remove("completed");
-                hudEl.style.display = "flex";
-                if (hudStatusEl) hudStatusEl.textContent = status;
-                if (hudPercentEl) hudPercentEl.textContent = Math.round(progress * 100) + "%";
-                if (hudFileEl) hudFileEl.textContent = filename;
-                if (hudBarFillEl) hudBarFillEl.style.width = Math.min(100, Math.round(progress * 100)) + "%";
-                if (hudBytesEl) hudBytesEl.textContent = bytesText;
-                if (hudSpeedEl) hudSpeedEl.textContent = speed;
-            } else if (isComplete) {
-                hudEl.classList.add("completed");
-                if (hudStatusEl) hudStatusEl.textContent = "[Completed] Transfer Successful!";
-                if (hudPercentEl) hudPercentEl.textContent = "100%";
-                if (hudBarFillEl) hudBarFillEl.style.width = "100%";
-                if (hudSpeedEl) hudSpeedEl.textContent = "Saved";
-
-                hudDismissTimer = setTimeout(() => {
-                    if (hudEl) {
-                        hudEl.style.display = "none";
-                        hudEl.classList.remove("completed");
-                    }
-                }, 3500);
-            } else {
-                hudEl.style.display = "none";
-            }
-        }
+        // Dedicated Slint TransferProgressCard handles all progress UI
+        function updateHUD() {}
 
         async function fetchAndDecompressWasmBytes(url) {
             const cacheBustedUrl = url.includes("?") ? `${url}&_cb=${BUILD_TIMESTAMP}` : `${url}?_cb=${BUILD_TIMESTAMP}`;
@@ -703,20 +558,16 @@
         };
 
         // Send Text Message via Tailcat Port 101
-        window.sendTailcatTextMessage = async function(text) {
+        window.sendTailcatTextMessage = async function(text, fromSlint = false) {
             const addr = getHostAddress();
             if (!text || !addr) {
-                console.error("[TailSend Web] Missing text or host address. Text:", text, "Addr:", addr);
+                console.error("[tailcatSend Web] Missing text or host address. Text:", text, "Addr:", addr);
                 alert("Error: Target host address not found (" + (addr || "empty") + "). Please scan QR again.");
                 return;
             }
-            console.log("[TailSend Web] Sending text via Tailcat P2P (Port 101) to " + addr + ":", text);
-            updateHUD(true, "Sending via Tailcat P2P...", "memo.txt", "", 0.5, "Direct P2P");
-            if (window.updateSlintTransferState) {
-                window.updateSlintTransferState(true, false, "Sending via Tailcat P2P...", "memo.txt", "", 0.5, "WireGuard P2P");
-            }
+            console.log("[tailcatSend Web] Sending text via Tailcat P2P (Port 101) to " + addr + ":", text);
             if (window.updateSlintStatusText) {
-                window.updateSlintStatusText("Sending message to macOS...");
+                window.updateSlintStatusText("テキストメッセージを送信中…");
             }
 
             try {
@@ -729,23 +580,18 @@
                 await conn.write(encoder.encode(text));
                 await conn.closeWrite();
                 conn.close();
-                console.log("✅ [TailSend Web] Text delivered directly to Mac via Tailcat P2P!");
-                updateHUD(false, "Delivered!", "memo.txt", "", 1.0, "Saved", true);
-                if (window.updateSlintTransferState) {
-                    window.updateSlintTransferState(false, true, "[Completed] Delivered to macOS!", "memo.txt", "", 1.0, "Saved");
+                console.log("✅ [tailcatSend Web] Text delivered directly to peer via Tailcat P2P!");
+                if (!fromSlint && window.onTextSentSlint) {
+                    window.onTextSentSlint(text);
                 }
                 if (window.updateSlintStatusText) {
-                    window.updateSlintStatusText("Message delivered to macOS via Tailcat P2P!");
+                    window.updateSlintStatusText("テキストメッセージを送信しました");
                 }
             } catch (err) {
-                console.error("[TailSend Web] Failed to dial host:", err);
+                console.error("[tailcatSend Web] Failed to dial host:", err);
                 alert("Tailcat P2P Dial Error: " + (err.message || err));
-                updateHUD(false, "Failed", "memo.txt", "", 0, "Error");
-                if (window.updateSlintTransferState) {
-                    window.updateSlintTransferState(false, false, "Failed to deliver message", "memo.txt", "", 0, "Error");
-                }
                 if (window.updateSlintStatusText) {
-                    window.updateSlintStatusText("Dial Error: " + (err.message || err));
+                    window.updateSlintStatusText("送信エラー: " + (err.message || err));
                 }
             }
         };
@@ -780,10 +626,7 @@
             if (!composerTextareaEl) return;
             const text = composerTextareaEl.value.trim();
             if (text) {
-                window.sendTailcatTextMessage(text);
-                if (window.onTextSentSlint) {
-                    window.onTextSentSlint(text);
-                }
+                window.sendTailcatTextMessage(text, false);
                 composerTextareaEl.value = "";
                 window.closeComposer();
             }
@@ -812,15 +655,12 @@
                     text = await navigator.clipboard.readText();
                 }
                 if (text && text.trim().length > 0) {
-                    window.sendTailcatTextMessage(text.trim());
-                    if (window.onTextSentSlint) {
-                        window.onTextSentSlint(text.trim());
-                    }
+                    window.sendTailcatTextMessage(text.trim(), false);
                 } else {
                     window.triggerOpenComposer();
                 }
             } catch (err) {
-                console.warn("[TailSend Clipboard] Could not read directly from clipboard, opening composer:", err);
+                console.warn("[tailcatSend Clipboard] Could not read directly from clipboard, opening composer:", err);
                 window.triggerOpenComposer();
             }
         };

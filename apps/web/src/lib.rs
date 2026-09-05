@@ -58,7 +58,7 @@ impl I18nWeb {
         if is_ja { format!("{} ({:.1} MB) を保存しました", fname, size_mb) } else { format!("Downloaded {} ({:.1} MB) successfully!", fname, size_mb) }
     }
     pub fn download_completed_badge(is_ja: bool) -> &'static str {
-        if is_ja { "✓ ダウンロードが完了しました！" } else { "✓ Download Successful!" }
+        if is_ja { "ダウンロードが完了しました！" } else { "Download Complete!" }
     }
     pub fn securely_connected(is_ja: bool) -> &'static str {
         if is_ja { "相手端末と直接安全に接続されています" } else { "Securely connected to Peer" }
@@ -77,6 +77,9 @@ impl I18nWeb {
     }
     pub fn text_copied(is_ja: bool) -> &'static str {
         if is_ja { "テキストをクリップボードにコピーしました！" } else { "Text copied to clipboard!" }
+    }
+    pub fn path_copied(is_ja: bool) -> &'static str {
+        if is_ja { "ファイルパスをクリップボードにコピーしました！" } else { "File path copied to clipboard!" }
     }
     pub fn label_me(is_ja: bool) -> &'static str {
         if is_ja { "[自分]" } else { "[Me]" }
@@ -136,11 +139,12 @@ pub fn run_app() -> Result<(), JsValue> {
                 app.set_screen_index(3); // Screen 3: Connected Home
                 app.set_peer_name(I18nWeb::connected_peer(is_ja).into());
                 app.set_derp_info(if is_ja { "暗号化メッシュ".into() } else { "Encrypted Mesh".into() });
-                app.set_edge_relay_info(if is_ja { "P2P直接通信".into() } else { "Direct P2P".into() });
+                app.set_edge_relay_info(if is_ja { "DERPリレー".into() } else { "DERP Relay".into() });
                 app.set_session_info(short_tok.into());
                 app.set_status_text(I18nWeb::connecting_pc(is_ja).into());
                 app.set_can_disconnect(true);
                 app.set_can_send(true);
+                app.set_is_derp_relay(true);
             }
             Err(e) => {
                 let is_ja = app.get_current_language() == "ja";
@@ -199,14 +203,24 @@ pub fn run_app() -> Result<(), JsValue> {
             app.set_screen_index(3); // Screen 3: Connected Home
             app.set_peer_name(peer_name.into());
             app.set_derp_info(if is_ja { "暗号化メッシュ".into() } else { "Encrypted Mesh".into() });
-            app.set_edge_relay_info(if is_ja { "P2P直接通信".into() } else { "Direct P2P".into() });
+            app.set_edge_relay_info(if is_ja { "DERPリレー".into() } else { "DERP Relay".into() });
             app.set_status_text(I18nWeb::direct_connected(is_ja).into());
             app.set_can_disconnect(true);
             app.set_can_send(true);
+            app.set_is_derp_relay(true);
         }
     }) as Box<dyn FnMut(String)>);
     let _ = js_sys::Reflect::set(&window, &JsValue::from_str("onPeerConnectedSlint"), on_peer_connected.as_ref().unchecked_ref());
     on_peer_connected.forget();
+
+    let app_weak_derp = app.as_weak();
+    let set_derp_relay = Closure::wrap(Box::new(move |is_derp: bool| {
+        if let Some(app) = app_weak_derp.upgrade() {
+            app.set_is_derp_relay(is_derp);
+        }
+    }) as Box<dyn FnMut(bool)>);
+    let _ = js_sys::Reflect::set(&window, &JsValue::from_str("setSlintDerpRelay"), set_derp_relay.as_ref().unchecked_ref());
+    set_derp_relay.forget();
 
     // Set up JS bridge callbacks for UI updates from incoming streams
     let app_weak_msg = app.as_weak();
@@ -271,6 +285,8 @@ pub fn run_app() -> Result<(), JsValue> {
             app.set_transfer_completed(true);
             app.set_transfer_status(I18nWeb::download_completed_badge(is_ja).into());
             app.set_status_text(I18nWeb::file_download_done(is_ja, &filename, mb).into());
+            app.set_saved_file_path(filename.into());
+            app.set_path_copied_feedback(false);
         }
     }) as Box<dyn FnMut(String, f64)>);
     let _ = js_sys::Reflect::set(&window, &JsValue::from_str("onFileReceivedCompleteSlint"), on_file_done.as_ref().unchecked_ref());
@@ -342,6 +358,30 @@ pub fn run_app() -> Result<(), JsValue> {
                     app.set_text_copied_feedback(false);
                 }
             });
+        }
+    });
+
+    let app_weak_copy_path = app.as_weak();
+    app.on_copy_file_path(move || {
+        if let Some(app) = app_weak_copy_path.upgrade() {
+            let path = app.get_saved_file_path();
+            if !path.is_empty() {
+                trigger_copy_text(&path);
+                let is_ja = app.get_current_language() == "ja";
+                app.set_status_text(I18nWeb::path_copied(is_ja).into());
+                app.set_path_copied_feedback(true);
+                let w_timer = app_weak_copy_path.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    let promise = js_sys::Promise::new(&mut |resolve, _| {
+                        let window = web_sys::window().unwrap();
+                        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 3000);
+                    });
+                    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+                    if let Some(app) = w_timer.upgrade() {
+                        app.set_path_copied_feedback(false);
+                    }
+                });
+            }
         }
     });
 
@@ -474,6 +514,7 @@ pub fn run_app() -> Result<(), JsValue> {
                         app.set_status_text(I18nWeb::direct_connected(is_ja).into());
                         app.set_can_disconnect(true);
                         app.set_can_send(true);
+                        app.set_is_derp_relay(true);
                     }
 
                     if let Ok(func) = js_sys::Reflect::get(&window, &JsValue::from_str("connectToPeerFromInput")) {
@@ -525,6 +566,8 @@ pub fn run_app() -> Result<(), JsValue> {
             app.set_status_text(I18nWeb::disconnected(is_ja).into());
             app.set_is_transferring(false);
             app.set_transfer_completed(false);
+            app.set_saved_file_path("".into());
+            app.set_path_copied_feedback(false);
         }
     });
 

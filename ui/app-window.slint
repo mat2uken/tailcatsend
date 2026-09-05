@@ -245,6 +245,7 @@ component ModernCard inherits Rectangle {
 component PeerHeaderCard inherits ModernCard {
     in property <string> peer-name: "Peer";
     in property <bool> is-ja: true;
+    in property <bool> is-derp: false;
 
     border-radius-custom: 12px;
     card-border: #1e3a8a;
@@ -268,7 +269,15 @@ component PeerHeaderCard inherits ModernCard {
                 border-width: 1px;
                 border-color: #3b82f6;
                 y: (parent.height - self.height) / 2;
-                Text { text: "💻"; font-size: 16px; horizontal-alignment: center; vertical-alignment: center; }
+
+                Path {
+                    width: 16px;
+                    height: 13px;
+                    fill: #60a5fa;
+                    commands: "M 2 1 L 14 1 C 14.5 1 15 1.5 15 2 L 15 10 C 15 10.5 14.5 11 14 11 L 2 11 C 1.5 11 1 10.5 1 10 L 1 2 C 1 1.5 1.5 1 2 1 Z M 0 12 L 16 12 C 16 12.6 15.5 13 15 13 L 1 13 C 0.5 13 0 12.6 0 12 Z";
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                }
             }
 
             VerticalLayout {
@@ -286,21 +295,26 @@ component PeerHeaderCard inherits ModernCard {
                         width: 6px;
                         height: 6px;
                         border-radius: 3px;
-                        background: Theme.success;
+                        background: root.is-derp ? #38bdf8 : Theme.success;
                         y: (parent.height - self.height) / 2;
                     }
                     Text {
-                        text: root.is-ja ? "P2P直接暗号化接続中" : "Encrypted Direct P2P";
+                        text: root.is-derp
+                            ? (root.is-ja ? "P2P接続中 (DERPリレー)" : "P2P Connected (DERP Relay)")
+                            : (root.is-ja ? "P2P接続中 (直接通信)" : "P2P Connected (Direct)");
                         font-size: 10px;
                         font-weight: 600;
-                        color: Theme.success;
+                        color: root.is-derp ? #38bdf8 : Theme.success;
                         vertical-alignment: center;
                     }
                 }
             }
         }
 
-        StatusBadge { text: root.is-ja ? "高速P2P" : "Fast P2P"; dot-color: Theme.accent-cyan; }
+        StatusBadge {
+            text: root.is-derp ? (root.is-ja ? "DERPリレー" : "DERP Relay") : "P2P";
+            dot-color: root.is-derp ? #f59e0b : Theme.accent-cyan;
+        }
     }
 }
 
@@ -314,8 +328,11 @@ component TransferProgressCard inherits Rectangle {
     in property <string> transfer-speed: "";
     in property <float> transfer-progress: 0.0;
     in property <bool> is-ja: true;
+    in property <string> saved-file-path: "";
+    in property <bool> path-copied: false;
 
     callback cancel-clicked();
+    callback copy-path-clicked();
 
     background: root.transfer-completed ? Theme.success-bg : #0c2340;
     border-radius: 12px;
@@ -331,7 +348,7 @@ component TransferProgressCard inherits Rectangle {
             HorizontalLayout {
                 spacing: 6px;
                 Text {
-                    text: root.transfer-completed ? "✓" : "⬇";
+                    text: root.transfer-completed ? "✓" : "↓";
                     font-size: 13px;
                     font-weight: 800;
                     color: root.transfer-completed ? Theme.success-border : Theme.accent-cyan;
@@ -359,22 +376,85 @@ component TransferProgressCard inherits Rectangle {
 
         ProgressIndicator { progress: root.transfer-progress; height: 5px; }
 
+        if root.transfer-completed && root.saved-file-path != "" : Rectangle {
+            background: path-touch.has-hover ? #064e3b : #022c22;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: path-touch.has-hover ? #10b981 : #065f46;
+            animate background { duration: 120ms; }
+            animate border-color { duration: 120ms; }
+
+            path-touch := TouchArea {
+                mouse-cursor: pointer;
+                clicked => { root.copy-path-clicked(); }
+            }
+
+            HorizontalLayout {
+                padding-left: 8px;
+                padding-right: 8px;
+                padding-top: 6px;
+                padding-bottom: 6px;
+                spacing: 6px;
+
+                Path {
+                    width: 12px;
+                    height: 10px;
+                    fill: #34d399;
+                    commands: "M 1 2 C 1 1.4 1.4 1 2 1 L 5 1 L 6.5 2.5 L 11 2.5 C 11.6 2.5 12 2.9 12 3.5 L 12 9 C 12 9.6 11.6 10 11 10 L 2 10 C 1.4 10 1 9.6 1 9 Z";
+                    y: (parent.height - self.height) / 2;
+                }
+
+                Text {
+                    text: root.saved-file-path;
+                    font-size: 11px;
+                    color: #d1fae5;
+                    overflow: elide;
+                    vertical-alignment: center;
+                    horizontal-stretch: 1;
+                }
+
+                if root.path-copied : Text {
+                    text: "✓";
+                    font-size: 11px;
+                    font-weight: 800;
+                    color: #34d399;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
         HorizontalLayout {
             alignment: space-between;
-            Text { text: root.transfer-speed; font-size: 11px; color: Theme.text-secondary; }
-            if root.is-transferring : AppButton {
-                text: root.is-ja ? "キャンセル" : "Cancel";
-                danger: true;
-                custom-height: 28px;
-                font-size: 11px;
-                clicked => { root.cancel-clicked(); }
-            }
-            if root.transfer-completed : AppButton {
-                text: root.is-ja ? "閉じる" : "Dismiss";
-                secondary: true;
-                custom-height: 28px;
-                font-size: 11px;
-                clicked => { root.cancel-clicked(); }
+            Text { text: root.transfer-speed; font-size: 11px; color: Theme.text-secondary; vertical-alignment: center; }
+
+            HorizontalLayout {
+                spacing: 6px;
+
+                if root.is-transferring : AppButton {
+                    text: root.is-ja ? "キャンセル" : "Cancel";
+                    danger: true;
+                    custom-height: 28px;
+                    font-size: 11px;
+                    clicked => { root.cancel-clicked(); }
+                }
+
+                if root.transfer-completed && root.saved-file-path != "" : AppButton {
+                    text: root.path-copied ? (root.is-ja ? "コピー完了！" : "Copied!") : (root.is-ja ? "パスをコピー" : "Copy Path");
+                    icon-text: root.path-copied ? "✓" : "";
+                    primary: root.path-copied;
+                    secondary: !root.path-copied;
+                    custom-height: 28px;
+                    font-size: 11px;
+                    clicked => { root.copy-path-clicked(); }
+                }
+
+                if root.transfer-completed : AppButton {
+                    text: root.is-ja ? "閉じる" : "Dismiss";
+                    secondary: true;
+                    custom-height: 28px;
+                    font-size: 11px;
+                    clicked => { root.cancel-clicked(); }
+                }
             }
         }
     }
@@ -435,15 +515,18 @@ component ActivityStreamCard inherits ModernCard {
             border-radius: 8px;
             border-width: 1px;
             border-color: Theme.border-subtle;
-            min-height: 52px;
+            min-height: 120px;
+            preferred-height: 160px;
 
-            VerticalLayout {
-                padding: 8px;
-                Text {
-                    text: root.log-text;
-                    font-size: 12px;
-                    color: #e2e8f0;
-                    wrap: word-wrap;
+            ScrollView {
+                VerticalLayout {
+                    padding: 10px;
+                    Text {
+                        text: root.log-text;
+                        font-size: 12px;
+                        color: #e2e8f0;
+                        wrap: word-wrap;
+                    }
                 }
             }
         }
@@ -455,10 +538,20 @@ component EmptyActivityCard inherits ModernCard {
     in property <bool> is-ja: true;
 
     VerticalLayout {
-        padding: 16px;
-        spacing: 6px;
+        padding: 20px;
+        spacing: 8px;
         alignment: center;
-        Text { text: "💬"; font-size: 20px; horizontal-alignment: center; }
+
+        HorizontalLayout {
+            alignment: center;
+            Path {
+                width: 24px;
+                height: 20px;
+                fill: Theme.text-secondary;
+                commands: "M 3 1 L 21 1 C 22.1 1 23 1.9 23 3 L 23 14 C 23 15.1 22.1 16 21 16 L 8 16 L 3 20 L 4 15 C 2.2 14.3 1 12.8 1 11 L 1 3 C 1 1.9 1.9 1 3 1 Z";
+            }
+        }
+
         Text {
             text: root.is-ja ? "送受信したメッセージやファイルがここに表示されます" : "Received files and messages will appear here";
             font-size: 11px;
@@ -473,7 +566,7 @@ component EmptyActivityCard inherits ModernCard {
 // Main Application Window
 // ============================================================================
 export component AppWindow inherits Window {
-    title: root.is_ja ? "TailSend — P2Pファイル転送" : "TailSend — Direct P2P Transfer";
+    title: root.is_ja ? "tailcatSend — P2Pファイル転送" : "tailcatSend — Direct P2P Transfer";
     background: Theme.bg-main;
     default-font-size: 14px;
     default-font-family: "Noto Sans JP";
@@ -495,6 +588,7 @@ export component AppWindow inherits Window {
     in-out property <int> expires_secs: 600;
     in-out property <bool> can_disconnect: false;
     in-out property <bool> can_send: true;
+    in-out property <bool> is_derp_relay: false;
 
     in-out property <image> qr_code_image;
     in-out property <bool> has_qr_image: false;
@@ -506,6 +600,8 @@ export component AppWindow inherits Window {
     in-out property <float> transfer_progress: 0.0;
     in-out property <bool> is_transferring: false;
     in-out property <bool> transfer_completed: false;
+    in-out property <string> saved_file_path: "";
+    in-out property <bool> path_copied_feedback: false;
 
     in-out property <string> message_input: "";
     in-out property <string> received_message_log: "";
@@ -539,6 +635,7 @@ export component AppWindow inherits Window {
     callback paste_and_send();
     callback pick_files();
     callback cancel_transfer();
+    callback copy_file_path();
     callback share_received_text();
     callback save_received_text();
     callback copy_received_text();
@@ -589,7 +686,7 @@ export component AppWindow inherits Window {
                             alignment: center;
                             spacing: 0px;
                             Text {
-                                text: "TailSend";
+                                text: "tailcatSend";
                                 font-size: 18px;
                                 font-weight: 800;
                                 color: Theme.text-primary;
@@ -676,7 +773,6 @@ export component AppWindow inherits Window {
                         // Disconnect Button (Screen 3 only)
                         if root.screen_index == 3 : AppButton {
                             text: root.is_ja ? "切断" : "Disconnect";
-                            icon-text: "✕";
                             danger: true;
                             custom-height: 32px;
                             font-size: 11px;
@@ -754,7 +850,7 @@ export component AppWindow inherits Window {
 
                             // Tab Selector: Share QR vs Join Peer
                             SegmentedTab {
-                                label-left: root.is_ja ? "接続を待つ (QR)" : "Share Invite (QR)";
+                                label-left: root.is_ja ? "接続待ち受け（QRコード表示）" : "Wait for Connection (QR)";
                                 label-right: root.is_ja ? "相手に接続" : "Join Peer";
                                 active-tab <=> root.invite_tab_index;
                             }
@@ -869,7 +965,7 @@ export component AppWindow inherits Window {
 
                                         HorizontalLayout {
                                             alignment: center;
-                                            StatusBadge { text: root.is_ja ? "P2P直接暗号化通信" : "Direct P2P Encrypted"; dot-color: Theme.success; }
+                                            StatusBadge { text: root.is_ja ? "P2P(DERP含)暗号化通信を行います" : "Encrypted P2P (incl. DERP) Transfer"; dot-color: Theme.success; }
                                         }
                                     }
 
@@ -943,7 +1039,7 @@ export component AppWindow inherits Window {
 
                                             HorizontalLayout {
                                                 alignment: start;
-                                                StatusBadge { text: root.is_ja ? "P2P直接暗号化通信" : "Direct P2P Encrypted"; dot-color: Theme.success; }
+                                                StatusBadge { text: root.is_ja ? "P2P(DERP含)暗号化通信を行います" : "Encrypted P2P (incl. DERP) Transfer"; dot-color: Theme.success; }
                                             }
                                         }
                                     }
@@ -1084,6 +1180,7 @@ export component AppWindow inherits Window {
                             PeerHeaderCard {
                                 peer-name: root.peer_name;
                                 is-ja: root.is_ja;
+                                is-derp: root.is_derp_relay;
                             }
 
                             // 1-Column Flow for Mobile Portrait
@@ -1098,10 +1195,17 @@ export component AppWindow inherits Window {
                                     transfer-bytes-text: root.transfer_bytes_text;
                                     transfer-speed: root.transfer_speed;
                                     transfer-progress: root.transfer_progress;
+                                    saved-file-path: root.saved_file_path;
+                                    path-copied: root.path_copied_feedback;
                                     is-ja: root.is_ja;
+                                    copy-path-clicked => {
+                                        root.copy_file_path();
+                                    }
                                     cancel-clicked => {
                                         root.is_transferring = false;
                                         root.transfer_completed = false;
+                                        root.saved_file_path = "";
+                                        root.path_copied_feedback = false;
                                         root.cancel_transfer();
                                     }
                                 }
@@ -1179,14 +1283,14 @@ export component AppWindow inherits Window {
                                             spacing: 6px;
                                             AppButton {
                                                 horizontal-stretch: 1;
-                                                text: root.is_ja ? "貼付して即送信" : "Paste & Send";
+                                                text: root.is_ja ? "クリップボードから送信" : "Paste & Send";
                                                 secondary: true;
                                                 custom-height: 32px;
                                                 clicked => { root.paste_and_send(); }
                                             }
                                             AppButton {
                                                 horizontal-stretch: 1;
-                                                text: root.is_ja ? "外部入力 (IME)" : "Open Composer";
+                                                text: root.is_ja ? "複数行入力" : "Multiline Composer";
                                                 secondary: true;
                                                 custom-height: 32px;
                                                 clicked => { root.open_text_composer(); }
@@ -1289,14 +1393,14 @@ export component AppWindow inherits Window {
                                                 spacing: 6px;
                                                 AppButton {
                                                     horizontal-stretch: 1;
-                                                    text: root.is_ja ? "貼付送信" : "Paste & Send";
+                                                    text: root.is_ja ? "クリップボードから送信" : "Paste & Send";
                                                     secondary: true;
                                                     custom-height: 30px;
                                                     clicked => { root.paste_and_send(); }
                                                 }
                                                 AppButton {
                                                     horizontal-stretch: 1;
-                                                    text: root.is_ja ? "外部入力" : "Composer";
+                                                    text: root.is_ja ? "複数行入力" : "Multiline Composer";
                                                     secondary: true;
                                                     custom-height: 30px;
                                                     clicked => { root.open_text_composer(); }
@@ -1319,10 +1423,17 @@ export component AppWindow inherits Window {
                                         transfer-bytes-text: root.transfer_bytes_text;
                                         transfer-speed: root.transfer_speed;
                                         transfer-progress: root.transfer_progress;
+                                        saved-file-path: root.saved_file_path;
+                                        path-copied: root.path_copied_feedback;
                                         is-ja: root.is_ja;
+                                        copy-path-clicked => {
+                                            root.copy_file_path();
+                                        }
                                         cancel-clicked => {
                                             root.is_transferring = false;
                                             root.transfer_completed = false;
+                                            root.saved_file_path = "";
+                                            root.path_copied_feedback = false;
                                             root.cancel_transfer();
                                         }
                                     }

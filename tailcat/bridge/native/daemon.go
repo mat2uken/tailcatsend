@@ -158,7 +158,7 @@ func main() {
 				go func(conn net.Conn, h uint64) {
 					defer conn.Close()
 					userHome, _ := os.UserHomeDir()
-					outDir := filepath.Join(userHome, "Downloads", "TailSend")
+					outDir := filepath.Join(userHome, "Downloads", "tailcatSend")
 					_ = os.MkdirAll(outDir, 0755)
 
 					reader := bufio.NewReader(conn)

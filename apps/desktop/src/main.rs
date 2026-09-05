@@ -31,6 +31,7 @@ struct DaemonEvent {
     speed: Option<String>,
     path: Option<String>,
     error: Option<String>,
+    is_derp: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -52,9 +53,9 @@ struct DaemonCommand {
 
 fn get_download_dir() -> PathBuf {
     if let Ok(home) = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
-        PathBuf::from(home).join("Downloads").join("TailSend")
+        PathBuf::from(home).join("Downloads").join("tailcatSend")
     } else {
-        PathBuf::from("TailSend_Downloads")
+        PathBuf::from("tailcatSend_Downloads")
     }
 }
 
@@ -124,7 +125,7 @@ impl I18n {
         }
     }
     pub fn file_recv_completed_badge(is_ja: bool) -> &'static str {
-        if is_ja { "✓ ファイル受信が完了しました！" } else { "✓ File Transfer Successful!" }
+        if is_ja { "ファイル受信が完了しました！" } else { "File Transfer Complete!" }
     }
     pub fn file_sending(is_ja: bool) -> &'static str {
         if is_ja { "ファイル送信中…" } else { "Sending file via P2P..." }
@@ -146,6 +147,9 @@ impl I18n {
     }
     pub fn text_copied(is_ja: bool) -> &'static str {
         if is_ja { "テキストをクリップボードにコピーしました！" } else { "Text copied to clipboard!" }
+    }
+    pub fn path_copied(is_ja: bool) -> &'static str {
+        if is_ja { "ファイルパスをクリップボードにコピーしました！" } else { "File path copied to clipboard!" }
     }
     pub fn text_saved(is_ja: bool, path: &str) -> String {
         if is_ja { format!("テキストを保存しました: {}", path) } else { format!("Text saved to {}", path) }
@@ -183,8 +187,8 @@ impl I18n {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    info!("Starting TailSend Desktop Native Application (Pure Tailcat P2P)...");
-    println!("\n🚀 TailSend Desktop Native App is starting (Pure Tailcat WireGuard/DERP Mesh)...");
+    info!("Starting tailcatSend Desktop Native Application (Pure Tailcat P2P)...");
+    println!("\n🚀 tailcatSend Desktop Native App is starting (Pure Tailcat WireGuard/DERP Mesh)...");
 
     let args: Vec<String> = std::env::args().collect();
     let base_url = if args.len() > 1 && !args[1].trim().is_empty() {
@@ -388,6 +392,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "incoming_stream" => {
                         let w = app_weak_daemon.clone();
                         let _port = ev.port.unwrap_or(0);
+                        let is_derp = ev.is_derp.unwrap_or_else(|| {
+                            ev.address.as_ref().map(|a| a.contains("derp")).unwrap_or(false)
+                        });
                         if let Some(ref addr) = ev.address {
                             if let Ok(mut guard) = target_peer_addr_daemon.lock() {
                                 *guard = Some(addr.clone());
@@ -399,12 +406,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 app.set_screen_index(3);
                                 app.set_peer_name(I18n::connected_peer(is_ja).into());
                                 app.set_status_text(I18n::stream_active(is_ja).into());
+                                app.set_is_derp_relay(is_derp);
                             }
                         });
                     }
                     "incoming_text" => {
                         if let Some(text) = ev.text {
                             println!("✉️ [P2P Direct Text Received]: {}", text);
+                            let is_derp = ev.is_derp.unwrap_or_else(|| {
+                                ev.address.as_ref().map(|a| a.contains("derp")).unwrap_or(false)
+                            });
                             if let Some(idx) = text.find("JOIN:") {
                                 let peer_addr = text[idx + 5..].split_whitespace().next().unwrap_or("").trim();
                                 if !peer_addr.is_empty() {
@@ -430,6 +441,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     app.set_received_message_log(new_log.into());
                                     app.set_last_received_text(t.into());
                                     app.set_status_text(I18n::msg_received(is_ja).into());
+                                    app.set_is_derp_relay(is_derp);
                                 }
                             });
                         }
@@ -437,6 +449,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "incoming_file_start" => {
                         let fname = ev.filename.unwrap_or_else(|| "file.bin".to_string());
                         let total_mb = ev.size.unwrap_or(0) as f64 / 1048576.0;
+                        let is_derp = ev.is_derp.unwrap_or_else(|| {
+                            ev.address.as_ref().map(|a| a.contains("derp")).unwrap_or(false)
+                        });
                         let w = app_weak_daemon.clone();
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(app) = w.upgrade() {
@@ -445,6 +460,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 app.set_peer_name(I18n::connected_peer(is_ja).into());
                                 app.set_is_transferring(true);
                                 app.set_transfer_completed(false);
+                                app.set_saved_file_path("".into());
+                                app.set_path_copied_feedback(false);
                                 app.set_transfer_filename(fname.clone().into());
                                 if total_mb > 0.0 {
                                     app.set_transfer_bytes_text(format!("0.0 MB / {:.1} MB", total_mb).into());
@@ -455,6 +472,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 app.set_transfer_progress(0.05);
                                 app.set_transfer_status(I18n::file_recv_status(is_ja).into());
                                 app.set_status_text(I18n::file_recv_start(is_ja, &fname).into());
+                                app.set_is_derp_relay(is_derp);
                             }
                         });
                     }
@@ -491,26 +509,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let fname = ev.filename.unwrap_or_else(|| "file.bin".to_string());
                         let fsize = ev.size.unwrap_or(0) as f64 / 1048576.0;
                         let fpath = ev.path.unwrap_or_default();
-                        println!("📁 [P2P Direct File Received]: {} ({:.1} MB) -> {}", fname, fsize, fpath);
+                        let saved_path = if !fpath.is_empty() {
+                            fpath
+                        } else {
+                            get_download_dir().join(&fname).to_string_lossy().to_string()
+                        };
+                        println!("📁 [P2P Direct File Received]: {} ({:.1} MB) -> {}", fname, fsize, saved_path);
 
                         let w = app_weak_daemon.clone();
+                        let saved_path_clone = saved_path.clone();
+                        let fname_clone = fname.clone();
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(app) = w.upgrade() {
                                 let is_ja = app.get_current_language() == "ja";
                                 app.set_screen_index(3);
                                 app.set_is_transferring(false);
                                 app.set_transfer_completed(true);
-                                app.set_transfer_filename(fname.clone().into());
+                                app.set_transfer_filename(fname_clone.clone().into());
                                 app.set_transfer_bytes_text(format!("{:.1} MB", fsize).into());
                                 app.set_transfer_speed(if is_ja { "保存完了" } else { "Saved" }.into());
                                 app.set_transfer_progress(1.0);
                                 app.set_transfer_status(I18n::file_recv_completed_badge(is_ja).into());
-                                app.set_status_text(I18n::file_recv_done(is_ja, &fname, fsize).into());
+                                app.set_status_text(I18n::file_recv_done(is_ja, &fname_clone, fsize).into());
+                                app.set_saved_file_path(saved_path_clone.clone().into());
+                                app.set_path_copied_feedback(false);
                                 let recv_label = I18n::label_file_recv(is_ja);
                                 let saved_label = I18n::label_saved(is_ja);
                                 let new_log = format!(
                                     "{}: {} ({:.1} MB)\n{}: {}\n{}",
-                                    recv_label, fname, fsize, saved_label, fpath, app.get_received_message_log()
+                                    recv_label, fname_clone, fsize, saved_label, saved_path_clone, app.get_received_message_log()
                                 );
                                 app.set_received_message_log(new_log.into());
                             }
@@ -642,6 +669,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             app.set_status_text(I18n::disconnected(is_ja).into());
             app.set_is_transferring(false);
             app.set_transfer_completed(false);
+            app.set_saved_file_path("".into());
+            app.set_path_copied_feedback(false);
         }
     });
 
@@ -656,11 +685,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Ok(mut guard) = target_addr_join.lock() {
                 *guard = Some(addr.clone());
             }
+            let is_derp = addr.contains("derp");
             if let Some(app) = app_weak_join.upgrade() {
                 let is_ja = app.get_current_language() == "ja";
                 app.set_screen_index(3);
                 app.set_peer_name(I18n::connected_peer(is_ja).into());
                 app.set_status_text(I18n::direct_connected(is_ja).into());
+                app.set_is_derp_relay(is_derp);
             }
             // Send test handshake ping over Tailcat
             let _ = ipc_tx_join.send(DaemonCommand {
@@ -668,7 +699,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 address: Some(addr),
                 port: Some(101),
                 handle: None,
-                text: Some("🤝 [Connected] TailSend connected via Tailcat WireGuard Mesh!".to_string()),
+                text: Some("🤝 [Connected] tailcatSend connected via Tailcat WireGuard Mesh!".to_string()),
                 filename: None,
                 path: None,
             });
@@ -687,6 +718,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     if !trimmed.is_empty() {
                         app.set_join_input_text(trimmed.into());
                         let addr = parse_tailcat_address(trimmed);
+                        let is_derp = addr.contains("derp");
                         if let Ok(mut guard) = target_addr_paste_join.lock() {
                             *guard = Some(addr.clone());
                         }
@@ -694,13 +726,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         app.set_screen_index(3);
                         app.set_peer_name(I18n::connected_peer(is_ja).into());
                         app.set_status_text(I18n::direct_connected(is_ja).into());
+                        app.set_is_derp_relay(is_derp);
 
                         let _ = ipc_tx_paste_join.send(DaemonCommand {
                             action: "send_text".to_string(),
                             address: Some(addr),
                             port: Some(101),
                             handle: None,
-                            text: Some("🤝 [Connected] TailSend connected via Tailcat WireGuard Mesh!".to_string()),
+                            text: Some("🤝 [Connected] tailcatSend connected via Tailcat WireGuard Mesh!".to_string()),
                             filename: None,
                             path: None,
                         });
@@ -831,6 +864,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(app) = app_weak_cancel.upgrade() {
             let is_ja = app.get_current_language() == "ja";
             app.set_is_transferring(false);
+            app.set_transfer_completed(false);
+            app.set_saved_file_path("".into());
+            app.set_path_copied_feedback(false);
             app.set_transfer_progress(0.0);
             app.set_transfer_status(I18n::transfer_cancelled(is_ja).into());
             let _ = ipc_tx_cancel.send(DaemonCommand {
@@ -895,6 +931,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(app) = w_timer.upgrade() {
                                 app.set_text_copied_feedback(false);
+                            }
+                        });
+                    });
+                }
+            }
+        }
+    });
+
+    // Copy Saved File Path to Clipboard
+    let app_weak_copy_path = app_weak.clone();
+    app.on_copy_file_path(move || {
+        if let Some(app) = app_weak_copy_path.upgrade() {
+            let path = app.get_saved_file_path().to_string();
+            if !path.is_empty() {
+                if let Ok(mut clipboard) = Clipboard::new() {
+                    let _ = clipboard.set_text(&path);
+                    let is_ja = app.get_current_language() == "ja";
+                    app.set_status_text(I18n::path_copied(is_ja).into());
+                    app.set_path_copied_feedback(true);
+                    let w_timer = app_weak_copy_path.clone();
+                    tokio::spawn(async move {
+                        tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(app) = w_timer.upgrade() {
+                                app.set_path_copied_feedback(false);
                             }
                         });
                     });
