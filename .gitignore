@@ -21,6 +21,7 @@ node_modules/
 
 # Temporary test artifacts
 mobile_*.png
+live_cloudflare_screenshot.png
 progress_active_screenshot.png
 ios_simulator_screenshot.png
 qr_code.png
