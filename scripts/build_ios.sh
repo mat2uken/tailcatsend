@@ -67,7 +67,7 @@ elif [ "$MODE" = "device-install" ]; then
 
     echo "⚙️  [3/4] Building Xcode Project for physical device ($DEVICE_ID)..."
     cd apps/ios && xcodegen generate
-    xcodebuild -project TailSend.xcodeproj -scheme TailSend -destination "generic/platform=iOS" -allowProvisioningUpdates build
+    xcodebuild -project TailSend.xcodeproj -scheme TailSend -destination "generic/platform=iOS" -derivedDataPath DerivedData -allowProvisioningUpdates build
     cd ../..
 
     echo "📲 [4/4] Installing and launching on iPhone ($DEVICE_ID)..."

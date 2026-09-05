@@ -23,6 +23,7 @@ require (
 	tailscale.com v1.103.0-pre.0.20260904030409-31d8badb3bfb
 )
 
+
 require (
 	9fans.net/go v0.0.8-0.20250307142834-96bdba94b63f // indirect
 	filippo.io/edwards25519 v1.2.0 // indirect
