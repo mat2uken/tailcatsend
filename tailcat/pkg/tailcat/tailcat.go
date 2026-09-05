@@ -596,8 +596,8 @@ func (s *Server) Start() error {
 		logf(format, args...)
 	})
 	if err != nil {
-		lb.Close() // closes the subsystems started so far
-		return fmt.Errorf("netmon.New: %w", err)
+		logf("netmon.New failed, falling back to static monitor: %v", err)
+		netMon = netmon.NewStatic()
 	}
 	sys.Set(netMon)
 
@@ -1814,8 +1814,8 @@ func (c *Client) initLocked() error {
 		logf(format, args...)
 	})
 	if err != nil {
-		lb.Close() // closes the subsystems started so far
-		return fmt.Errorf("netmon.New: %w", err)
+		logf("netmon.New failed, falling back to static monitor: %v", err)
+		netMon = netmon.NewStatic()
 	}
 	sys.Set(netMon)
 

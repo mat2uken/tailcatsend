@@ -43,9 +43,47 @@ import (
 	"unsafe"
 
 	"github.com/tailscale/tailcat"
+	"tailscale.com/net/netmon"
 	"tailscale.com/tailcfg"
 	"tailscale.com/types/key"
 )
+
+func init() {
+	netmon.RegisterInterfaceGetter(func() ([]netmon.Interface, error) {
+		ifs, err := net.Interfaces()
+		if err == nil && len(ifs) > 0 {
+			var res []netmon.Interface
+			for i := range ifs {
+				res = append(res, netmon.Interface{
+					Interface: &ifs[i],
+				})
+			}
+			return res, nil
+		}
+		dummyIP := net.ParseIP("127.0.0.1")
+		dummyNet := &net.IPNet{IP: dummyIP, Mask: net.CIDRMask(8, 32)}
+		return []netmon.Interface{
+			{
+				Interface: &net.Interface{
+					Index: 1,
+					MTU:   1500,
+					Name:  "lo",
+					Flags: net.FlagUp | net.FlagLoopback,
+				},
+				AltAddrs: []net.Addr{dummyNet},
+			},
+			{
+				Interface: &net.Interface{
+					Index: 2,
+					MTU:   1500,
+					Name:  "wlan0",
+					Flags: net.FlagUp,
+				},
+				AltAddrs: []net.Addr{dummyNet},
+			},
+		}, nil
+	})
+}
 
 const (
 	TC_OK                   = 0

@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
 
+export PATH=$PATH:/Users/mat2uken/Library/Android/sdk/platform-tools
 DEVICE_ID="QV770139JG"
 echo "========================================================="
 echo "🧪 Starting Full Automated E2E Test: macOS <-> Android Xperia"
