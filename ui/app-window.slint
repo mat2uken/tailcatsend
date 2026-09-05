@@ -1193,276 +1193,141 @@ export component AppWindow inherits Window {
                                 is-derp: root.is_derp_relay;
                             }
 
-                            // 1-Column Flow for Mobile Portrait
-                            if !root.is_landscape : VerticalLayout {
-                                spacing: 10px;
+                            // ------------------------------------------------
+                            // Send Controls: Tabs & Card
+                            // ------------------------------------------------
+                            SegmentedTab {
+                                label-left: root.is_ja ? "ファイル送信" : "Send File";
+                                label-right: root.is_ja ? "テキスト送信" : "Send Text";
+                                active-tab <=> root.send_mode_tab;
+                            }
 
-                                if root.is_transferring || root.transfer_completed : TransferProgressCard {
-                                    is-transferring: root.is_transferring;
-                                    transfer-completed: root.transfer_completed;
-                                    is-sender: root.is_sender_transfer;
-                                    transfer-status: root.transfer_status;
-                                    transfer-filename: root.transfer_filename;
-                                    transfer-bytes-text: root.transfer_bytes_text;
-                                    transfer-speed: root.transfer_speed;
-                                    transfer-progress: root.transfer_progress;
-                                    saved-file-path: root.saved_file_path;
-                                    path-copied: root.path_copied_feedback;
-                                    is-ja: root.is_ja;
-                                    copy-path-clicked => {
-                                        root.copy_file_path();
-                                    }
-                                    cancel-clicked => {
-                                        root.is_transferring = false;
-                                        root.transfer_completed = false;
-                                        root.saved_file_path = "";
-                                        root.path_copied_feedback = false;
-                                        root.cancel_transfer();
-                                    }
-                                }
-
-                                SegmentedTab {
-                                    label-left: root.is_ja ? "ファイル送信" : "Send File";
-                                    label-right: root.is_ja ? "テキスト送信" : "Send Text";
-                                    active-tab <=> root.send_mode_tab;
-                                }
-
-                                if root.send_mode_tab == 0 : ModernCard {
-                                    VerticalLayout {
-                                        padding: 14px;
-                                        spacing: 10px;
-                                        Rectangle {
-                                            height: 95px;
-                                            background: drop_t1.has-hover ? #172642 : Theme.surface-nested;
-                                            border-radius: 10px;
-                                            border-width: 1.5px;
-                                            border-color: drop_t1.has-hover ? Theme.accent-cyan : #2b3d5c;
-                                            animate background { duration: 150ms; }
-                                            animate border-color { duration: 150ms; }
-                                            drop_t1 := TouchArea { mouse-cursor: pointer; clicked => { root.pick_files(); } }
-                                            VerticalLayout {
-                                                alignment: center;
-                                                spacing: 4px;
-                                                Text { text: "＋"; font-size: 24px; font-weight: 800; color: Theme.accent-cyan; horizontal-alignment: center; }
-                                                Text {
-                                                    text: root.is_ja ? "送信するファイルを選択" : "Choose File to Send";
-                                                    font-size: 13px; font-weight: 700; color: Theme.text-primary; horizontal-alignment: center;
-                                                }
-                                                Text {
-                                                    text: root.is_ja ? "クリックしてファイルを開く" : "Click to browse files";
-                                                    font-size: 10px; color: Theme.text-secondary; horizontal-alignment: center;
-                                                }
+                            // Tab A: File Send Area
+                            if root.send_mode_tab == 0 : ModernCard {
+                                VerticalLayout {
+                                    padding: 14px;
+                                    spacing: 10px;
+                                    Rectangle {
+                                        height: 95px;
+                                        background: drop_t1.has-hover ? #172642 : Theme.surface-nested;
+                                        border-radius: 10px;
+                                        border-width: 1.5px;
+                                        border-color: drop_t1.has-hover ? Theme.accent-cyan : #2b3d5c;
+                                        animate background { duration: 150ms; }
+                                        animate border-color { duration: 150ms; }
+                                        drop_t1 := TouchArea { mouse-cursor: pointer; clicked => { root.pick_files(); } }
+                                        VerticalLayout {
+                                            alignment: center;
+                                            spacing: 4px;
+                                            Text { text: "＋"; font-size: 24px; font-weight: 800; color: Theme.accent-cyan; horizontal-alignment: center; }
+                                            Text {
+                                                text: root.is_ja ? "送信するファイルを選択" : "Choose File to Send";
+                                                font-size: 13px; font-weight: 700; color: Theme.text-primary; horizontal-alignment: center;
                                             }
-                                        }
-                                        AppButton {
-                                            text: root.is_ja ? "ファイルを選択して送信" : "Select & Send File";
-                                            icon-text: "↑";
-                                            primary: true;
-                                            clicked => { root.pick_files(); }
-                                        }
-                                    }
-                                }
-
-                                if root.send_mode_tab == 1 : ModernCard {
-                                    VerticalLayout {
-                                        padding: 12px;
-                                        spacing: 8px;
-                                        HorizontalLayout {
-                                            spacing: 6px;
-                                            msg_field := LineEdit {
-                                                horizontal-stretch: 1;
-                                                text <=> root.message_input;
-                                                placeholder-text: root.is_ja ? "メッセージを入力…" : "Type a message…";
-                                                accessible-label: root.is_ja ? "メッセージ入力欄" : "Message input field";
-                                                accepted => {
-                                                    root.compose_text(self.text);
-                                                    self.text = "";
-                                                }
-                                            }
-                                            AppButton {
-                                                text: root.is_ja ? "送信" : "Send";
-                                                icon-text: "→";
-                                                primary: true;
-                                                custom-height: 38px;
-                                                clicked => {
-                                                    root.compose_text(root.message_input);
-                                                    root.message_input = "";
-                                                }
-                                            }
-                                        }
-                                        HorizontalLayout {
-                                            spacing: 6px;
-                                            AppButton {
-                                                horizontal-stretch: 1;
-                                                text: root.is_ja ? "クリップボードから送信" : "Paste & Send";
-                                                secondary: true;
-                                                custom-height: 32px;
-                                                clicked => { root.paste_and_send(); }
-                                            }
-                                            AppButton {
-                                                horizontal-stretch: 1;
-                                                text: root.is_ja ? "複数行入力" : "Multiline Composer";
-                                                secondary: true;
-                                                custom-height: 32px;
-                                                clicked => { root.open_text_composer(); }
+                                            Text {
+                                                text: root.is_ja ? "クリックしてファイルを開く" : "Click to browse files";
+                                                font-size: 10px; color: Theme.text-secondary; horizontal-alignment: center;
                                             }
                                         }
                                     }
-                                }
-
-                                if root.received_message_log != "" : ActivityStreamCard {
-                                    log-text: root.received_message_log;
-                                    is-ja: root.is_ja;
-                                    text-copied: root.text_copied_feedback;
-                                    copy-clicked => { root.copy_received_text(); }
-                                    save-clicked => { root.save_received_text(); }
-                                    share-clicked => { root.share_received_text(); }
-                                }
-
-                                if root.received_message_log == "" && !root.is_transferring && !root.transfer_completed : EmptyActivityCard {
-                                    is-ja: root.is_ja;
+                                    AppButton {
+                                        text: root.is_ja ? "ファイルを選択して送信" : "Select & Send File";
+                                        icon-text: "↑";
+                                        primary: true;
+                                        clicked => { root.pick_files(); }
+                                    }
                                 }
                             }
 
-                            // 2-Column Responsive Dashboard for Mobile Landscape & Wide Screens
-                            if root.is_landscape : HorizontalLayout {
-                                spacing: 12px;
-                                alignment: start;
-
-                                // Left Column: Send Controls
+                            // Tab B: Text Send Area
+                            if root.send_mode_tab == 1 : ModernCard {
                                 VerticalLayout {
-                                    horizontal-stretch: 1;
+                                    padding: 12px;
                                     spacing: 8px;
-
-                                    SegmentedTab {
-                                        label-left: root.is_ja ? "ファイル送信" : "Send File";
-                                        label-right: root.is_ja ? "テキスト送信" : "Send Text";
-                                        active-tab <=> root.send_mode_tab;
-                                    }
-
-                                    if root.send_mode_tab == 0 : ModernCard {
-                                        VerticalLayout {
-                                            padding: 12px;
-                                            spacing: 8px;
-                                            Rectangle {
-                                                height: 75px;
-                                                background: drop_t2.has-hover ? #172642 : Theme.surface-nested;
-                                                border-radius: 9px;
-                                                border-width: 1.5px;
-                                                border-color: drop_t2.has-hover ? Theme.accent-cyan : #2b3d5c;
-                                                animate background { duration: 150ms; }
-                                                animate border-color { duration: 150ms; }
-                                                drop_t2 := TouchArea { mouse-cursor: pointer; clicked => { root.pick_files(); } }
-                                                VerticalLayout {
-                                                    alignment: center;
-                                                    spacing: 3px;
-                                                    Text { text: "＋"; font-size: 20px; font-weight: 800; color: Theme.accent-cyan; horizontal-alignment: center; }
-                                                    Text {
-                                                        text: root.is_ja ? "ファイルを選択" : "Choose File";
-                                                        font-size: 12px; font-weight: 700; color: Theme.text-primary; horizontal-alignment: center;
-                                                    }
-                                                }
+                                    HorizontalLayout {
+                                        spacing: 6px;
+                                        msg_field := LineEdit {
+                                            horizontal-stretch: 1;
+                                            text <=> root.message_input;
+                                            placeholder-text: root.is_ja ? "メッセージを入力…" : "Type a message…";
+                                            accessible-label: root.is_ja ? "メッセージ入力欄" : "Message input field";
+                                            accepted => {
+                                                root.compose_text(self.text);
+                                                self.text = "";
                                             }
-                                            AppButton {
-                                                text: root.is_ja ? "ファイルを選択して送信" : "Select & Send File";
-                                                icon-text: "↑";
-                                                primary: true;
-                                                custom-height: 36px;
-                                                clicked => { root.pick_files(); }
+                                        }
+                                        AppButton {
+                                            text: root.is_ja ? "送信" : "Send";
+                                            icon-text: "→";
+                                            primary: true;
+                                            custom-height: 38px;
+                                            clicked => {
+                                                root.compose_text(root.message_input);
+                                                root.message_input = "";
                                             }
                                         }
                                     }
-
-                                    if root.send_mode_tab == 1 : ModernCard {
-                                        VerticalLayout {
-                                            padding: 10px;
-                                            spacing: 8px;
-                                            HorizontalLayout {
-                                                spacing: 6px;
-                                                LineEdit {
-                                                    horizontal-stretch: 1;
-                                                    text <=> root.message_input;
-                                                    placeholder-text: root.is_ja ? "メッセージを入力…" : "Type a message…";
-                                                    accessible-label: root.is_ja ? "メッセージ入力欄" : "Message input field";
-                                                    accepted => {
-                                                        root.compose_text(self.text);
-                                                        self.text = "";
-                                                    }
-                                                }
-                                                AppButton {
-                                                    text: root.is_ja ? "送信" : "Send";
-                                                    icon-text: "→";
-                                                    primary: true;
-                                                    custom-height: 36px;
-                                                    clicked => {
-                                                        root.compose_text(root.message_input);
-                                                        root.message_input = "";
-                                                    }
-                                                }
-                                            }
-                                            HorizontalLayout {
-                                                spacing: 6px;
-                                                AppButton {
-                                                    horizontal-stretch: 1;
-                                                    text: root.is_ja ? "クリップボードから送信" : "Paste & Send";
-                                                    secondary: true;
-                                                    custom-height: 30px;
-                                                    clicked => { root.paste_and_send(); }
-                                                }
-                                                AppButton {
-                                                    horizontal-stretch: 1;
-                                                    text: root.is_ja ? "複数行入力" : "Multiline Composer";
-                                                    secondary: true;
-                                                    custom-height: 30px;
-                                                    clicked => { root.open_text_composer(); }
-                                                }
-                                            }
+                                    HorizontalLayout {
+                                        spacing: 6px;
+                                        AppButton {
+                                            horizontal-stretch: 1;
+                                            text: root.is_ja ? "クリップボードから送信" : "Paste & Send";
+                                            secondary: true;
+                                            custom-height: 32px;
+                                            clicked => { root.paste_and_send(); }
+                                        }
+                                        AppButton {
+                                            horizontal-stretch: 1;
+                                            text: root.is_ja ? "複数行入力" : "Multiline Composer";
+                                            secondary: true;
+                                            custom-height: 32px;
+                                            clicked => { root.open_text_composer(); }
                                         }
                                     }
                                 }
+                            }
 
-                                // Right Column: Progress & Activity Stream
-                                VerticalLayout {
-                                    horizontal-stretch: 1;
-                                    spacing: 8px;
-
-                                    if root.is_transferring || root.transfer_completed : TransferProgressCard {
-                                        is-transferring: root.is_transferring;
-                                        transfer-completed: root.transfer_completed;
-                                        is-sender: root.is_sender_transfer;
-                                        transfer-status: root.transfer_status;
-                                        transfer-filename: root.transfer_filename;
-                                        transfer-bytes-text: root.transfer_bytes_text;
-                                        transfer-speed: root.transfer_speed;
-                                        transfer-progress: root.transfer_progress;
-                                        saved-file-path: root.saved_file_path;
-                                        path-copied: root.path_copied_feedback;
-                                        is-ja: root.is_ja;
-                                        copy-path-clicked => {
-                                            root.copy_file_path();
-                                        }
-                                        cancel-clicked => {
-                                            root.is_transferring = false;
-                                            root.transfer_completed = false;
-                                            root.saved_file_path = "";
-                                            root.path_copied_feedback = false;
-                                            root.cancel_transfer();
-                                        }
-                                    }
-
-                                    if root.received_message_log != "" : ActivityStreamCard {
-                                        log-text: root.received_message_log;
-                                        is-ja: root.is_ja;
-                                        text-copied: root.text_copied_feedback;
-                                        copy-clicked => { root.copy_received_text(); }
-                                        save-clicked => { root.save_received_text(); }
-                                        share-clicked => { root.share_received_text(); }
-                                    }
-
-                                    if root.received_message_log == "" && !root.is_transferring && !root.transfer_completed : EmptyActivityCard {
-                                        is-ja: root.is_ja;
-                                    }
+                            // ------------------------------------------------
+                            // Transfer Progress & Completion Status (Full Width Stack)
+                            // ------------------------------------------------
+                            if root.is_transferring || root.transfer_completed : TransferProgressCard {
+                                is-transferring: root.is_transferring;
+                                transfer-completed: root.transfer_completed;
+                                is-sender: root.is_sender_transfer;
+                                transfer-status: root.transfer_status;
+                                transfer-filename: root.transfer_filename;
+                                transfer-bytes-text: root.transfer_bytes_text;
+                                transfer-speed: root.transfer_speed;
+                                transfer-progress: root.transfer_progress;
+                                saved-file-path: root.saved_file_path;
+                                path-copied: root.path_copied_feedback;
+                                is-ja: root.is_ja;
+                                copy-path-clicked => {
+                                    root.copy_file_path();
                                 }
+                                cancel-clicked => {
+                                    root.is_transferring = false;
+                                    root.transfer_completed = false;
+                                    root.saved_file_path = "";
+                                    root.path_copied_feedback = false;
+                                    root.cancel_transfer();
+                                }
+                            }
+
+                            // ------------------------------------------------
+                            // Send & Receive Activity Log (Full Width Stack)
+                            // ------------------------------------------------
+                            if root.received_message_log != "" : ActivityStreamCard {
+                                log-text: root.received_message_log;
+                                is-ja: root.is_ja;
+                                text-copied: root.text_copied_feedback;
+                                copy-clicked => { root.copy_received_text(); }
+                                save-clicked => { root.save_received_text(); }
+                                share-clicked => { root.share_received_text(); }
+                            }
+
+                            if root.received_message_log == "" && !root.is_transferring && !root.transfer_completed : EmptyActivityCard {
+                                is-ja: root.is_ja;
                             }
                         }
                     }
