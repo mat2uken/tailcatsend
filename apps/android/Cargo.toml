@@ -8,8 +8,8 @@ crate-type = ["cdylib"]
 
 [package.metadata.android]
 package = "jp.yasagure.ponlet"
-apk_name = "TailSend"
-label = "TailSend"
+apk_name = "Ponlet"
+label = "Ponlet"
 sdk_version = 34
 min_sdk_version = 31
 target_sdk_version = 34

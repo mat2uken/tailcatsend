@@ -75,10 +75,10 @@ static GLOBAL_JOIN_TX: std::sync::OnceLock<mpsc::UnboundedSender<String>> = std:
 #[no_mangle]
 pub extern "C" fn tailsend_ios_main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    info!("Starting TailSend iOS Native Application (Pure Tailcat WireGuard/DERP Mesh)...");
+    info!("Starting Ponlet iOS Native Application (Pure Tailcat WireGuard/DERP Mesh)...");
 
     if let Err(e) = run_ios_app() {
-        error!("TailSend iOS run error: {:?}", e);
+        error!("Ponlet iOS run error: {:?}", e);
     }
 }
 

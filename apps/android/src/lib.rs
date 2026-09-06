@@ -78,15 +78,15 @@ fn android_main(app: android_activity::AndroidApp) {
     android_logger::init_once(
         android_logger::Config::default()
             .with_max_level(log::LevelFilter::Info)
-            .with_tag("TailSendAndroid"),
+            .with_tag("PonletAndroid"),
     );
 
-    info!("🚀 Starting TailSend Android Native Application (Slint + Pure Tailcat WireGuard)...");
+    info!("🚀 Starting Ponlet Android Native Application (Slint + Pure Tailcat WireGuard)...");
 
     slint::android::init(app).expect("Failed to initialize Slint Android backend");
 
     if let Err(e) = run_android_app() {
-        error!("TailSend Android run error: {:?}", e);
+        error!("Ponlet Android run error: {:?}", e);
     }
 }
 
@@ -113,9 +113,9 @@ fn parse_tailcat_address(input: &str) -> String {
 fn get_android_download_dir() -> PathBuf {
     let candidates = [
         PathBuf::from("/data/data/dev.tailcat.tailsend/files/Download"),
-        PathBuf::from("/sdcard/Download/TailSend"),
-        PathBuf::from("/storage/emulated/0/Download/TailSend"),
-        PathBuf::from("/sdcard/TailSend"),
+        PathBuf::from("/sdcard/Download/Ponlet"),
+        PathBuf::from("/storage/emulated/0/Download/Ponlet"),
+        PathBuf::from("/sdcard/Ponlet"),
     ];
     for dir in &candidates {
         if fs::create_dir_all(dir).is_ok() {
@@ -442,7 +442,7 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
                                             app.set_transfer_speed("保存完了".into());
                                             app.set_transfer_progress(1.0);
                                             app.set_transfer_status("ファイル受信完了".into());
-                                            app.set_status_text(format!("Received {} — Saved to Download/TailSend!", fn_done).into());
+                                            app.set_status_text(format!("Received {} — Saved to Download/Ponlet!", fn_done).into());
                                             let new_log = format!(
                                                 "[File Received]: {} ({:.1} MB)\nSaved: {}\n{}",
                                                 fn_done, final_mb, fp_done, app.get_received_message_log()

@@ -1,6 +1,6 @@
-# 🤖 Ponlet (TailSend) Android アプリ ＆ Google Play リリース手順メモ
+# 🤖 Ponlet (Ponlet) Android アプリ ＆ Google Play リリース手順メモ
 
-Android 向け Ponlet（旧 TailSend）アプリのアーキテクチャ、署名キーストア情報、および **Google Play Console 本人確認完了後の残り作業** をまとめたメモです。
+Android 向け Ponlet（旧 Ponlet）アプリのアーキテクチャ、署名キーストア情報、および **Google Play Console 本人確認完了後の残り作業** をまとめたメモです。
 
 ---
 

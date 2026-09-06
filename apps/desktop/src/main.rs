@@ -53,9 +53,9 @@ struct DaemonCommand {
 
 fn get_download_dir() -> PathBuf {
     if let Ok(home) = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
-        PathBuf::from(home).join("Downloads").join("tailcatSend")
+        PathBuf::from(home).join("Downloads").join("Ponlet")
     } else {
-        PathBuf::from("tailcatSend_Downloads")
+        PathBuf::from("Ponlet_Downloads")
     }
 }
 
@@ -187,8 +187,8 @@ impl I18n {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
-    info!("Starting tailcatSend Desktop Native Application (Pure Tailcat P2P)...");
-    println!("\n🚀 tailcatSend Desktop Native App is starting (Pure Tailcat WireGuard/DERP Mesh)...");
+    info!("Starting Ponlet Desktop Native Application (Pure Tailcat P2P)...");
+    println!("\n🚀 Ponlet Desktop Native App is starting (Pure Tailcat WireGuard/DERP Mesh)...");
 
     let args: Vec<String> = std::env::args().collect();
     let base_url = if args.len() > 1 && !args[1].trim().is_empty() {
@@ -753,7 +753,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 address: Some(addr),
                 port: Some(101),
                 handle: None,
-                text: Some("🤝 [Connected] tailcatSend connected via Tailcat WireGuard Mesh!".to_string()),
+                text: Some("🤝 [Connected] Ponlet connected via Tailcat WireGuard Mesh!".to_string()),
                 filename: None,
                 path: None,
             });
@@ -787,7 +787,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             address: Some(addr),
                             port: Some(101),
                             handle: None,
-                            text: Some("🤝 [Connected] tailcatSend connected via Tailcat WireGuard Mesh!".to_string()),
+                            text: Some("🤝 [Connected] Ponlet connected via Tailcat WireGuard Mesh!".to_string()),
                             filename: None,
                             path: None,
                         });

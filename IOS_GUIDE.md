@@ -1,6 +1,6 @@
-# 📱 TailSend iOS Native App Guide
+# 📱 Ponlet iOS Native App Guide
 
-TailSend iOS アプリは、Rust (Slint UI + Tokio) および Swift (UIKit / Metal) を統合したネイティブ iOS アプリケーションです。
+Ponlet iOS アプリは、Rust (Slint UI + Tokio) および Swift (UIKit / Metal) を統合したネイティブ iOS アプリケーションです。
 
 ---
 
@@ -9,7 +9,7 @@ TailSend iOS アプリは、Rust (Slint UI + Tokio) および Swift (UIKit / Met
 - **UI レイヤー**: Slint (Metal / UIKit ネイティブレンダリング)
 - **非同期ランタイム**: Tokio (マルチスレッドバックグラウンド通信)
 - **転送エンジン**: 64 KiB チャンクストリーミング + Cloudflare Edge Relay & Tailcat Mesh
-- **パッケージング**: Swift / XcodeGen (`apps/ios/TailSend.xcodeproj`) & `scripts/build_ios.sh`
+- **パッケージング**: Swift / XcodeGen (`apps/ios/Ponlet.xcodeproj`) & `scripts/build_ios.sh`
 
 ---
 
@@ -40,7 +40,7 @@ TailSend iOS アプリは、Rust (Slint UI + Tokio) および Swift (UIKit / Met
 
 ```bash
 ./scripts/build_ios.sh xcode
-open apps/ios/TailSend.xcodeproj
+open apps/ios/Ponlet.xcodeproj
 ```
 > Xcode から実機へのインストールやデバッグが可能です。
 
@@ -48,7 +48,7 @@ open apps/ios/TailSend.xcodeproj
 
 ## 🧪 E2E 転送テスト（Mac ↔ iOS Simulator）
 
-iOS シミュレータ上で TailSend を起動後、Mac 側から以下を実行してテキストと 5MB ファイルの転送を検証できます：
+iOS シミュレータ上で Ponlet を起動後、Mac 側から以下を実行してテキストと 5MB ファイルの転送を検証できます：
 
 ```bash
 node scripts/test_ios_e2e.js
@@ -58,7 +58,7 @@ node scripts/test_ios_e2e.js
 
 ## ✈️ TestFlight への自動デプロイ (GitHub Actions)
 
-TailSend は GitHub Actions (`.github/workflows/testflight.yml`) を利用して、TestFlight への自動ビルド・アップロードに対応しています。
+Ponlet は GitHub Actions (`.github/workflows/testflight.yml`) を利用して、TestFlight への自動ビルド・アップロードに対応しています。
 
 ### 1. App Store Connect & Apple Developer での準備
 1. **App Store Connect**:

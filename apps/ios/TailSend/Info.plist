@@ -11,13 +11,27 @@
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>TailSend</string>
+    <string>Ponlet</string>
+    <key>CFBundleDisplayName</key>
+    <string>Ponlet</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
     <string>1.0.0</string>
     <key>CFBundleVersion</key>
     <string>1</string>
+    <key>CFBundleIcons</key>
+    <dict>
+        <key>CFBundlePrimaryIcon</key>
+        <dict>
+            <key>CFBundleIconFiles</key>
+            <array>
+                <string>AppIcon</string>
+            </array>
+            <key>CFBundleIconName</key>
+            <string>AppIcon</string>
+        </dict>
+    </dict>
     <key>LSRequiresIPhoneOS</key>
     <true/>
     <key>ITSAppUsesNonExemptEncryption</key>
@@ -40,9 +54,9 @@
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>TailSend requires local network access for direct WireGuard P2P peer discovery and transfer.</string>
+    <string>Ponlet requires local network access for direct WireGuard P2P peer discovery and transfer.</string>
     <key>NSCameraUsageDescription</key>
-    <string>TailSend requires camera access to scan QR codes for direct P2P device connection.</string>
+    <string>Ponlet requires camera access to scan QR codes for direct P2P device connection.</string>
     <key>NSBonjourServices</key>
     <array>
         <string>_tailsend._tcp</string>
