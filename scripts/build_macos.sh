@@ -27,6 +27,15 @@ if ! command -v cargo &> /dev/null; then
     exit 1
 fi
 
+# Ensure submodule is initialized
+if [ ! -f "$ROOT_DIR/tailcat/pkg/tailcat/go.mod" ]; then
+    echo "Initializing Tailcat submodule..."
+    git -C "$ROOT_DIR" submodule update --init --recursive --quiet
+    if [ -f "$ROOT_DIR/tailcat/patches/0001-android-selinux-netmon-fallback.patch" ]; then
+        git -C "$ROOT_DIR/tailcat/pkg/tailcat" apply "$ROOT_DIR/tailcat/patches/0001-android-selinux-netmon-fallback.patch" || true
+    fi
+fi
+
 # 2. Build Go Tailcat Native Engine
 echo ""
 echo "[1/2] Building Go Tailcat WireGuard Daemon..."

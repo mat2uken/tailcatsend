@@ -24,28 +24,43 @@ if (Test-Path "C:\Program Files\Go\bin\go.exe") {
     $goExe = "C:\Program Files\Go\bin\go.exe"
 }
 
-# 2. Update Go Module
-Write-Host "`n[1/5] Fetching upstream tailcat module..." -ForegroundColor Yellow
+# 2. Update Tailcat Git Submodule & Apply Patches
+Write-Host "`n[1/5] Updating Tailcat git submodule..." -ForegroundColor Yellow
+$submoduleDir = Join-Path $TailcatDir "pkg\tailcat"
+$patchFile = Join-Path $TailcatDir "patches\0001-android-selinux-netmon-fallback.patch"
+
+git submodule sync --quiet
+git submodule update --init --recursive --quiet
+
+$commitHash = ""
+$fullCommit = ""
+Push-Location $submoduleDir
+try {
+    git fetch origin --tags --quiet
+    git checkout --force $Target
+    if ($Target -eq "main") {
+        git pull --ff-only origin main
+    }
+    git reset --hard HEAD
+
+    $commitHash = (git rev-parse --short=7 HEAD).Trim()
+    $fullCommit = (git rev-parse HEAD).Trim()
+    Write-Host "✓ Checked out submodule commit: $commitHash" -ForegroundColor Green
+
+    if (Test-Path $patchFile) {
+        git apply $patchFile
+        Write-Host "✓ Applied local patch: $(Split-Path $patchFile -Leaf)" -ForegroundColor Green
+    }
+}
+finally {
+    Pop-Location
+}
+
+# 3. Update Go Module and Metadata
+Write-Host "`n[2/5] Updating Go module dependencies and metadata..." -ForegroundColor Yellow
 Push-Location $TailcatDir
 try {
-    & $goExe get "github.com/tailscale/tailcat@$Target"
     & $goExe mod tidy
-
-    # Get resolved module info
-    $modInfoJson = & $goExe list -m -json github.com/tailscale/tailcat | Out-String
-    $modInfo = $modInfoJson | ConvertFrom-Json
-    $version = $modInfo.Version
-    Write-Host "✓ Resolved Tailcat version: $version" -ForegroundColor Green
-
-    # Extract short commit hash
-    $commitHash = ""
-    if ($version -match "-([0-9a-f]{12})$") {
-        $commitHash = $matches[1].Substring(0, 7)
-    } elseif ($version -match "^v?([0-9a-f]{7,40})") {
-        $commitHash = $matches[1].Substring(0, 7)
-    } else {
-        $commitHash = $Target
-    }
 
     # Update bridgeVersion in bridge/web/main.go
     $bridgeMain = Join-Path $TailcatDir "bridge\web\main.go"
@@ -55,45 +70,18 @@ try {
         [System.IO.File]::WriteAllText($bridgeMain, $newContent, [System.Text.Encoding]::UTF8)
         Write-Host "✓ Updated bridgeVersion to: 1.0.0-tailcat-$commitHash" -ForegroundColor Green
     }
+
+    # Update upstream.lock
+    $lockFile = Join-Path $TailcatDir "upstream.lock"
+    if (Test-Path $lockFile) {
+        $content = Get-Content $lockFile -Raw -Encoding UTF8
+        $newContent = $content -replace 'commit=[0-9a-f]+', "commit=$fullCommit"
+        [System.IO.File]::WriteAllText($lockFile, $newContent, [System.Text.Encoding]::UTF8)
+        Write-Host "✓ Updated upstream.lock to commit: $commitHash" -ForegroundColor Green
+    }
 }
 finally {
     Pop-Location
-}
-
-# 3. Synchronize local vendor/browse copy in tailcat/pkg/tailcat
-Write-Host "`n[2/5] Updating local source mirror in tailcat/pkg/tailcat..." -ForegroundColor Yellow
-$localMirrorDir = Join-Path $TailcatDir "pkg\tailcat"
-$tempCloneDir = Join-Path $env:TEMP "tailcat_upstream_sync"
-if (Test-Path $tempCloneDir) { Remove-Item -Recurse -Force $tempCloneDir -ErrorAction SilentlyContinue }
-
-try {
-    $oldEap = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    git clone --quiet --depth 1 "https://github.com/tailscale/tailcat.git" $tempCloneDir 2>&1 | Out-Null
-    $ErrorActionPreference = $oldEap
-    if (Test-Path $tempCloneDir) {
-        if (-not (Test-Path $localMirrorDir)) {
-            New-Item -ItemType Directory -Path $localMirrorDir -Force | Out-Null
-        }
-        Get-ChildItem -Path $tempCloneDir -Recurse | Where-Object { $_.FullName -notmatch '\\\.git($|\\)' } | ForEach-Object {
-            $rel = $_.FullName.Substring($tempCloneDir.Length + 1)
-            $destPath = Join-Path $localMirrorDir $rel
-            if ($_.PSIsContainer) {
-                if (-not (Test-Path $destPath)) { New-Item -ItemType Directory -Path $destPath -Force | Out-Null }
-            } else {
-                $p = Split-Path $destPath -Parent
-                if (-not (Test-Path $p)) { New-Item -ItemType Directory -Path $p -Force | Out-Null }
-                Copy-Item -Path $_.FullName -Destination $destPath -Force
-            }
-        }
-        Write-Host "✓ Updated tailcat/pkg/tailcat mirror" -ForegroundColor Green
-    }
-}
-catch {
-    Write-Warning "Local mirror update skipped ($($_)). The Go module is still fully updated."
-}
-finally {
-    Remove-Item -Recurse -Force $tempCloneDir -ErrorAction SilentlyContinue
 }
 
 # 4. Build Native Daemon
@@ -159,8 +147,8 @@ finally {
 }
 
 Write-Host "`n==========================================================" -ForegroundColor Cyan
-Write-Host "🎉 Tailcat successfully updated to: $version" -ForegroundColor Green
-Write-Host "   Commit: $commitHash" -ForegroundColor Green
-Write-Host "   Native Daemon: $outDaemon" -ForegroundColor Green
-Write-Host "   WASM Asset:    $outWasmGz" -ForegroundColor Green
+Write-Host "🎉 Tailcat successfully updated!" -ForegroundColor Green
+Write-Host "   Submodule Commit: $commitHash ($fullCommit)" -ForegroundColor Green
+Write-Host "   Native Daemon:    $outDaemon" -ForegroundColor Green
+Write-Host "   WASM Asset:       $outWasmGz" -ForegroundColor Green
 Write-Host "==========================================================" -ForegroundColor Cyan

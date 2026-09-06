@@ -17,22 +17,35 @@ echo -e "\033[0;36m         Tailcat Upstream Synchronizer & Builder          \03
 echo -e "\033[0;36m==========================================================\033[0m"
 echo -e "\033[0;33mTarget: github.com/tailscale/tailcat@${TARGET}\033[0m"
 
-# 1. Update Go Module
-echo -e "\n\033[0;33m[1/5] Fetching upstream tailcat module...\033[0m"
-cd "$TAILCAT_DIR"
-go get "github.com/tailscale/tailcat@${TARGET}"
-go mod tidy
+# 1. Update Tailcat Git Submodule & Apply Patches
+echo -e "\n\033[0;33m[1/5] Updating Tailcat git submodule...\033[0m"
+SUBMODULE_DIR="$TAILCAT_DIR/pkg/tailcat"
+PATCH_FILE="$TAILCAT_DIR/patches/0001-android-selinux-netmon-fallback.patch"
 
-VERSION=$(go list -m -json github.com/tailscale/tailcat | grep '"Version":' | sed -E 's/.*"Version": "([^"]+)".*/\1/')
-echo -e "\033[0;32m✓ Resolved Tailcat version: ${VERSION}\033[0m"
+git submodule sync --quiet
+git submodule update --init --recursive --quiet
 
-# Extract short commit hash
-COMMIT_HASH="${TARGET}"
-if [[ "$VERSION" =~ -([0-9a-f]{12})$ ]]; then
-    COMMIT_HASH="${BASH_REMATCH[1]:0:7}"
-elif [[ "$VERSION" =~ ^v?([0-9a-f]{7,40}) ]]; then
-    COMMIT_HASH="${BASH_REMATCH[1]:0:7}"
+cd "$SUBMODULE_DIR"
+git fetch origin --tags --quiet
+git checkout --force "${TARGET}"
+if [ "${TARGET}" = "main" ]; then
+    git pull --ff-only origin main
 fi
+git reset --hard HEAD
+
+COMMIT_HASH=$(git rev-parse --short=7 HEAD | tr -d '[:space:]')
+FULL_COMMIT=$(git rev-parse HEAD | tr -d '[:space:]')
+echo -e "\033[0;32m✓ Checked out submodule commit: ${COMMIT_HASH}\033[0m"
+
+if [ -f "$PATCH_FILE" ]; then
+    git apply "$PATCH_FILE"
+    echo -e "\033[0;32m✓ Applied local patch: $(basename "$PATCH_FILE")\033[0m"
+fi
+
+# 2. Update Go Module and Metadata
+echo -e "\n\033[0;33m[2/5] Updating Go module dependencies and metadata...\033[0m"
+cd "$TAILCAT_DIR"
+go mod tidy
 
 # Update bridgeVersion in bridge/web/main.go
 BRIDGE_MAIN="$TAILCAT_DIR/bridge/web/main.go"
@@ -42,19 +55,13 @@ if [[ -f "$BRIDGE_MAIN" ]]; then
     echo -e "\033[0;32m✓ Updated bridgeVersion to: 1.0.0-tailcat-${COMMIT_HASH}\033[0m"
 fi
 
-# 2. Update local source mirror in tailcat/pkg/tailcat
-echo -e "\n\033[0;33m[2/5] Updating local source mirror in tailcat/pkg/tailcat...\033[0m"
-MIRROR_DIR="$TAILCAT_DIR/pkg/tailcat"
-TEMP_CLONE=$(mktemp -d 2>/dev/null || mktemp -d -t 'tailcat_sync')
-
-if git clone --depth 1 "https://github.com/tailscale/tailcat.git" "$TEMP_CLONE" 2>/dev/null; then
-    mkdir -p "$MIRROR_DIR"
-    rsync -a --exclude='.git' "$TEMP_CLONE/" "$MIRROR_DIR/" || cp -R "$TEMP_CLONE"/* "$MIRROR_DIR/"
-    echo -e "\033[0;32m✓ Updated tailcat/pkg/tailcat mirror\033[0m"
-else
-    echo -e "\033[0;33m⚠ Local mirror git clone skipped. Go module is still fully updated.\033[0m"
+# Update upstream.lock
+LOCK_FILE="$TAILCAT_DIR/upstream.lock"
+if [[ -f "$LOCK_FILE" ]]; then
+    sed -i.bak -E "s/commit=[0-9a-f]+/commit=${FULL_COMMIT}/" "$LOCK_FILE"
+    rm -f "${LOCK_FILE}.bak"
+    echo -e "\033[0;32m✓ Updated upstream.lock to commit: ${COMMIT_HASH}\033[0m"
 fi
-rm -rf "$TEMP_CLONE"
 
 # 3. Build Native Daemon
 echo -e "\n\033[0;33m[3/5] Compiling native tailcat daemon...\033[0m"
@@ -80,8 +87,8 @@ go test -v -timeout 120s ./bridge/web/bridge_test.go
 echo -e "\033[0;32m✓ Integration test passed!\033[0m"
 
 echo -e "\n\033[0;36m==========================================================\033[0m"
-echo -e "\033[0;32m🎉 Tailcat successfully updated to: ${VERSION}\033[0m"
-echo -e "\033[0;32m   Commit: ${COMMIT_HASH}\033[0m"
-echo -e "\033[0;32m   Native Daemon: ${OUT_DAEMON}\033[0m"
-echo -e "\033[0;32m   WASM Asset:    ${OUT_WASM_GZ}\033[0m"
+echo -e "\033[0;32m🎉 Tailcat successfully updated!\033[0m"
+echo -e "\033[0;32m   Submodule Commit: ${COMMIT_HASH} (${FULL_COMMIT})\033[0m"
+echo -e "\033[0;32m   Native Daemon:    ${OUT_DAEMON}\033[0m"
+echo -e "\033[0;32m   WASM Asset:       ${OUT_WASM_GZ}\033[0m"
 echo -e "\033[0;36m==========================================================\033[0m"

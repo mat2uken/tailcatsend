@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: true
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -49,7 +51,7 @@ jobs:
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add dist/ tailcat/
+          git add dist/ tailcat/ .gitmodules
           COMMIT_MSG="chore(tailcat): update upstream tailcat to ${{ inputs.target || 'main' }}"
           git commit -m "$COMMIT_MSG"
           git push

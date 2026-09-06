@@ -1,9 +1,21 @@
 # TailSend Comprehensive Multi-Layer Verification Runner
 $ErrorActionPreference = "Stop"
 
-$goPath = "$HOME\go\bin"
-if (Test-Path $goPath) {
-    $env:PATH = "$goPath;" + $env:PATH
+$goPaths = @("C:\Program Files\Go\bin", "$HOME\go\bin")
+foreach ($gp in $goPaths) {
+    if (Test-Path $gp) {
+        $env:PATH = "$gp;" + $env:PATH
+        break
+    }
+}
+
+# Ensure git submodule is initialized
+if (-not (Test-Path "tailcat\pkg\tailcat\go.mod")) {
+    Write-Host "Initializing Tailcat submodule..." -ForegroundColor Yellow
+    git submodule update --init --recursive --quiet
+    if (Test-Path "tailcat\patches\0001-android-selinux-netmon-fallback.patch") {
+        git -C tailcat/pkg/tailcat apply ../../patches/0001-android-selinux-netmon-fallback.patch
+    }
 }
 
 Write-Host "==========================================================" -ForegroundColor Cyan

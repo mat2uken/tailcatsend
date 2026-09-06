@@ -1,0 +1,4 @@
+[submodule "tailcat/pkg/tailcat"]
+	path = tailcat/pkg/tailcat
+	url = https://github.com/tailscale/tailcat.git
+	ignore = dirty

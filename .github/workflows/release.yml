@@ -25,6 +25,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Apply Tailcat Patches
+        shell: pwsh
+        run: |
+          if (Test-Path tailcat/patches/0001-android-selinux-netmon-fallback.patch) {
+            git -C tailcat/pkg/tailcat apply ../../patches/0001-android-selinux-netmon-fallback.patch
+          }
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -58,19 +67,19 @@ jobs:
         run: |
           $dir = "tailsend-windows-x86_64"
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
-          Copy-Item "target/release/tailsend.exe" "$dir/"
-          Copy-Item "target/release/tailcat_daemon.exe" "$dir/"
-          Compress-Archive -Path "$dir/*" -DestinationPath "tailsend-windows-x86_64.zip" -Force
+          Copy-Item target/release/tailsend-desktop.exe $dir/
+          Copy-Item target/release/tailcat_daemon.exe $dir/
+          Compress-Archive -Path $dir/* -DestinationPath "$dir.zip"
 
       - name: Upload Windows Artifact
         uses: actions/upload-artifact@v4
         with:
           name: tailsend-windows-x86_64
           path: tailsend-windows-x86_64.zip
-          retention-days: 14
+          retention-days: 5
 
   # ============================================================================
-  # 2. macOS Universal (Apple Silicon arm64 + Intel x86_64)
+  # 2. macOS (Universal Binary: aarch64 + x86_64)
   # ============================================================================
   build-macos:
     name: macOS (Universal Binary)
@@ -78,6 +87,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Apply Tailcat Patches
+        run: |
+          if [ -f tailcat/patches/0001-android-selinux-netmon-fallback.patch ]; then
+            git -C tailcat/pkg/tailcat apply ../../patches/0001-android-selinux-netmon-fallback.patch
+          fi
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -136,6 +153,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Apply Tailcat Patches
+        run: |
+          if [ -f tailcat/patches/0001-android-selinux-netmon-fallback.patch ]; then
+            git -C tailcat/pkg/tailcat apply ../../patches/0001-android-selinux-netmon-fallback.patch
+          fi
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -209,6 +234,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Apply Tailcat Patches
+        run: |
+          if [ -f tailcat/patches/0001-android-selinux-netmon-fallback.patch ]; then
+            git -C tailcat/pkg/tailcat apply ../../patches/0001-android-selinux-netmon-fallback.patch
+          fi
 
       - name: Select Xcode 16
         run: |
