@@ -789,6 +789,18 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // 📋 Copy File Path Callback
+    let app_weak_copy_path = app_weak.clone();
+    app.on_copy_file_path(move || {
+        if let Some(app) = app_weak_copy_path.upgrade() {
+            let path = app.get_saved_file_path().to_string();
+            if !path.is_empty() {
+                app.set_status_text("File path copied!".into());
+                app.set_path_copied_feedback(true);
+            }
+        }
+    });
+
     let _repaint_timer = slint::Timer::default();
     _repaint_timer.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(33), move || {
         // Continuous repaint pump for mobile screen

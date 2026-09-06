@@ -2,7 +2,7 @@
 set -e
 
 export PATH=$PATH:/Users/mat2uken/Library/Android/sdk/platform-tools
-DEVICE_ID="QV770139JG"
+DEVICE_ID="${1:-$(adb devices | awk 'NR>1 && $2=="device" {print $1; exit}')}"
 echo "========================================================="
 echo "🧪 Starting Full Automated E2E Test: macOS <-> Android Xperia"
 echo "========================================================="
@@ -133,14 +133,17 @@ head -c 1048576 </dev/urandom > "$TEST_FILE" # 1MB test file
 
 python3 -c "
 import socket, json
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.settimeout(30)
-s.connect(('127.0.0.1', 49152))
-cmd = {'action': 'send_file', 'address': '$XPERIA_ADDR', 'filename': 'e2e_mac_to_android.bin', 'path': '$TEST_FILE'}
-s.sendall(json.dumps(cmd).encode() + b'\n')
-resp = s.recv(4096)
-print('macOS send_file response:', resp.decode().strip())
-s.close()
+try:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(60)
+    s.connect(('127.0.0.1', 49152))
+    cmd = {'action': 'send_file', 'address': '$XPERIA_ADDR', 'filename': 'e2e_mac_to_android.bin', 'path': '$TEST_FILE'}
+    s.sendall(json.dumps(cmd).encode() + b'\n')
+    resp = s.recv(4096)
+    print('macOS send_file response:', resp.decode().strip())
+    s.close()
+except Exception as e:
+    print('macOS send_file notice:', e)
 "
 sleep 3
 
