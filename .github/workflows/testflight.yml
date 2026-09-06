@@ -18,19 +18,21 @@ on:
 jobs:
   testflight:
     name: Build & Upload to TestFlight
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 45
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Select Xcode 16
+      - name: Select Latest Xcode
         run: |
-          XCODE_APP=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort -V | tail -n 1)
-          if [ -n "$XCODE_APP" ]; then
-            echo "Selecting $XCODE_APP"
-            sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          echo "Available Xcode installations:"
+          ls -d /Applications/Xcode*.app 2>/dev/null || true
+          LATEST_XCODE=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -n 1)
+          if [ -n "$LATEST_XCODE" ]; then
+            echo "Selecting $LATEST_XCODE"
+            sudo xcode-select -s "$LATEST_XCODE/Contents/Developer"
           fi
           xcodebuild -version
 
