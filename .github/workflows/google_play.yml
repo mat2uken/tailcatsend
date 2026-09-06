@@ -34,6 +34,14 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Apply Tailcat Patches
+        run: |
+          if [ -f tailcat/patches/0001-android-selinux-netmon-fallback.patch ]; then
+            git -C tailcat/pkg/tailcat apply ../../patches/0001-android-selinux-netmon-fallback.patch
+          fi
 
       - name: Setup Java 17
         uses: actions/setup-java@v5

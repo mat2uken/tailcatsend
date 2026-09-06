@@ -2,6 +2,7 @@
 target/
 **/*.rs.bk
 Cargo.lock
+*.zip
 
 # Go binaries & static archives
 tailcat_daemon
