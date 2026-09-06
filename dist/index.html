@@ -4,7 +4,10 @@
     <meta charset="UTF-8">
     <meta name="google" content="notranslate">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>tailcatSend — P2P暗号化ファイル転送</title>
+    <title>Ponlet — P2P暗号化ファイル転送</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
     <style>
         * {
             box-sizing: border-box;
@@ -15,7 +18,7 @@
             width: 100%;
             height: 100%;
             overflow: hidden;
-            background-color: #0f172a;
+            background-color: #07151e;
             color: #f8fafc;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             -webkit-touch-callout: none;
@@ -39,7 +42,7 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            background: #0f172a;
+            background: #07151e;
             z-index: 99999;
             font-family: sans-serif;
             color: #f8fafc;
@@ -48,8 +51,8 @@
         .spinner {
             width: 48px;
             height: 48px;
-            border: 4px solid rgba(99, 102, 241, 0.2);
-            border-top-color: #6366f1;
+            border: 4px solid rgba(249, 115, 22, 0.2);
+            border-top-color: #f97316;
             border-radius: 50%;
             animation: spin 1s linear infinite;
         }
@@ -57,10 +60,11 @@
             to { transform: rotate(360deg); }
         }
         .title {
-            margin-top: 20px;
-            font-size: 20px;
-            font-weight: 700;
+            margin-top: 16px;
+            font-size: 22px;
+            font-weight: 800;
             letter-spacing: 0.5px;
+            color: #f8fafc;
         }
         .status {
             margin-top: 8px;
@@ -162,8 +166,8 @@
             line-height: 1.5;
         }
         #composer-text:focus {
-            border-color: #6366f1;
-            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+            border-color: #f97316;
+            box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.25);
         }
         .composer-footer {
             display: flex;
@@ -191,15 +195,16 @@
             transition: opacity 0.15s;
         }
         .btn-secondary {
-            background: #334155;
+            background: #163d54;
             color: #cbd5e1;
         }
         .btn-secondary:hover {
-            background: #475569;
+            background: #214f6b;
         }
         .btn-primary {
-            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            background: linear-gradient(135deg, #f97316, #ea580c);
             color: #ffffff;
+            box-shadow: 0 2px 10px rgba(249, 115, 22, 0.3);
         }
         .btn-primary:hover {
             opacity: 0.92;
@@ -209,9 +214,10 @@
 </head>
 <body>
     <div id="loader">
+        <img src="assets/icon.png" width="72" height="72" alt="Ponlet" style="border-radius: 18px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); margin-bottom: 16px;">
         <div class="spinner"></div>
-        <div class="title">tailcatSend</div>
-        <div class="status" id="status">Loading tailcatSend...</div>
+        <div class="title">Ponlet</div>
+        <div class="status" id="status">Loading Ponlet...</div>
         <div id="debug-log"></div>
     </div>
 
@@ -247,11 +253,11 @@
 
         function updateStatus(msg) {
             if (statusEl) statusEl.textContent = msg;
-            console.log("[tailcatSend Loader]", msg);
+            console.log("[Ponlet Loader]", msg);
         }
 
         function showDebugError(err) {
-            console.error("[tailcatSend Debug]", err);
+            console.error("[Ponlet Debug]", err);
             if (debugEl) {
                 debugEl.textContent = "Error: " + (err.message || String(err));
             }
@@ -362,7 +368,7 @@
                         }
                     }
                 } catch (e) {
-                    console.warn("[TailSend Web] CBOR scan failed:", e);
+                    console.warn("[Ponlet Web] CBOR scan failed:", e);
                 }
             }
             return targetHostAddr || "";
@@ -377,12 +383,12 @@
         async function sendInitialP2PHandshake(hostAddrOverride, ownAddrOverride) {
             const addr = hostAddrOverride || getTargetAddress();
             if (!addr || !window.tailcatDial) {
-                console.warn("[TailSend Web] Host address or tailcatDial not yet available for handshake:", addr);
+                console.warn("[Ponlet Web] Host address or tailcatDial not yet available for handshake:", addr);
                 return;
             }
             let conn = null;
             try {
-                console.log("[TailSend Web] Connecting initial P2P handshake to Host:", addr);
+                console.log("[Ponlet Web] Connecting initial P2P handshake to Host:", addr);
                 if (window.updateSlintStatusText) {
                     window.updateSlintStatusText("相手端末に接続中…");
                 }
@@ -400,7 +406,7 @@
                 try {
                     await conn.closeWrite();
                 } catch (_) {}
-                console.log("✅ [TailSend Web] Direct P2P Handshake successfully delivered to Host! (My addr:", myAddr, ")");
+                console.log("✅ [Ponlet Web] Direct P2P Handshake successfully delivered to Host! (My addr:", myAddr, ")");
                 if (window.onPeerConnectedSlint) {
                     window.onPeerConnectedSlint("接続された相手端末");
                 }
@@ -408,7 +414,7 @@
                     window.updateSlintStatusText("直接暗号化P2Pで接続しました！");
                 }
             } catch (err) {
-                console.warn("[TailSend Web] Handshake notice:", err);
+                console.warn("[Ponlet Web] Handshake notice:", err);
                 if (window.updateSlintStatusText) {
                     window.updateSlintStatusText("接続準備完了 (WireGuard P2P)");
                 }
@@ -422,26 +428,26 @@
         // Joiner Mode: Start Tailcat WireGuard Listener so Joiner can receive text & files from Host
         async function startJoinerListenerAndConnect(hostAddr) {
             try {
-                console.log("[TailSend Web] Joiner Mode: Starting local Tailcat WireGuard listener...");
+                console.log("[Ponlet Web] Joiner Mode: Starting local Tailcat WireGuard listener...");
                 if (window.updateSlintStatusText) {
                     window.updateSlintStatusText("P2P通信環境を初期化中…");
                 }
                 const listener = await window.tailcatListen({
                     derpMapURL: "https://tailcat.dev/derpmap.json",
                     onConnection: (conn) => {
-                        console.log("⚡ [TailSend Web] Incoming WireGuard P2P connection on Joiner!", conn);
+                        console.log("⚡ [Ponlet Web] Incoming WireGuard P2P connection on Joiner!", conn);
                         handleIncomingP2PConnection(conn);
                     }
                 });
 
-                console.log("⚡ [TailSend Web] Joiner local Tailcat address acquired:", listener.address);
+                console.log("⚡ [Ponlet Web] Joiner local Tailcat address acquired:", listener.address);
                 window.ownTailcatAddress = listener.address;
                 window.targetPeerAddress = hostAddr;
 
                 // Deliver handshake to Host with our address so Host can pair with us
                 await sendInitialP2PHandshake(hostAddr, listener.address);
             } catch (err) {
-                console.error("[TailSend Web] Failed to start Joiner listener:", err);
+                console.error("[Ponlet Web] Failed to start Joiner listener:", err);
                 // Fallback: Still attempt handshake even if local listener failed
                 await sendInitialP2PHandshake(hostAddr, "");
             }
@@ -450,26 +456,26 @@
         // Host Mode: Start Tailcat WireGuard Listener and notify Slint to render QR Code
         async function startHostListenerAndGenerateQR() {
             try {
-                console.log("[TailSend Web] Host Mode: Starting Tailcat WireGuard listener...");
+                console.log("[Ponlet Web] Host Mode: Starting Tailcat WireGuard listener...");
                 if (window.updateSlintStatusText) {
                     window.updateSlintStatusText("安全なP2P通信を準備しています…");
                 }
                 const listener = await window.tailcatListen({
                     derpMapURL: "https://tailcat.dev/derpmap.json",
                     onConnection: (conn) => {
-                        console.log("⚡ [TailSend Web] Incoming WireGuard P2P connection from peer!", conn);
+                        console.log("⚡ [Ponlet Web] Incoming WireGuard P2P connection from peer!", conn);
                         handleIncomingP2PConnection(conn);
                     }
                 });
 
-                console.log("⚡ [TailSend Web] Tailcat host address acquired:", listener.address);
+                console.log("⚡ [Ponlet Web] Tailcat host address acquired:", listener.address);
                 window.ownTailcatAddress = listener.address;
 
                 if (window.onTailcatHostAddressReady) {
                     window.onTailcatHostAddressReady(listener.address);
                 }
             } catch (err) {
-                console.error("[TailSend Web] Failed to start Tailcat listener:", err);
+                console.error("[Ponlet Web] Failed to start Tailcat listener:", err);
                 if (window.updateSlintStatusText) {
                     window.updateSlintStatusText("Listener Error: " + (err.message || err));
                 }
@@ -492,7 +498,7 @@
                     } finally {
                         try { conn.close(); } catch (_) {}
                     }
-                    console.log("⚡ [TailSend Web] Received text on Port 101:", text);
+                    console.log("⚡ [Ponlet Web] Received text on Port 101:", text);
 
                     let isHandshake = false;
                     // Check for JOIN:<address> handshake
@@ -503,7 +509,7 @@
                             const peerAddr = parts[1].trim().split(/\s+/)[0];
                             if (peerAddr && peerAddr.length > 5) {
                                 window.targetPeerAddress = peerAddr;
-                                console.log("🔗 [TailSend Web] Automatically paired with remote peer:", peerAddr);
+                                console.log("🔗 [Ponlet Web] Automatically paired with remote peer:", peerAddr);
                             }
                         }
                     }
@@ -534,7 +540,7 @@
                     await handleIncomingFileStream(conn);
                 }
             } catch (err) {
-                console.error("[TailSend Web] Incoming connection error:", err);
+                console.error("[Ponlet Web] Incoming connection error:", err);
             }
         }
 
@@ -557,13 +563,13 @@
             try {
                 while (true) {
                     if (totalBytes > 0 && receivedBytes >= totalBytes) {
-                        console.log(`⚡ [tailcatSend Web] Reached totalBytes (${receivedBytes}/${totalBytes}), completing read loop.`);
+                        console.log(`⚡ [Ponlet Web] Reached totalBytes (${receivedBytes}/${totalBytes}), completing read loop.`);
                         break;
                     }
 
                     const chunk = await conn.read();
                     if (!chunk || chunk.length === 0) {
-                        console.log("⚡ [tailcatSend Web] Received EOF on Port 102");
+                        console.log("⚡ [Ponlet Web] Received EOF on Port 102");
                         break;
                     }
 
@@ -578,7 +584,7 @@
                                 totalBytes = parseInt(parts[2], 10) || 0;
                             }
                             headerParsed = true;
-                            console.log(`⚡ [tailcatSend Web] Incoming file: ${filename} (${totalBytes} bytes)`);
+                            console.log(`⚡ [Ponlet Web] Incoming file: ${filename} (${totalBytes} bytes)`);
 
                             const totalMB = (totalBytes / 1048576).toFixed(1);
                             if (window.updateSlintTransferState) {
@@ -593,7 +599,7 @@
                             }
 
                             if (totalBytes > 0 && receivedBytes >= totalBytes) {
-                                console.log(`⚡ [tailcatSend Web] Entire file received in header chunk (${receivedBytes}/${totalBytes})`);
+                                console.log(`⚡ [Ponlet Web] Entire file received in header chunk (${receivedBytes}/${totalBytes})`);
                                 break;
                             }
                         }
@@ -612,15 +618,15 @@
                         }
 
                         if (totalBytes > 0 && receivedBytes >= totalBytes) {
-                            console.log(`⚡ [tailcatSend Web] All bytes received (${receivedBytes}/${totalBytes}), breaking loop.`);
+                            console.log(`⚡ [Ponlet Web] All bytes received (${receivedBytes}/${totalBytes}), breaking loop.`);
                             break;
                         }
                     }
                 }
             } catch (err) {
-                console.warn("[tailcatSend Web] Stream read interrupted:", err);
+                console.warn("[Ponlet Web] Stream read interrupted:", err);
                 if (totalBytes > 0 && receivedBytes < totalBytes) {
-                    console.error(`[tailcatSend Web] Incomplete file transfer: ${receivedBytes}/${totalBytes} bytes`);
+                    console.error(`[Ponlet Web] Incomplete file transfer: ${receivedBytes}/${totalBytes} bytes`);
                     if (window.updateSlintTransferState) {
                         window.updateSlintTransferState(false, false, false, "受信エラー: 転送が中断されました", filename, `${(receivedBytes / 1048576).toFixed(1)} MB / ${(totalBytes / 1048576).toFixed(1)} MB`, receivedBytes / totalBytes, "エラー");
                     }
@@ -659,7 +665,7 @@
                 if (window.updateSlintStatusText) {
                     window.updateSlintStatusText(`${filename} (${finalMB} MB) の受信が完了しました！`);
                 }
-                console.log(`✅ [tailcatSend Web] File saved to downloads: ${filename} (${receivedBytes} bytes)`);
+                console.log(`✅ [Ponlet Web] File saved to downloads: ${filename} (${receivedBytes} bytes)`);
             }
         }
         window.handleIncomingFileStream = handleIncomingFileStream;
@@ -668,19 +674,19 @@
         window.connectToPeerFromInput = async function(targetAddr) {
             targetHostAddr = targetAddr;
             window.targetPeerAddress = targetAddr;
-            console.log("[TailSend Web] Manual connect requested to peer:", targetAddr);
+            console.log("[Ponlet Web] Manual connect requested to peer:", targetAddr);
             if (!window.ownTailcatAddress && window.tailcatListen) {
                 try {
                     const listener = await window.tailcatListen({
                         derpMapURL: "https://tailcat.dev/derpmap.json",
                         onConnection: (conn) => {
-                            console.log("⚡ [TailSend Web] Incoming WireGuard P2P connection!", conn);
+                            console.log("⚡ [Ponlet Web] Incoming WireGuard P2P connection!", conn);
                             handleIncomingP2PConnection(conn);
                         }
                     });
                     window.ownTailcatAddress = listener.address;
                 } catch (e) {
-                    console.warn("[TailSend Web] Could not start listener on manual join:", e);
+                    console.warn("[Ponlet Web] Could not start listener on manual join:", e);
                 }
             }
             await sendInitialP2PHandshake(targetAddr, window.ownTailcatAddress || "");
@@ -690,11 +696,11 @@
         window.sendTailcatTextMessage = async function(text, fromSlint = false) {
             const addr = getTargetAddress();
             if (!text || !addr) {
-                console.error("[tailcatSend Web] Missing text or target peer address. Text:", text, "Addr:", addr);
+                console.error("[Ponlet Web] Missing text or target peer address. Text:", text, "Addr:", addr);
                 alert("エラー: 接続先の相手端末アドレスが見つかりません。QRコードを再スキャンしてください。");
                 return;
             }
-            console.log("[tailcatSend Web] Sending text via Tailcat P2P (Port 101) to " + addr + ":", text);
+            console.log("[Ponlet Web] Sending text via Tailcat P2P (Port 101) to " + addr + ":", text);
             if (window.updateSlintStatusText) {
                 window.updateSlintStatusText("テキストメッセージを送信中…");
             }
@@ -709,7 +715,7 @@
                 await conn.write(encoder.encode(text));
                 await conn.closeWrite();
                 conn.close();
-                console.log("✅ [tailcatSend Web] Text delivered directly to peer via Tailcat P2P!");
+                console.log("✅ [Ponlet Web] Text delivered directly to peer via Tailcat P2P!");
                 if (!fromSlint && window.onTextSentSlint) {
                     window.onTextSentSlint(text);
                 }
@@ -717,7 +723,7 @@
                     window.updateSlintStatusText("テキストメッセージを送信しました");
                 }
             } catch (err) {
-                console.error("[tailcatSend Web] Failed to dial peer:", err);
+                console.error("[Ponlet Web] Failed to dial peer:", err);
                 alert("Tailcat P2P 送信エラー: " + (err.message || err));
                 if (window.updateSlintStatusText) {
                     window.updateSlintStatusText("送信エラー: " + (err.message || err));
@@ -789,25 +795,25 @@
                     window.triggerOpenComposer();
                 }
             } catch (err) {
-                console.warn("[tailcatSend Clipboard] Could not read directly from clipboard, opening composer:", err);
+                console.warn("[Ponlet Clipboard] Could not read directly from clipboard, opening composer:", err);
                 window.triggerOpenComposer();
             }
         };
 
         // OS Share Sheet (Web Share API)
         window.triggerShareText = async function(text) {
-            const shareContent = text || window.lastReceivedMessage || "TailSend Content";
+            const shareContent = text || window.lastReceivedMessage || "Ponlet Content";
             if (navigator.share) {
                 try {
                     await navigator.share({
-                        title: "TailSend Received Text",
+                        title: "Ponlet Received Text",
                         text: shareContent
                     });
-                    console.log("[TailSend Share] Successfully shared via OS Share Sheet");
+                    console.log("[Ponlet Share] Successfully shared via OS Share Sheet");
                     return;
                 } catch (err) {
                     if (err.name !== "AbortError") {
-                        console.error("[TailSend Share Error]", err);
+                        console.error("[Ponlet Share Error]", err);
                     }
                 }
             }
@@ -817,14 +823,14 @@
 
         // Save Text as File (.txt)
         window.triggerSaveText = function(text) {
-            const content = text || window.lastReceivedMessage || "TailSend Content";
+            const content = text || window.lastReceivedMessage || "Ponlet Content";
             const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
             const now = new Date();
             const dateStr = now.toISOString().replace(/[-:T]/g, "").slice(0, 14);
             a.href = url;
-            a.download = `tailsend_text_${dateStr}.txt`;
+            a.download = `ponlet_text_${dateStr}.txt`;
             document.body.appendChild(a);
             a.click();
             setTimeout(() => {
@@ -861,7 +867,7 @@
                 alert("エラー: 接続先の相手端末アドレスが見つかりません。QRコードを再スキャンしてください。");
                 return;
             }
-            console.log("[tailcatSend Web] Streaming file via Tailcat P2P (Port 102) to " + addr + ":", file.name, file.size, "bytes");
+            console.log("[Ponlet Web] Streaming file via Tailcat P2P (Port 102) to " + addr + ":", file.name, file.size, "bytes");
             const totalMB = (file.size / 1048576).toFixed(1);
 
             if (window.updateSlintTransferState) {
@@ -897,7 +903,7 @@
 
                 for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
                     if (window.isTransferCancelled) {
-                        console.log("[tailcatSend Web] File transfer cancelled by user");
+                        console.log("[Ponlet Web] File transfer cancelled by user");
                         break;
                     }
 
@@ -931,7 +937,7 @@
                 try {
                     await conn.closeWrite();
                 } catch (e) {
-                    console.warn("[tailcatSend Web] closeWrite warning:", e);
+                    console.warn("[Ponlet Web] closeWrite warning:", e);
                 }
 
                 // Wait for receiver to read remaining bytes and close its side (or 3-sec timeout)
@@ -953,9 +959,9 @@
                 if (window.updateSlintStatusText) {
                     window.updateSlintStatusText(`${file.name} (${totalMB} MB) の送信が完了しました！`);
                 }
-                console.log("✅ [tailcatSend Web] File successfully delivered to peer via Tailcat P2P!");
+                console.log("✅ [Ponlet Web] File successfully delivered to peer via Tailcat P2P!");
             } catch (err) {
-                console.error("[tailcatSend Web] Failed to send file via Tailcat P2P:", err);
+                console.error("[Ponlet Web] Failed to send file via Tailcat P2P:", err);
                 alert("ファイル送信エラー: " + (err.message || err));
                 if (window.updateSlintTransferState) {
                     window.updateSlintTransferState(false, false, true, "送信エラー", file.name, "0.0 MB", 0.0, "エラー");
@@ -974,7 +980,7 @@
             fileInputEl.onchange = async (e) => {
                 const file = e.target.files && e.target.files[0];
                 if (file) {
-                    console.log("[TailSend Web] File chosen:", file.name, file.size);
+                    console.log("[Ponlet Web] File chosen:", file.name, file.size);
                     await window.sendTailcatFileChunked(file);
                     fileInputEl.value = "";
                 }
@@ -982,7 +988,7 @@
         }
 
         window.triggerFilePicker = function() {
-            console.log("[TailSend Web] triggerFilePicker called");
+            console.log("[Ponlet Web] triggerFilePicker called");
             const input = document.getElementById("global-file-picker");
             if (input) {
                 input.click();
@@ -991,14 +997,14 @@
 
         async function initTailcatEngine() {
             try {
-                console.log("[TailSend WASM] Starting async Tailcat WireGuard P2P engine load...");
+                console.log("[Ponlet WASM] Starting async Tailcat WireGuard P2P engine load...");
                 if (typeof Go !== "undefined") {
                     const go = new Go();
                     const tailcatBytes = await fetchAndDecompressWasmBytes("./assets/tailcat.wasm.gz");
                     const result = await WebAssembly.instantiate(tailcatBytes, go.importObject);
                     const instance = result.instance || result;
                     go.run(instance);
-                    console.log("✅ [TailSend WASM] Tailcat WireGuard engine ready!");
+                    console.log("✅ [Ponlet WASM] Tailcat WireGuard engine ready!");
                     const hostAddr = getTargetAddress();
                     if (hostAddr) {
                         // Joiner mode: Start local WireGuard listener so we can receive incoming streams,
@@ -1010,14 +1016,14 @@
                     }
                 }
             } catch (err) {
-                console.error("[TailSend WASM Error]", err);
+                console.error("[Ponlet WASM Error]", err);
                 showDebugError(err);
             }
         }
 
         async function init() {
             try {
-                updateStatus("Launching TailSend UI interface...");
+                updateStatus("Launching Ponlet UI interface...");
                 const moduleUrl = `./pkg/tailsend_web.js?_cb=${BUILD_TIMESTAMP}`;
                 const { default: initWasm, run_app } = await import(moduleUrl);
                 const slintBytes = await fetchAndDecompressWasmBytes("./pkg/tailsend_web_bg.wasm.gz");
@@ -1029,7 +1035,7 @@
                     }
                 } catch (e) {
                     if (e && (e.message?.includes("Using exceptions for control flow") || String(e).includes("Using exceptions for control flow"))) {
-                        console.log("[TailSend Loader] Expected winit control flow yield, proceeding.");
+                        console.log("[Ponlet Loader] Expected winit control flow yield, proceeding.");
                     } else {
                         throw e;
                     }
@@ -1040,7 +1046,7 @@
                 // Initialize Tailcat WASM P2P Engine in background
                 initTailcatEngine();
             } catch (err) {
-                console.error("[TailSend Bootstrap Error]", err);
+                console.error("[Ponlet Bootstrap Error]", err);
                 updateStatus(`Bootstrap Error: ${err.message || err}`);
                 showDebugError(err);
                 const spinner = document.querySelector(".spinner");

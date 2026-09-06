@@ -2,7 +2,7 @@
 set -euo pipefail
 
 echo "=========================================="
-echo " TailSend iOS Build & Package Script"
+echo " Ponlet iOS Build & Package Script"
 echo "=========================================="
 
 MODE="${1:-sim}" # "sim" or "device" or "xcode"
@@ -18,7 +18,6 @@ if [ "$MODE" = "sim" ]; then
     mkdir -p build/ios_sim/TailSend.app
 
     xcrun swiftc \
-      -parse-as-library \
       -target "$TARGET" \
       -sdk "$SDK_PATH" \
       -import-objc-header apps/ios/TailSend/TailSend-Bridging-Header.h \
@@ -26,6 +25,8 @@ if [ "$MODE" = "sim" ]; then
       apps/ios/TailSend/QRScannerViewController.swift \
       -L target/aarch64-apple-ios-sim/release \
       -ltailsend_ios \
+      -L . \
+      -ltailcat_ios_sim \
       -framework UIKit \
       -framework AVFoundation \
       -framework Metal \
@@ -40,6 +41,12 @@ if [ "$MODE" = "sim" ]; then
       -o build/ios_sim/TailSend.app/TailSend
 
     cp apps/ios/TailSend/Info.plist build/ios_sim/TailSend.app/Info.plist
+    xcrun actool apps/ios/TailSend/Assets.xcassets \
+      --compile build/ios_sim/TailSend.app \
+      --platform iphonesimulator \
+      --minimum-deployment-target 17.0 \
+      --app-icon AppIcon \
+      --output-partial-info-plist /tmp/actool_partial_info.plist >/dev/null 2>&1 || true
 
     echo "✍️  [3/4] Ad-hoc codesigning iOS App..."
     codesign -s - --force build/ios_sim/TailSend.app
@@ -47,9 +54,9 @@ if [ "$MODE" = "sim" ]; then
     echo "📲 [4/4] Installing to iOS Simulator ($SIM_ID)..."
     xcrun simctl boot "$SIM_ID" 2>/dev/null || true
     xcrun simctl install "$SIM_ID" build/ios_sim/TailSend.app
-    echo "🚀 Launching TailSend on Simulator..."
-    xcrun simctl launch "$SIM_ID" dev.tailsend.app
-    echo "✅ Successfully deployed TailSend iOS on Simulator!"
+    echo "🚀 Launching Ponlet on Simulator..."
+    xcrun simctl launch "$SIM_ID" jp.yasagure.ponlet
+    echo "✅ Successfully deployed Ponlet iOS on Simulator!"
 
 elif [ "$MODE" = "device" ]; then
     echo "🔨 Compiling Rust library for physical iOS Device (aarch64-apple-ios)..."
@@ -72,8 +79,8 @@ elif [ "$MODE" = "device-install" ]; then
 
     echo "📲 [4/4] Installing and launching on iPhone ($DEVICE_ID)..."
     xcrun devicectl device install app --device "$DEVICE_ID" apps/ios/DerivedData/TailSend/Build/Products/Debug-iphoneos/TailSend.app
-    xcrun devicectl device process launch --device "$DEVICE_ID" dev.tailsend.app
-    echo "✅ Successfully deployed and launched TailSend iOS on physical iPhone!"
+    xcrun devicectl device process launch --device "$DEVICE_ID" jp.yasagure.ponlet
+    echo "✅ Successfully deployed and launched Ponlet iOS on physical iPhone!"
 
 elif [ "$MODE" = "xcode" ]; then
     echo "⚙️  Generating Xcode Project via XcodeGen..."

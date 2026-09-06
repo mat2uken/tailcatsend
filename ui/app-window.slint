@@ -2,26 +2,26 @@ import { Button, VerticalBox, HorizontalBox, LineEdit, ProgressIndicator, Scroll
 import "./fonts/NotoSansJP.ttf";
 
 // ============================================================================
-// Design System Tokens & Theme (Fluent / Material 3 / Modern Slate)
+// Design System Tokens & Theme (Ponlet Icon Harmony: Teal & Vibrant Orange)
 // ============================================================================
 global Theme {
-    out property <color> bg-main: #0b0f19;
-    out property <color> surface-card: #131d31;
-    out property <color> surface-card-hover: #18253e;
-    out property <color> surface-nested: #0d1524;
-    out property <color> surface-active: #1e2d4a;
-    out property <color> border-subtle: #22324d;
-    out property <color> border-active: #38bdf8;
-    out property <color> primary: #0284c7;
-    out property <color> primary-hover: #0ea5e9;
-    out property <color> primary-pressed: #0369a1;
-    out property <color> accent-cyan: #38bdf8;
+    out property <color> bg-main: #07151e;
+    out property <color> surface-card: #0d2330;
+    out property <color> surface-card-hover: #133144;
+    out property <color> surface-nested: #081a24;
+    out property <color> surface-active: #173b52;
+    out property <color> border-subtle: #163d54;
+    out property <color> border-active: #2dd4bf;
+    out property <color> primary: #f97316;
+    out property <color> primary-hover: #fb923c;
+    out property <color> primary-pressed: #ea580c;
+    out property <color> accent-cyan: #2dd4bf;
     out property <color> success: #10b981;
     out property <color> success-bg: #064e3b;
     out property <color> success-border: #059669;
     out property <color> text-primary: #f8fafc;
-    out property <color> text-secondary: #94a3b8;
-    out property <color> text-muted: #64748b;
+    out property <color> text-secondary: #94a9b8;
+    out property <color> text-muted: #5e7a8c;
     out property <color> danger: #ef4444;
     out property <color> danger-hover: #dc2626;
     out property <color> danger-bg: #450a0a;
@@ -48,14 +48,14 @@ component AppButton inherits Rectangle {
     border-radius: 9px;
     clip: true;
 
-    background: !root.enabled ? #1e293b :
+    background: !root.enabled ? #162633 :
                 root.danger ? (touch.pressed ? #b91c1c : (touch.has-hover ? #dc2626 : #ef4444)) :
                 root.primary ? (touch.pressed ? Theme.primary-pressed : (touch.has-hover ? Theme.primary-hover : Theme.primary)) :
-                root.secondary ? (touch.pressed ? #1e293b : (touch.has-hover ? #27374d : #1e2b40)) :
-                (touch.pressed ? #0f172a : (touch.has-hover ? #1e293b : #131d31));
+                root.secondary ? (touch.pressed ? #0d2330 : (touch.has-hover ? #173b52 : #102a3a)) :
+                (touch.pressed ? #081a24 : (touch.has-hover ? #133144 : Theme.surface-card));
 
     border-width: root.secondary || (!root.primary && !root.danger) ? 1px : 0px;
-    border-color: root.secondary ? #334a6e : (touch.has-hover ? Theme.accent-cyan : Theme.border-subtle);
+    border-color: root.secondary ? #214b66 : (touch.has-hover ? Theme.accent-cyan : Theme.border-subtle);
 
     animate background { duration: 150ms; easing: ease-out; }
     animate border-color { duration: 150ms; easing: ease-out; }
@@ -575,7 +575,8 @@ component EmptyActivityCard inherits ModernCard {
 // Main Application Window
 // ============================================================================
 export component AppWindow inherits Window {
-    title: root.is_ja ? "tailcatSend — P2Pファイル転送" : "tailcatSend — Direct P2P Transfer";
+    title: root.is_ja ? "Ponlet — P2Pファイル転送" : "Ponlet — Direct P2P Transfer";
+    icon: @image-url("icon.png");
     background: Theme.bg-main;
     default-font-size: 14px;
     default-font-family: "Noto Sans JP";
@@ -679,16 +680,13 @@ export component AppWindow inherits Window {
                             width: 34px;
                             height: 34px;
                             border-radius: 9px;
-                            background: #0284c7;
+                            clip: true;
                             y: (parent.height - self.height) / 2;
 
-                            Path {
-                                width: 14px;
-                                height: 18px;
-                                fill: #ffffff;
-                                commands: "M 8 0 L 0 10 L 6 10 L 4 18 L 14 7 L 8 7 Z";
-                                x: (parent.width - self.width) / 2;
-                                y: (parent.height - self.height) / 2;
+                            Image {
+                                width: 34px;
+                                height: 34px;
+                                source: @image-url("icon.png");
                             }
                         }
 
@@ -696,7 +694,7 @@ export component AppWindow inherits Window {
                             alignment: center;
                             spacing: 0px;
                             Text {
-                                text: "tailcatSend";
+                                text: "Ponlet";
                                 font-size: 18px;
                                 font-weight: 800;
                                 color: Theme.text-primary;

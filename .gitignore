@@ -28,7 +28,19 @@ qr_code.png
 test_*.bin
 test_*.mp4
 
-# iOS build artifacts
+# iOS build artifacts & credentials
 build/
 *.xcodeproj/
 DerivedData/
+*.p12
+*.p8
+*.mobileprovision
+
+# Android build artifacts & credentials
+.gradle/
+*.keystore
+*.jks
+*.aab
+*.apk
+apps/android/app/build/
+apps/android/app/src/main/jniLibs/

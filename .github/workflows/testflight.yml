@@ -1,0 +1,193 @@
+name: iOS TestFlight Deployment
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'App Marketing Version (e.g. 1.0.0)'
+        required: false
+        default: '1.0.0'
+      build_number:
+        description: 'Build Number (leave empty for automatic github.run_number)'
+        required: false
+        default: ''
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  testflight:
+    name: Build & Upload to TestFlight
+    runs-on: macos-15
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Select Latest Xcode
+        run: |
+          echo "Available Xcode installations:"
+          ls -d /Applications/Xcode*.app 2>/dev/null || true
+          LATEST_XCODE=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -n 1)
+          if [ -n "$LATEST_XCODE" ]; then
+            echo "Selecting $LATEST_XCODE"
+            sudo xcode-select -s "$LATEST_XCODE/Contents/Developer"
+          fi
+          xcodebuild -version
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: tailcat/go.sum
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Install Apple Certificate & Provisioning Profile
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD || 'temporary-ci-keychain-pass' }}
+        run: |
+          # 1. Create temporary keychain
+          KEYCHAIN_PATH=$HOME/Library/Keychains/build.keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          # Add to keychain search list
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+
+          # 2. Decode and import Distribution Certificate (.p12)
+          CERT_PATH=/tmp/certificate.p12
+          echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$CERT_PATH"
+          if ! security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$P12_PASSWORD" -T /usr/bin/codesign 2>/dev/null; then
+            echo "Attempting conversion to legacy PKCS#12 format..."
+            openssl pkcs12 -in "$CERT_PATH" -passin "pass:$P12_PASSWORD" -nodes -out /tmp/cert_nodes.pem
+            openssl pkcs12 -export -legacy -in /tmp/cert_nodes.pem -passout "pass:$P12_PASSWORD" -out /tmp/cert_legacy.p12
+            security import /tmp/cert_legacy.p12 -k "$KEYCHAIN_PATH" -P "$P12_PASSWORD" -T /usr/bin/codesign
+            rm -f /tmp/cert_nodes.pem /tmp/cert_legacy.p12
+          fi
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          rm -f "$CERT_PATH"
+
+          # 3. Decode Provisioning Profile (.mobileprovision)
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          PROFILE_RAW=/tmp/profile.mobileprovision
+          echo "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode > "$PROFILE_RAW"
+
+          # Extract UUID, Profile Name & Team ID from .mobileprovision
+          UUID=$(security cms -D -i "$PROFILE_RAW" | plutil -extract UUID raw -)
+          PROFILE_NAME=$(security cms -D -i "$PROFILE_RAW" | plutil -extract Name raw -)
+          TEAM_ID=$(security cms -D -i "$PROFILE_RAW" | plutil -extract TeamIdentifier.0 raw -)
+          echo "Discovered Provisioning Profile: $PROFILE_NAME (UUID: $UUID, TeamID: $TEAM_ID)"
+          echo "TEAM_ID=$TEAM_ID" >> $GITHUB_ENV
+          echo "PROFILE_NAME=$PROFILE_NAME" >> $GITHUB_ENV
+
+          # Copy to MobileDevice directory
+          cp "$PROFILE_RAW" "$HOME/Library/MobileDevice/Provisioning Profiles/${UUID}.mobileprovision"
+          rm -f "$PROFILE_RAW"
+
+          # 4. Inject Profile Name and Team ID into ExportOptions.plist
+          sed -i '' "s/PROVISIONING_PROFILE_NAME/$PROFILE_NAME/g" apps/ios/ExportOptions.plist
+          sed -i '' "s/TEAM_ID/$TEAM_ID/g" apps/ios/ExportOptions.plist
+          cat apps/ios/ExportOptions.plist
+
+      - name: Build Go Tailcat iOS Engine
+        run: |
+          cd tailcat
+          CGO_ENABLED=1 CC="$(xcrun --sdk iphoneos --find clang) -isysroot $(xcrun --sdk iphoneos --show-sdk-path) -arch arm64 -miphoneos-version-min=17.0" \
+          GOOS=ios GOARCH=arm64 go build -buildmode=c-archive -o ../libtailcat_ios.a bridge/native/bridge.go
+          cd ..
+
+      - name: Build Rust iOS Static Library
+        run: |
+          cargo build -p tailsend-ios --target aarch64-apple-ios --release
+
+      - name: Configure App Version & Build Number
+        run: |
+          MARKETING_VERSION="${{ github.event.inputs.version || '1.0.0' }}"
+          if [ -n "${{ github.ref_name }}" ] && [[ "${{ github.ref_name }}" =~ ^v ]]; then
+            MARKETING_VERSION="${GITHUB_REF_NAME#v}"
+          fi
+
+          BUILD_NUMBER="${{ github.event.inputs.build_number }}"
+          if [ -z "$BUILD_NUMBER" ]; then
+            BUILD_NUMBER="${{ github.run_number }}"
+          fi
+
+          echo "Setting Version: $MARKETING_VERSION (Build: $BUILD_NUMBER)"
+          plutil -replace CFBundleShortVersionString -string "$MARKETING_VERSION" apps/ios/TailSend/Info.plist
+          plutil -replace CFBundleVersion -string "$BUILD_NUMBER" apps/ios/TailSend/Info.plist
+
+      - name: Generate Xcode Project
+        run: |
+          cd apps/ios
+          DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE="Manual" PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" xcodegen generate
+          cd ../..
+
+      - name: Archive iOS App
+        run: |
+          mkdir -p build
+          xcodebuild archive \
+            -project apps/ios/TailSend.xcodeproj \
+            -scheme TailSend \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath build/TailSend.xcarchive \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            CODE_SIGN_IDENTITY="Apple Distribution"
+
+      - name: Export IPA
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath build/TailSend.xcarchive \
+            -exportOptionsPlist apps/ios/ExportOptions.plist \
+            -exportPath build/ipa
+
+          ls -lh build/ipa
+
+      - name: Upload to TestFlight (App Store Connect API)
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$APP_STORE_CONNECT_PRIVATE_KEY" > ~/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8
+
+          echo "🚀 Uploading TailSend.ipa to App Store Connect / TestFlight..."
+          xcrun altool --upload-app \
+            --type ios \
+            --file build/ipa/TailSend.ipa \
+            --apiKey "$APP_STORE_CONNECT_KEY_ID" \
+            --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID" \
+            --verbose
+
+          echo "✅ Upload to TestFlight successful!"
+
+      - name: Upload IPA Artifact to GitHub
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TailSend-iOS-IPA
+          path: build/ipa/*.ipa
+          retention-days: 14
+
+      - name: Clean up temporary Keychain
+        if: always()
+        run: |
+          security delete-keychain "$HOME/Library/Keychains/build.keychain" 2>/dev/null || true

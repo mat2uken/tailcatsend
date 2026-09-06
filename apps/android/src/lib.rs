@@ -78,15 +78,15 @@ fn android_main(app: android_activity::AndroidApp) {
     android_logger::init_once(
         android_logger::Config::default()
             .with_max_level(log::LevelFilter::Info)
-            .with_tag("TailSendAndroid"),
+            .with_tag("PonletAndroid"),
     );
 
-    info!("🚀 Starting TailSend Android Native Application (Slint + Pure Tailcat WireGuard)...");
+    info!("🚀 Starting Ponlet Android Native Application (Slint + Pure Tailcat WireGuard)...");
 
     slint::android::init(app).expect("Failed to initialize Slint Android backend");
 
     if let Err(e) = run_android_app() {
-        error!("TailSend Android run error: {:?}", e);
+        error!("Ponlet Android run error: {:?}", e);
     }
 }
 
@@ -113,9 +113,9 @@ fn parse_tailcat_address(input: &str) -> String {
 fn get_android_download_dir() -> PathBuf {
     let candidates = [
         PathBuf::from("/data/data/dev.tailcat.tailsend/files/Download"),
-        PathBuf::from("/sdcard/Download/TailSend"),
-        PathBuf::from("/storage/emulated/0/Download/TailSend"),
-        PathBuf::from("/sdcard/TailSend"),
+        PathBuf::from("/sdcard/Download/Ponlet"),
+        PathBuf::from("/storage/emulated/0/Download/Ponlet"),
+        PathBuf::from("/sdcard/Ponlet"),
     ];
     for dir in &candidates {
         if fs::create_dir_all(dir).is_ok() {
@@ -252,6 +252,7 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
 
             // 3. Start background incoming event loop for listener
             let app_weak_listener = app_weak_boot.clone();
+            let target_peer_addr_listener = target_peer_addr.clone();
             tokio::task::spawn_blocking(move || {
                 loop {
                     let mut event = TcEvent {
@@ -296,7 +297,7 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
                                     is_handshake = true;
                                     let peer_addr = text[idx + 5..].split_whitespace().next().unwrap_or("").trim();
                                     if !peer_addr.is_empty() {
-                                        if let Ok(mut guard) = target_peer_addr.lock() {
+                                        if let Ok(mut guard) = target_peer_addr_listener.lock() {
                                             *guard = Some(peer_addr.to_string());
                                             info!("🔗 [Tailcat Android] Automatically paired with remote peer: {}", peer_addr);
                                         }
@@ -441,7 +442,7 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
                                             app.set_transfer_speed("保存完了".into());
                                             app.set_transfer_progress(1.0);
                                             app.set_transfer_status("ファイル受信完了".into());
-                                            app.set_status_text(format!("Received {} — Saved to Download/TailSend!", fn_done).into());
+                                            app.set_status_text(format!("Received {} — Saved to Download/Ponlet!", fn_done).into());
                                             let new_log = format!(
                                                 "[File Received]: {} ({:.1} MB)\nSaved: {}\n{}",
                                                 fn_done, final_mb, fp_done, app.get_received_message_log()
@@ -786,6 +787,18 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
                     });
                 }
             });
+        }
+    });
+
+    // 📋 Copy File Path Callback
+    let app_weak_copy_path = app_weak.clone();
+    app.on_copy_file_path(move || {
+        if let Some(app) = app_weak_copy_path.upgrade() {
+            let path = app.get_saved_file_path().to_string();
+            if !path.is_empty() {
+                app.set_status_text("File path copied!".into());
+                app.set_path_copied_feedback(true);
+            }
         }
     });
 

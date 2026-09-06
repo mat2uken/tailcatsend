@@ -7,9 +7,9 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [package.metadata.android]
-package = "dev.tailcat.tailsend"
-apk_name = "TailSend"
-label = "TailSend"
+package = "jp.yasagure.ponlet"
+apk_name = "Ponlet"
+label = "Ponlet"
 sdk_version = 34
 min_sdk_version = 31
 target_sdk_version = 34
