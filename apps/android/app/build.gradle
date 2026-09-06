@@ -23,9 +23,9 @@ android {
             def ksFile = findProperty('KEYSTORE_FILE') ?: System.getenv('KEYSTORE_FILE') ?: '../../build/certs/ponlet-release.keystore'
             if (file(ksFile).exists()) {
                 storeFile file(ksFile)
-                storePassword findProperty('KEYSTORE_PASSWORD') ?: System.getenv('KEYSTORE_PASSWORD') ?: '[REDACTED]'
+                storePassword findProperty('KEYSTORE_PASSWORD') ?: System.getenv('KEYSTORE_PASSWORD') ?: ''
                 keyAlias findProperty('KEY_ALIAS') ?: System.getenv('KEY_ALIAS') ?: 'ponlet'
-                keyPassword findProperty('KEY_PASSWORD') ?: System.getenv('KEY_PASSWORD') ?: '[REDACTED]'
+                keyPassword findProperty('KEY_PASSWORD') ?: System.getenv('KEY_PASSWORD') ?: ''
             }
         }
     }

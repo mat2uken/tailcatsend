@@ -54,7 +54,7 @@ if [ -f "$P12_FILE" ]; then
     echo "==========================================================="
 else
     echo "❌ 自動エクスポートできませんでした。『キーチェーンアクセス』から"
-    echo "   Apple Distribution 証明書を .p12 形式で書き出してください。"
+    echo "   Apple Distribution 証明書を .p12 形式で手動で書き出してください。"
 fi
 
 echo ""

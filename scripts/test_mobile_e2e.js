@@ -3,7 +3,11 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 
-const session = "p2ExAWEyAWEzeGp0Y28yRndXQ0JoTU5l";
+const session = process.argv[2] || process.env.TAILSEND_SESSION;
+if (!session) {
+    console.error("Usage: node scripts/test_mobile_e2e.js <SESSION_ID_OR_TOKEN>");
+    process.exit(1);
+}
 const relayUrl = `wss://tailsend-poc.mat2uken.workers.dev/relay?session=${encodeURIComponent(session)}&role=joiner`;
 
 console.log(`[Mobile Sim] Connecting to Edge Relay: ${relayUrl}`);

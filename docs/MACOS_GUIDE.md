@@ -1,6 +1,6 @@
-# 🍎 Ponlet macOS 実機動作確認ガイド
+# 🍎 TailSend macOS 実機動作確認ガイド
 
-Ponlet は Rust (Slint UI) と Go (Tailcat P2P WireGuard エンジン) で構築されており、**macOS（Apple Silicon M1/M2/M3/M4 および Intel Mac）で完全ネイティブ（Cocoa / Metal）に動作**します。
+TailSend は Rust (Slint UI) と Go (Tailcat P2P WireGuard エンジン) で構築されており、**macOS（Apple Silicon M1/M2/M3/M4 および Intel Mac）で完全ネイティブ（Cocoa / Metal）に動作**します。
 
 ---
 

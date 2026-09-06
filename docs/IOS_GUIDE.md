@@ -1,6 +1,6 @@
-# 📱 Ponlet iOS Native App Guide
+# 📱 TailSend iOS Native App Guide
 
-Ponlet iOS アプリは、Rust (Slint UI + Tokio) および Swift (UIKit / Metal) を統合したネイティブ iOS アプリケーションです。
+TailSend iOS アプリは、Rust (Slint UI + Tokio) および Swift (UIKit / Metal) を統合したネイティブ iOS アプリケーションです。
 
 ---
 

@@ -1,6 +1,6 @@
-# 🤖 Ponlet (Ponlet) Android アプリ ＆ Google Play リリース手順メモ
+# 🤖 TailSend (Ponlet) Android アプリ ＆ Google Play リリース手順メモ
 
-Android 向け Ponlet（旧 Ponlet）アプリのアーキテクチャ、署名キーストア情報、および **Google Play Console 本人確認完了後の残り作業** をまとめたメモです。
+Android 向け TailSend（アプリ識別名: `jp.yasagure.ponlet`）のアーキテクチャ、署名キーストア情報、および **Google Play Console 本人確認完了後の残り作業** をまとめた開発者向けドキュメントです。
 
 ---
 
@@ -26,8 +26,8 @@ Android 向け Ponlet（旧 Ponlet）アプリのアーキテクチャ、署名�
   - `~/Desktop/ponlet-release.keystore`（ユーザーデスクトップに退避済み）
   - リポジトリ内: `build/certs/ponlet-release.keystore`（`.gitignore` 済み）
 - **エイリアス**: `ponlet`
-- **パスワード**: `[REDACTED]`
-- **キーパスワード**: `[REDACTED]`
+- **パスワード**: (GitHub Secret `ANDROID_KEYSTORE_PASSWORD` / セキュア保管)
+- **キーパスワード**: (GitHub Secret `ANDROID_KEY_PASSWORD` / セキュア保管)
 - **GitHub Secrets 設定状況**: **設定完了済み**
   - `ANDROID_KEYSTORE_BASE64`
   - `ANDROID_KEYSTORE_PASSWORD`
