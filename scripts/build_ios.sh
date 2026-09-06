@@ -48,7 +48,7 @@ if [ "$MODE" = "sim" ]; then
     xcrun simctl boot "$SIM_ID" 2>/dev/null || true
     xcrun simctl install "$SIM_ID" build/ios_sim/TailSend.app
     echo "🚀 Launching TailSend on Simulator..."
-    xcrun simctl launch "$SIM_ID" dev.tailsend.app
+    xcrun simctl launch "$SIM_ID" jp.yasagure.ponlet
     echo "✅ Successfully deployed TailSend iOS on Simulator!"
 
 elif [ "$MODE" = "device" ]; then
@@ -72,7 +72,7 @@ elif [ "$MODE" = "device-install" ]; then
 
     echo "📲 [4/4] Installing and launching on iPhone ($DEVICE_ID)..."
     xcrun devicectl device install app --device "$DEVICE_ID" apps/ios/DerivedData/TailSend/Build/Products/Debug-iphoneos/TailSend.app
-    xcrun devicectl device process launch --device "$DEVICE_ID" dev.tailsend.app
+    xcrun devicectl device process launch --device "$DEVICE_ID" jp.yasagure.ponlet
     echo "✅ Successfully deployed and launched TailSend iOS on physical iPhone!"
 
 elif [ "$MODE" = "xcode" ]; then

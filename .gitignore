@@ -28,7 +28,10 @@ qr_code.png
 test_*.bin
 test_*.mp4
 
-# iOS build artifacts
+# iOS build artifacts & credentials
 build/
 *.xcodeproj/
 DerivedData/
+*.p12
+*.p8
+*.mobileprovision

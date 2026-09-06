@@ -126,7 +126,7 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
 
     // Store target peer Tailcat address for outgoing P2P transfers
     let target_peer_addr: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
-    let target_peer_addr_clone = target_peer_addr.clone();
+    let target_peer_addr_thread = target_peer_addr.clone();
 
     // Channel to trigger QR regeneration
     let (regen_tx, mut regen_rx) = mpsc::unbounded_channel::<()>();
@@ -240,6 +240,7 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
 
                 // 3. Start background incoming event loop for listener
                 let app_weak_listener = app_weak_boot.clone();
+                let target_peer_addr_listener = target_peer_addr_thread.clone();
                 let listener_task = tokio::task::spawn_blocking(move || {
                     loop {
                         let mut event = TcEvent {
@@ -284,7 +285,7 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
                                         is_handshake = true;
                                         let peer_addr = text[idx + 5..].split_whitespace().next().unwrap_or("").trim();
                                         if !peer_addr.is_empty() {
-                                            if let Ok(mut guard) = target_peer_addr_clone.lock() {
+                                            if let Ok(mut guard) = target_peer_addr_listener.lock() {
                                                 *guard = Some(peer_addr.to_string());
                                                 info!("🔗 [Tailcat iOS] Automatically paired with remote peer: {}", peer_addr);
                                             }
@@ -350,7 +351,7 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
                     let target_addr = parse_tailcat_address(&target_code);
                     info!("🚀 [Tailcat Direct Join] Target ConnBlob: {}", target_addr);
 
-                    if let Ok(mut guard) = target_peer_addr_clone.lock() {
+                    if let Ok(mut guard) = target_peer_addr_thread.lock() {
                         *guard = Some(target_addr.clone());
                     }
 
