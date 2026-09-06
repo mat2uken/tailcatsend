@@ -91,6 +91,7 @@ jobs:
           TEAM_ID=$(security cms -D -i "$PROFILE_RAW" | plutil -extract TeamIdentifier.0 raw -)
           echo "Discovered Provisioning Profile: $PROFILE_NAME (UUID: $UUID, TeamID: $TEAM_ID)"
           echo "TEAM_ID=$TEAM_ID" >> $GITHUB_ENV
+          echo "PROFILE_NAME=$PROFILE_NAME" >> $GITHUB_ENV
 
           # Copy to MobileDevice directory
           cp "$PROFILE_RAW" "$HOME/Library/MobileDevice/Provisioning Profiles/${UUID}.mobileprovision"
@@ -131,7 +132,7 @@ jobs:
       - name: Generate Xcode Project
         run: |
           cd apps/ios
-          xcodegen generate
+          DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE="Manual" PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" xcodegen generate
           cd ../..
 
       - name: Archive iOS App
@@ -145,7 +146,8 @@ jobs:
             -archivePath build/TailSend.xcarchive \
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM="$TEAM_ID" \
-            clean archive
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            CODE_SIGN_IDENTITY="Apple Distribution"
 
       - name: Export IPA
         run: |
