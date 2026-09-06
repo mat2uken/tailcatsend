@@ -16,6 +16,9 @@ libtailcat*.h
 # Node / JS
 node_modules/
 *.log
+logs/
+app_*.txt
+*.tmp
 
 # Cloudflare Wrangler
 .wrangler/
@@ -25,6 +28,7 @@ mobile_*.png
 live_cloudflare_screenshot.png
 progress_active_screenshot.png
 ios_simulator_screenshot.png
+android_e2e_*.png
 qr_code.png
 test_*.bin
 test_*.mp4
