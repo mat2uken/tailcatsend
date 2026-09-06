@@ -242,7 +242,7 @@ Write-Host "5. Testing Bidirectional File Transfer (WireGuard Port 102)..." -For
 # (a) Client -> Windows File Transfer
 $TestSize = 2 * 1024 * 1024 # 2 MB
 $ClientFile = "$env:TEMP\e2e_client_to_windows.bin"
-$HostDownloadFile = "$env:USERPROFILE\Downloads\TailSend\e2e_client_to_windows.bin"
+$HostDownloadFile = "$env:USERPROFILE\Downloads\tailcatSend\e2e_client_to_windows.bin"
 Remove-Item $HostDownloadFile -Force -ErrorAction SilentlyContinue
 
 $RandomBytes = New-Object byte[] $TestSize
@@ -298,7 +298,7 @@ if ($allHostContent -match "incoming_file_progress" -or $allHostContent -match "
 
 # (b) Host -> Client File Transfer
 $HostFile = "$env:TEMP\e2e_windows_to_client.bin"
-$ClientDownloadFile = "$env:USERPROFILE\Downloads\TailSend\e2e_windows_to_client.bin"
+$ClientDownloadFile = "$env:USERPROFILE\Downloads\tailcatSend\e2e_windows_to_client.bin"
 Remove-Item $ClientDownloadFile -Force -ErrorAction SilentlyContinue
 
 (New-Object System.Random).NextBytes($RandomBytes)

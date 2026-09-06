@@ -1,4 +1,4 @@
-# Pinned upstream Tailcat dependency
+﻿# Pinned upstream Tailcat dependency
 repository=https://github.com/tailscale/tailcat
 commit=7465d56d3e162c0994f18838b3a628002478bb99
 go_version=1.27.1
