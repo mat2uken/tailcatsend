@@ -1330,6 +1330,24 @@ export component AppWindow inherits Window {
                         }
                     }
                 }
+
+                // ============================================================
+                // Footer: Attribution & Third-Party Copyright Notices
+                // ============================================================
+                HorizontalLayout {
+                    alignment: center;
+                    height: 14px;
+                    spacing: 4px;
+
+                    Text {
+                        text: "Powered by Tailcat (BSD-3) & Slint UI · © 2026 Ponlet";
+                        font-size: 10px;
+                        color: Theme.text-muted;
+                        horizontal-alignment: center;
+                        vertical-alignment: center;
+                    }
+                }
             }
         }
 }
+
