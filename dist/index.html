@@ -312,12 +312,15 @@
         const CHUNK_SIZE = 64 * 1024; // 64 KiB
         let targetHostAddr = "";
 
-        function getHostAddress() {
-            if (window.hostTailcatAddress && window.hostTailcatAddress.length > 5) {
-                return window.hostTailcatAddress;
+        function getTargetAddress() {
+            if (window.targetPeerAddress && window.targetPeerAddress.length > 5) {
+                return window.targetPeerAddress;
             }
             if (targetHostAddr && targetHostAddr.length > 5 && !targetHostAddr.startsWith("p2Ex")) {
                 return targetHostAddr;
+            }
+            if (window.hostTailcatAddress && window.hostTailcatAddress.length > 5) {
+                return window.hostTailcatAddress;
             }
 
             // Fallback: Extract from URL
@@ -352,6 +355,7 @@
                                 const addr = decoder.decode(bytes.slice(start, start + len));
                                 if (addr.length > 5) {
                                     targetHostAddr = addr;
+                                    window.targetPeerAddress = addr;
                                     return addr;
                                 }
                             }
@@ -364,9 +368,14 @@
             return targetHostAddr || "";
         }
 
-        // Send Initial Direct P2P Handshake to Host
-        async function sendInitialP2PHandshake() {
-            const addr = getHostAddress();
+        // Backward compatibility
+        function getHostAddress() {
+            return getTargetAddress();
+        }
+
+        // Send Initial Direct P2P Handshake to Host (including own address for two-way communication)
+        async function sendInitialP2PHandshake(hostAddrOverride, ownAddrOverride) {
+            const addr = hostAddrOverride || getTargetAddress();
             if (!addr || !window.tailcatDial) {
                 console.warn("[TailSend Web] Host address or tailcatDial not yet available for handshake:", addr);
                 return;
@@ -375,7 +384,7 @@
             try {
                 console.log("[TailSend Web] Connecting initial P2P handshake to Host:", addr);
                 if (window.updateSlintStatusText) {
-                    window.updateSlintStatusText("Connecting to Host via WireGuard P2P...");
+                    window.updateSlintStatusText("相手端末に接続中…");
                 }
                 conn = await window.tailcatDial({
                     addr: addr,
@@ -383,18 +392,25 @@
                     derpMapURL: "https://tailcat.dev/derpmap.json"
                 });
                 const encoder = new TextEncoder();
-                await conn.write(encoder.encode("🤝 [Connected] Peer connected via Tailcat WireGuard P2P!\n"));
+                const myAddr = ownAddrOverride || window.ownTailcatAddress || "";
+                const handshakeMsg = myAddr.length > 5
+                    ? `🤝 [Connected] JOIN:${myAddr}\n`
+                    : "🤝 [Connected] Peer connected via Tailcat WireGuard P2P!\n";
+                await conn.write(encoder.encode(handshakeMsg));
                 try {
                     await conn.closeWrite();
                 } catch (_) {}
-                console.log("✅ [TailSend Web] Direct P2P Handshake successfully delivered to Host!");
+                console.log("✅ [TailSend Web] Direct P2P Handshake successfully delivered to Host! (My addr:", myAddr, ")");
+                if (window.onPeerConnectedSlint) {
+                    window.onPeerConnectedSlint("接続された相手端末");
+                }
                 if (window.updateSlintStatusText) {
-                    window.updateSlintStatusText("Connected via Pure Tailcat P2P!");
+                    window.updateSlintStatusText("直接暗号化P2Pで接続しました！");
                 }
             } catch (err) {
                 console.warn("[TailSend Web] Handshake notice:", err);
                 if (window.updateSlintStatusText) {
-                    window.updateSlintStatusText("Ready (WireGuard P2P)");
+                    window.updateSlintStatusText("接続準備完了 (WireGuard P2P)");
                 }
             } finally {
                 if (conn) {
@@ -403,30 +419,51 @@
             }
         }
 
+        // Joiner Mode: Start Tailcat WireGuard Listener so Joiner can receive text & files from Host
+        async function startJoinerListenerAndConnect(hostAddr) {
+            try {
+                console.log("[TailSend Web] Joiner Mode: Starting local Tailcat WireGuard listener...");
+                if (window.updateSlintStatusText) {
+                    window.updateSlintStatusText("P2P通信環境を初期化中…");
+                }
+                const listener = await window.tailcatListen({
+                    derpMapURL: "https://tailcat.dev/derpmap.json",
+                    onConnection: (conn) => {
+                        console.log("⚡ [TailSend Web] Incoming WireGuard P2P connection on Joiner!", conn);
+                        handleIncomingP2PConnection(conn);
+                    }
+                });
+
+                console.log("⚡ [TailSend Web] Joiner local Tailcat address acquired:", listener.address);
+                window.ownTailcatAddress = listener.address;
+                window.targetPeerAddress = hostAddr;
+
+                // Deliver handshake to Host with our address so Host can pair with us
+                await sendInitialP2PHandshake(hostAddr, listener.address);
+            } catch (err) {
+                console.error("[TailSend Web] Failed to start Joiner listener:", err);
+                // Fallback: Still attempt handshake even if local listener failed
+                await sendInitialP2PHandshake(hostAddr, "");
+            }
+        }
+
         // Host Mode: Start Tailcat WireGuard Listener and notify Slint to render QR Code
         async function startHostListenerAndGenerateQR() {
             try {
                 console.log("[TailSend Web] Host Mode: Starting Tailcat WireGuard listener...");
                 if (window.updateSlintStatusText) {
-                    window.updateSlintStatusText("Starting Tailcat WireGuard Mesh (Tokyo Region 304)...");
+                    window.updateSlintStatusText("安全なP2P通信を準備しています…");
                 }
                 const listener = await window.tailcatListen({
                     derpMapURL: "https://tailcat.dev/derpmap.json",
                     onConnection: (conn) => {
                         console.log("⚡ [TailSend Web] Incoming WireGuard P2P connection from peer!", conn);
-                        // Immediately transition host screen to Connected (Screen 3)
-                        if (window.onPeerConnectedSlint) {
-                            window.onPeerConnectedSlint("Remote Peer (P2P)");
-                        }
-                        if (window.updateSlintStatusText) {
-                            window.updateSlintStatusText("Remote peer connected via WireGuard P2P!");
-                        }
                         handleIncomingP2PConnection(conn);
                     }
                 });
 
                 console.log("⚡ [TailSend Web] Tailcat host address acquired:", listener.address);
-                window.hostTailcatAddress = listener.address;
+                window.ownTailcatAddress = listener.address;
 
                 if (window.onTailcatHostAddressReady) {
                     window.onTailcatHostAddressReady(listener.address);
@@ -439,16 +476,8 @@
             }
         }
 
-        // Handle incoming connection when acting as Host
+        // Handle incoming connection (both Host and Joiner)
         async function handleIncomingP2PConnection(conn) {
-            // Ensure UI transitions to Connected state immediately upon receiving any stream
-            if (window.onPeerConnectedSlint) {
-                window.onPeerConnectedSlint("Remote Peer (P2P)");
-            }
-            if (window.updateSlintStatusText) {
-                window.updateSlintStatusText("Remote peer connected via WireGuard P2P!");
-            }
-
             try {
                 if (conn.port === 101) {
                     let text = "";
@@ -465,14 +494,40 @@
                     }
                     console.log("⚡ [TailSend Web] Received text on Port 101:", text);
 
+                    let isHandshake = false;
+                    // Check for JOIN:<address> handshake
+                    if (text.includes("JOIN:")) {
+                        isHandshake = true;
+                        const parts = text.split("JOIN:");
+                        if (parts.length > 1) {
+                            const peerAddr = parts[1].trim().split(/\s+/)[0];
+                            if (peerAddr && peerAddr.length > 5) {
+                                window.targetPeerAddress = peerAddr;
+                                console.log("🔗 [TailSend Web] Automatically paired with remote peer:", peerAddr);
+                            }
+                        }
+                    }
                     if (text.startsWith("🤝")) {
+                        isHandshake = true;
+                    }
+
+                    if (isHandshake) {
+                        if (window.onPeerConnectedSlint) {
+                            window.onPeerConnectedSlint("接続された相手端末");
+                        }
                         if (window.updateSlintStatusText) {
-                            window.updateSlintStatusText("Remote peer connected via WireGuard P2P!");
+                            window.updateSlintStatusText("直接暗号化P2Pで接続しました！");
                         }
                     } else if (text.trim().length > 0) {
+                        if (window.onPeerConnectedSlint) {
+                            window.onPeerConnectedSlint("接続された相手端末");
+                        }
                         window.lastReceivedMessage = text;
                         if (window.onIncomingTextMessageSlint) {
                             window.onIncomingTextMessageSlint(text);
+                        }
+                        if (window.updateSlintStatusText) {
+                            window.updateSlintStatusText("メッセージを受信しました！");
                         }
                     }
                 } else if (conn.port === 102) {
@@ -612,17 +667,31 @@
         // Manual connect to peer from join code input
         window.connectToPeerFromInput = async function(targetAddr) {
             targetHostAddr = targetAddr;
-            window.hostTailcatAddress = targetAddr;
+            window.targetPeerAddress = targetAddr;
             console.log("[TailSend Web] Manual connect requested to peer:", targetAddr);
-            await sendInitialP2PHandshake();
+            if (!window.ownTailcatAddress && window.tailcatListen) {
+                try {
+                    const listener = await window.tailcatListen({
+                        derpMapURL: "https://tailcat.dev/derpmap.json",
+                        onConnection: (conn) => {
+                            console.log("⚡ [TailSend Web] Incoming WireGuard P2P connection!", conn);
+                            handleIncomingP2PConnection(conn);
+                        }
+                    });
+                    window.ownTailcatAddress = listener.address;
+                } catch (e) {
+                    console.warn("[TailSend Web] Could not start listener on manual join:", e);
+                }
+            }
+            await sendInitialP2PHandshake(targetAddr, window.ownTailcatAddress || "");
         };
 
         // Send Text Message via Tailcat Port 101
         window.sendTailcatTextMessage = async function(text, fromSlint = false) {
-            const addr = getHostAddress();
+            const addr = getTargetAddress();
             if (!text || !addr) {
-                console.error("[tailcatSend Web] Missing text or host address. Text:", text, "Addr:", addr);
-                alert("Error: Target host address not found (" + (addr || "empty") + "). Please scan QR again.");
+                console.error("[tailcatSend Web] Missing text or target peer address. Text:", text, "Addr:", addr);
+                alert("エラー: 接続先の相手端末アドレスが見つかりません。QRコードを再スキャンしてください。");
                 return;
             }
             console.log("[tailcatSend Web] Sending text via Tailcat P2P (Port 101) to " + addr + ":", text);
@@ -648,8 +717,8 @@
                     window.updateSlintStatusText("テキストメッセージを送信しました");
                 }
             } catch (err) {
-                console.error("[tailcatSend Web] Failed to dial host:", err);
-                alert("Tailcat P2P Dial Error: " + (err.message || err));
+                console.error("[tailcatSend Web] Failed to dial peer:", err);
+                alert("Tailcat P2P 送信エラー: " + (err.message || err));
                 if (window.updateSlintStatusText) {
                     window.updateSlintStatusText("送信エラー: " + (err.message || err));
                 }
@@ -787,9 +856,9 @@
 
         // Send File directly via Tailcat WireGuard P2P (Port 102)
         window.sendTailcatFileChunked = async function(file) {
-            const addr = getHostAddress();
+            const addr = getTargetAddress();
             if (!file || !addr) {
-                alert("エラー: 接続先ホストアドレスが見つかりません。QRコードを再スキャンしてください。");
+                alert("エラー: 接続先の相手端末アドレスが見つかりません。QRコードを再スキャンしてください。");
                 return;
             }
             console.log("[tailcatSend Web] Streaming file via Tailcat P2P (Port 102) to " + addr + ":", file.name, file.size, "bytes");
@@ -930,10 +999,13 @@
                     const instance = result.instance || result;
                     go.run(instance);
                     console.log("✅ [TailSend WASM] Tailcat WireGuard engine ready!");
-                    const hostAddr = getHostAddress();
+                    const hostAddr = getTargetAddress();
                     if (hostAddr) {
-                        await sendInitialP2PHandshake();
+                        // Joiner mode: Start local WireGuard listener so we can receive incoming streams,
+                        // then dial Host with JOIN:<our_address>.
+                        await startJoinerListenerAndConnect(hostAddr);
                     } else {
+                        // Host mode: Start local WireGuard listener and generate QR code
                         await startHostListenerAndGenerateQR();
                     }
                 }

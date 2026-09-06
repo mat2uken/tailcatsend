@@ -366,10 +366,31 @@ func (d *Daemon) getOrCreateClient(addr string) *tailcat.Client {
 	return cl
 }
 
+func pingUntil(ctx context.Context, cl *tailcat.Client) error {
+	for {
+		pctx, pcancel := context.WithTimeout(ctx, 4*time.Second)
+		_, err := cl.Ping(pctx)
+		pcancel()
+		if err == nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return fmt.Errorf("ping peer timeout: %w", err)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
 func (d *Daemon) handleSendText(ipcConn net.Conn, cmd CommandMessage) {
 	cl := d.getOrCreateClient(cmd.Address)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
 	defer cancel()
+
+	if err := pingUntil(ctx, cl); err != nil {
+		res, _ := json.Marshal(DaemonMessage{Event: "error", Error: fmt.Sprintf("Ping to peer failed: %v", err)})
+		ipcConn.Write(append(res, '\n'))
+		return
+	}
 
 	conn, err := cl.DialTCPPort(ctx, 101)
 	if err != nil {
@@ -380,6 +401,11 @@ func (d *Daemon) handleSendText(ipcConn net.Conn, cmd CommandMessage) {
 	defer conn.Close()
 
 	_, _ = conn.Write([]byte(cmd.Text))
+	if cw, ok := conn.(interface{ CloseWrite() error }); ok {
+		_ = cw.CloseWrite()
+	}
+	time.Sleep(100 * time.Millisecond)
+
 	res, _ := json.Marshal(DaemonMessage{Event: "send_text_success", Text: cmd.Text})
 	ipcConn.Write(append(res, '\n'))
 }
@@ -393,8 +419,14 @@ func (d *Daemon) handleSendFile(ipcConn net.Conn, cmd CommandMessage) {
 	}
 
 	cl := d.getOrCreateClient(cmd.Address)
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
+
+	if err := pingUntil(ctx, cl); err != nil {
+		res, _ := json.Marshal(DaemonMessage{Event: "error", Error: fmt.Sprintf("Ping to peer failed: %v", err)})
+		ipcConn.Write(append(res, '\n'))
+		return
+	}
 
 	conn, err := cl.DialTCPPort(ctx, 102)
 	if err != nil {
@@ -407,6 +439,11 @@ func (d *Daemon) handleSendFile(ipcConn net.Conn, cmd CommandMessage) {
 	header := fmt.Sprintf("NAME:%s:%d\n", cmd.Filename, len(fileData))
 	_, _ = conn.Write([]byte(header))
 	_, _ = conn.Write(fileData)
+
+	if cw, ok := conn.(interface{ CloseWrite() error }); ok {
+		_ = cw.CloseWrite()
+	}
+	time.Sleep(200 * time.Millisecond)
 
 	res, _ := json.Marshal(DaemonMessage{
 		Event:    "send_file_success",

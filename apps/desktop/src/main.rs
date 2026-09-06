@@ -416,7 +416,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             let is_derp = ev.is_derp.unwrap_or_else(|| {
                                 ev.address.as_ref().map(|a| a.contains("derp")).unwrap_or(false)
                             });
+                            let mut is_handshake = false;
                             if let Some(idx) = text.find("JOIN:") {
+                                is_handshake = true;
                                 let peer_addr = text[idx + 5..].split_whitespace().next().unwrap_or("").trim();
                                 if !peer_addr.is_empty() {
                                     if let Ok(mut guard) = target_peer_addr_daemon.lock() {
@@ -429,6 +431,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     *guard = Some(addr.clone());
                                 }
                             }
+                            if text.starts_with("🤝") {
+                                is_handshake = true;
+                            }
+
                             let w = app_weak_daemon.clone();
                             let t = text.clone();
                             let _ = slint::invoke_from_event_loop(move || {
@@ -436,12 +442,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                     let is_ja = app.get_current_language() == "ja";
                                     app.set_screen_index(3);
                                     app.set_peer_name(I18n::connected_peer(is_ja).into());
-                                    let peer_label = I18n::label_peer(is_ja);
-                                    let new_log = format!("{}: {}\n{}", peer_label, t, app.get_received_message_log());
-                                    app.set_received_message_log(new_log.into());
-                                    app.set_last_received_text(t.into());
-                                    app.set_status_text(I18n::msg_received(is_ja).into());
                                     app.set_is_derp_relay(is_derp);
+                                    if is_handshake {
+                                        app.set_status_text(I18n::direct_connected(is_ja).into());
+                                    } else {
+                                        let peer_label = I18n::label_peer(is_ja);
+                                        let new_log = format!("{}: {}\n{}", peer_label, t, app.get_received_message_log());
+                                        app.set_received_message_log(new_log.into());
+                                        app.set_last_received_text(t.into());
+                                        app.set_status_text(I18n::msg_received(is_ja).into());
+                                    }
                                 }
                             });
                         }
@@ -562,6 +572,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 app.set_transfer_progress(1.0);
                                 app.set_transfer_status(if is_ja { "ファイル送信完了" } else { "File Sent Successfully!" }.into());
                                 app.set_status_text(if is_ja { format!("{} ({:.1} MB) を送信しました", fname, total_mb).into() } else { format!("Sent {} ({:.1} MB) successfully!", fname, total_mb).into() });
+                            }
+                        });
+                    }
+                    "send_text_success" => {
+                        let w = app_weak_daemon.clone();
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(app) = w.upgrade() {
+                                let is_ja = app.get_current_language() == "ja";
+                                app.set_status_text(if is_ja { "テキストメッセージを送信しました" } else { "Text message sent successfully!" }.into());
+                            }
+                        });
+                    }
+                    "error" => {
+                        let err_msg = ev.error.unwrap_or_else(|| "Unknown error".to_string());
+                        warn!("Tailcat daemon error event: {}", err_msg);
+                        let w = app_weak_daemon.clone();
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(app) = w.upgrade() {
+                                let is_ja = app.get_current_language() == "ja";
+                                app.set_is_transferring(false);
+                                app.set_status_text(if is_ja { format!("送信エラー: {}", err_msg).into() } else { format!("Error: {}", err_msg).into() });
                             }
                         });
                     }

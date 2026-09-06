@@ -291,16 +291,35 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
                                 let text = String::from_utf8_lossy(&buf).to_string();
                                 info!("✉️ [Tailcat Android] Text Received: {}", text);
 
+                                let mut is_handshake = false;
+                                if let Some(idx) = text.find("JOIN:") {
+                                    is_handshake = true;
+                                    let peer_addr = text[idx + 5..].split_whitespace().next().unwrap_or("").trim();
+                                    if !peer_addr.is_empty() {
+                                        if let Ok(mut guard) = target_peer_addr.lock() {
+                                            *guard = Some(peer_addr.to_string());
+                                            info!("🔗 [Tailcat Android] Automatically paired with remote peer: {}", peer_addr);
+                                        }
+                                    }
+                                }
+                                if text.starts_with("🤝") {
+                                    is_handshake = true;
+                                }
+
                                 let w = app_weak_listener.clone();
                                 let t = text.clone();
                                 let _ = slint::invoke_from_event_loop(move || {
                                     if let Some(app) = w.upgrade() {
                                         app.set_screen_index(3);
-                                        app.set_peer_name("Connected Mac (P2P)".into());
-                                        let new_log = format!("[Mac]: {}\n{}", t, app.get_received_message_log());
-                                        app.set_received_message_log(new_log.into());
-                                        app.set_last_received_text(t.into());
-                                        app.set_status_text("Received text message via Tailcat P2P!".into());
+                                        app.set_peer_name("Connected Peer (P2P)".into());
+                                        if is_handshake {
+                                            app.set_status_text("Direct Encrypted P2P Connected!".into());
+                                        } else {
+                                            let new_log = format!("[Peer]: {}\n{}", t, app.get_received_message_log());
+                                            app.set_received_message_log(new_log.into());
+                                            app.set_last_received_text(t.into());
+                                            app.set_status_text("Received text message via Tailcat P2P!".into());
+                                        }
                                     }
                                 });
                             }
@@ -463,6 +482,7 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
                 });
 
                 let w2 = app_weak_boot.clone();
+                let real_host_addr_join = real_host_address.clone();
                 std::thread::spawn(move || {
                     let derp_url = "https://tailcat.dev/derpmap.json";
                     let addr_bytes = target_addr.as_bytes();
@@ -482,17 +502,17 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
                     info!("📡 [Tailcat Android] tc_stream_dial to Port 101 result: {}, handle: {}", dial_res, dial_handle);
 
                     if dial_res == 0 && dial_handle != 0 {
-                        let msg = "🤝 [Connected] Android Xperia connected via Pure Tailcat WireGuard P2P!";
+                        let msg = format!("🤝 [Connected] JOIN:{}\n", real_host_addr_join);
                         let write_res = unsafe {
                             tc_stream_write_all(dial_handle, msg.as_ptr(), msg.len(), 10000)
                         };
                         info!("📡 [Tailcat Android] tc_stream_write_all handshake result: {}", write_res);
                         unsafe { tc_stream_close(dial_handle); }
-                        info!("✅ [Tailcat Android] Direct P2P Handshake delivered to macOS Host!");
+                        info!("✅ [Tailcat Android] Direct P2P Handshake delivered to Host with addr: {}", real_host_addr_join);
 
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(app) = w2.upgrade() {
-                                app.set_status_text("Connected to macOS Host via Pure Tailcat P2P!".into());
+                                app.set_status_text("Connected to Host via Pure Tailcat P2P!".into());
                             }
                         });
                     } else {

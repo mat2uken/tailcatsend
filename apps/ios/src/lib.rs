@@ -279,16 +279,35 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
                                     let text = String::from_utf8_lossy(&buf).to_string();
                                     info!("✉️ [Tailcat iOS] Text Received: {}", text);
 
+                                    let mut is_handshake = false;
+                                    if let Some(idx) = text.find("JOIN:") {
+                                        is_handshake = true;
+                                        let peer_addr = text[idx + 5..].split_whitespace().next().unwrap_or("").trim();
+                                        if !peer_addr.is_empty() {
+                                            if let Ok(mut guard) = target_peer_addr_clone.lock() {
+                                                *guard = Some(peer_addr.to_string());
+                                                info!("🔗 [Tailcat iOS] Automatically paired with remote peer: {}", peer_addr);
+                                            }
+                                        }
+                                    }
+                                    if text.starts_with("🤝") {
+                                        is_handshake = true;
+                                    }
+
                                     let w = app_weak_listener.clone();
                                     let t = text.clone();
                                     let _ = slint::invoke_from_event_loop(move || {
                                         if let Some(app) = w.upgrade() {
                                             app.set_screen_index(3);
-                                            app.set_peer_name("Connected Mac (P2P)".into());
-                                            let new_log = format!("[Mac]: {}\n{}", t, app.get_received_message_log());
-                                            app.set_received_message_log(new_log.into());
-                                            app.set_last_received_text(t.into());
-                                            app.set_status_text("Received text message via Tailcat P2P!".into());
+                                            app.set_peer_name("Connected Peer (P2P)".into());
+                                            if is_handshake {
+                                                app.set_status_text("Direct Encrypted P2P Connected!".into());
+                                            } else {
+                                                let new_log = format!("[Peer]: {}\n{}", t, app.get_received_message_log());
+                                                app.set_received_message_log(new_log.into());
+                                                app.set_last_received_text(t.into());
+                                                app.set_status_text("Received text message via Tailcat P2P!".into());
+                                            }
                                         }
                                     });
                                 }
@@ -346,8 +365,9 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
                         }
                     });
 
-                    // Send initial handshake ping directly to Mac's Port 101
+                    // Send initial handshake ping directly to Peer's Port 101
                     let t_addr = target_addr.clone();
+                    let my_host_addr = real_host_address.clone();
                     tokio::task::spawn_blocking(move || {
                         let mut out_stream: TcHandle = 0;
                         let derp = "https://tailcat.dev/derpmap.json";
@@ -363,14 +383,14 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
                             )
                         };
                         if dial_res == 0 && out_stream != 0 {
-                            let handshake_msg = "🤝 [Connected] iPhone Air connected directly via Tailcat WireGuard P2P!";
+                            let handshake_msg = format!("🤝 [Connected] JOIN:{}\n", my_host_addr);
                             let _ = unsafe {
                                 tc_stream_write_all(out_stream, handshake_msg.as_ptr(), handshake_msg.len(), 10000)
                             };
                             unsafe { tc_stream_close(out_stream); }
-                            info!("✅ [Tailcat P2P] Direct handshake successfully delivered to Mac!");
+                            info!("✅ [Tailcat P2P] Direct handshake successfully delivered to Host with addr: {}", my_host_addr);
                         } else {
-                            error!("❌ [Tailcat P2P] Failed to dial Mac: status {}", dial_res);
+                            error!("❌ [Tailcat P2P] Failed to dial Host: status {}", dial_res);
                         }
                     });
 
