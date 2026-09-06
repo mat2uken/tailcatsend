@@ -70,7 +70,13 @@ jobs:
           # 2. Decode and import Distribution Certificate (.p12)
           CERT_PATH=/tmp/certificate.p12
           echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$CERT_PATH"
-          security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          if ! security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$P12_PASSWORD" -T /usr/bin/codesign 2>/dev/null; then
+            echo "Attempting conversion to legacy PKCS#12 format..."
+            openssl pkcs12 -in "$CERT_PATH" -passin "pass:$P12_PASSWORD" -nodes -out /tmp/cert_nodes.pem
+            openssl pkcs12 -export -legacy -in /tmp/cert_nodes.pem -passout "pass:$P12_PASSWORD" -out /tmp/cert_legacy.p12
+            security import /tmp/cert_legacy.p12 -k "$KEYCHAIN_PATH" -P "$P12_PASSWORD" -T /usr/bin/codesign
+            rm -f /tmp/cert_nodes.pem /tmp/cert_legacy.p12
+          fi
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           rm -f "$CERT_PATH"
 

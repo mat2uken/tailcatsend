@@ -35,9 +35,9 @@ echo ""
 PEM_PATH="$ROOT_DIR/build/certs/distribution.pem"
 openssl x509 -inform DER -in "$CER_PATH" -out "$PEM_PATH"
 
-# 2. Package into PKCS12 (.p12)
+# 2. Package into PKCS12 (.p12) with -legacy for macOS security command compatibility
 P12_OUTPUT="$ROOT_DIR/build/certs/distribution.p12"
-openssl pkcs12 -export \
+openssl pkcs12 -export -legacy \
   -inkey "$KEY_PATH" \
   -in "$PEM_PATH" \
   -out "$P12_OUTPUT" \
