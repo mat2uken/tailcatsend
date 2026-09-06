@@ -252,6 +252,7 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
 
             // 3. Start background incoming event loop for listener
             let app_weak_listener = app_weak_boot.clone();
+            let target_peer_addr_listener = target_peer_addr.clone();
             tokio::task::spawn_blocking(move || {
                 loop {
                     let mut event = TcEvent {
@@ -296,7 +297,7 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
                                     is_handshake = true;
                                     let peer_addr = text[idx + 5..].split_whitespace().next().unwrap_or("").trim();
                                     if !peer_addr.is_empty() {
-                                        if let Ok(mut guard) = target_peer_addr.lock() {
+                                        if let Ok(mut guard) = target_peer_addr_listener.lock() {
                                             *guard = Some(peer_addr.to_string());
                                             info!("🔗 [Tailcat Android] Automatically paired with remote peer: {}", peer_addr);
                                         }
