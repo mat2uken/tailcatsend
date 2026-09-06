@@ -1,0 +1,45 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'jp.yasagure.ponlet'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "jp.yasagure.ponlet"
+        minSdk 31
+        targetSdk 34
+        versionCode Integer.parseInt(findProperty('VERSION_CODE') ?: System.getenv('VERSION_CODE') ?: '1')
+        versionName findProperty('VERSION_NAME') ?: System.getenv('VERSION_NAME') ?: '1.0.0'
+
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+    }
+
+    signingConfigs {
+        release {
+            def ksFile = findProperty('KEYSTORE_FILE') ?: System.getenv('KEYSTORE_FILE') ?: '../../build/certs/ponlet-release.keystore'
+            if (file(ksFile).exists()) {
+                storeFile file(ksFile)
+                storePassword findProperty('KEYSTORE_PASSWORD') ?: System.getenv('KEYSTORE_PASSWORD') ?: '[REDACTED]'
+                keyAlias findProperty('KEY_ALIAS') ?: System.getenv('KEY_ALIAS') ?: 'ponlet'
+                keyPassword findProperty('KEY_PASSWORD') ?: System.getenv('KEY_PASSWORD') ?: '[REDACTED]'
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ['src/main/jniLibs']
+        }
+    }
+}
