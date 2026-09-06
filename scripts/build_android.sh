@@ -1,10 +1,10 @@
 #!/bin/bash
 set -e
 
-export ANDROID_HOME=/Users/mat2uken/Library/Android/sdk
-export ANDROID_NDK_ROOT=/Users/mat2uken/Library/Android/sdk/ndk/28.2.13676358
-export NDK_HOME=$ANDROID_NDK_ROOT
-export PATH=$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH
+export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
+export ANDROID_NDK_ROOT="${ANDROID_NDK_ROOT:-$ANDROID_HOME/ndk/28.2.13676358}"
+export NDK_HOME="$ANDROID_NDK_ROOT"
+export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 

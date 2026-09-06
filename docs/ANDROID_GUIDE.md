@@ -23,7 +23,7 @@ Android 向け TailSend（アプリ識別名: `jp.yasagure.ponlet`）のアー�
 将来のすべてのアップデートの署名にこのキーストアが必要です。紛失すると同一アプリの更新ができなくなりますので厳重に保管してください。
 
 - **キーストア保管場所**:
-  - `~/Desktop/ponlet-release.keystore`（ユーザーデスクトップに退避済み）
+  - セキュアな外部ストレージまたはパスワードマネージャーに保管
   - リポジトリ内: `build/certs/ponlet-release.keystore`（`.gitignore` 済み）
 - **エイリアス**: `ponlet`
 - **パスワード**: (GitHub Secret `ANDROID_KEYSTORE_PASSWORD` / セキュア保管)
@@ -40,7 +40,7 @@ Android 向け TailSend（アプリ識別名: `jp.yasagure.ponlet`）のアー�
 
 Google Play の仕様上、**初回のみ Google Play Console のブラウザ画面から手動で AAB をアップロード** する必要があります（新規登録時は API 経由のアップロードが Google 側でブロックされるため）。
 
-- **初回用 AAB ファイル**: `~/Desktop/ponlet-release.aab`（32 MB）
+- **初回用 AAB ファイル**: `ponlet-release.aab`（GitHub Actions Artifact からダウンロード）
   - GitHub Actions [Run #34014423748](https://github.com/mat2uken/tailcatsend/actions/runs/34014423748) でビルド・署名済み
 
 ---
@@ -62,7 +62,7 @@ Google Play Console の本人確認が承認されたら、以下の手順を順
 1. 左メニューの **「テスト」 > 「内部テスト」** を開く。
 2. 右上の **「新しいリリースを作成」** をクリック。
 3. **「Play アプリ署名」**（Google Play App Signing）の規約を確認して有効化。
-4. デスクトップにある **`~/Desktop/ponlet-release.aab`** を「App Bundle」エリアにドラッグ＆ドロップしてアップロード。
+4. **`ponlet-release.aab`** を「App Bundle」エリアにドラッグ＆ドロップしてアップロード。
    - パッケージ名が `jp.yasagure.ponlet` として認識されます。
 5. リリース名（例: `1.0.0 (3)`）とリリースノートを入力し、**「保存」** → **「リリースのレビュー」** を進める。
    ※ テスターへの公開は任意です（まずは下書き保存またはレビュー完了で OK）。

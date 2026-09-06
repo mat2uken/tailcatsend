@@ -53,9 +53,9 @@ struct DaemonCommand {
 
 fn get_download_dir() -> PathBuf {
     if let Ok(home) = std::env::var("USERPROFILE").or_else(|_| std::env::var("HOME")) {
-        PathBuf::from(home).join("Downloads").join("Ponlet")
+        PathBuf::from(home).join("Downloads").join("TailSend")
     } else {
-        PathBuf::from("Ponlet_Downloads")
+        PathBuf::from("TailSend_Downloads")
     }
 }
 

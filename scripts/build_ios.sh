@@ -2,11 +2,11 @@
 set -euo pipefail
 
 echo "=========================================="
-echo " Ponlet iOS Build & Package Script"
+echo " TailSend iOS Build & Package Script"
 echo "=========================================="
 
-MODE="${1:-sim}" # "sim" or "device" or "xcode"
-SIM_ID="${2:-booted}" # default to iPhone 16 sim
+MODE="${1:-sim}" # "sim" or "device" or "xcode" or "device-install"
+SIM_ID="${2:-booted}" # default to currently booted simulator
 
 if [ "$MODE" = "sim" ]; then
     echo "🔨 [1/4] Compiling Rust library for iOS Simulator (aarch64-apple-ios-sim)..."
@@ -65,7 +65,13 @@ elif [ "$MODE" = "device" ]; then
     echo "💡 Open apps/ios/TailSend.xcodeproj in Xcode to deploy to your connected iPhone."
 
 elif [ "$MODE" = "device-install" ]; then
-    DEVICE_ID="${2:-[DEVICE_ID]}"
+    DEVICE_ID="${2:-}"
+    if [ -z "$DEVICE_ID" ]; then
+        echo "❌ Error: Please specify the target device UUID:"
+        echo "   ./scripts/build_ios.sh device-install <DEVICE_UUID>"
+        echo "💡 Run 'xcrun devicectl list devices' to find connected device UUIDs."
+        exit 1
+    fi
     echo "🔨 [1/4] Compiling Go Tailcat library for physical iOS Device..."
     (cd tailcat && CGO_ENABLED=1 CC="$(xcrun --sdk iphoneos --find clang) -isysroot $(xcrun --sdk iphoneos --show-sdk-path) -arch arm64 -miphoneos-version-min=17.0" GOOS=ios GOARCH=arm64 go build -buildmode=c-archive -o ../libtailcat_ios.a bridge/native/bridge.go)
 

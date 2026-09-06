@@ -55,7 +55,7 @@ cargo run -p tailsend-desktop
 2. **Mac クリップボード連携 (`Paste & Send`)**:
    - Mac で `Cmd + C` でコピーしたテキストを、画面上の「**Paste & Send**」ボタンからワンタップで相手端末（iPhone や Windows）へ即時送信。
 3. **Finder 連携 (`Share to App`)**:
-   - 受信ログ欄の「**Share to App**」を押すと、macOS の `open` コマンドが発火し、Mac の `Downloads/Ponlet/` フォルダが Finder で自動で開きます。
+   - 受信ログ欄の「**Share to App**」を押すと、macOS の `open` コマンドが発火し、Mac の `Downloads/TailSend/` フォルダが Finder で自動で開きます。
 4. **大容量ファイル双方向 P2P 転送**:
    - 「**Pick File**」を押すと macOS 標準のファイルピッカーダイアログが開き、動画や画像を選択して iPhone や他端末へ高速チャンク送信できます。
 
@@ -70,5 +70,5 @@ cargo run -p tailsend-desktop
 | **QRコード生成 & Metal 描画** | 高精細 RGBA ピクセルラスタライズ | ✅ **PASS** | Retina 高解像度 QR レンダリング |
 | **テキスト・クリップボード送受信** | `Paste & Send` / 双方向リアルタイムログ | ✅ **PASS** | `arboard` + `NSPasteboard` 連携 |
 | **5MB / 50MB / 100MB ファイル転送** | 64 KiB チャンクストリーミング + Base64 | ✅ **PASS** | **SHA-256 100% 完全一致** |
-| **macOS Finder 連携** | `~/Downloads/Ponlet/` への自動保存 & `open` | ✅ **PASS** | Finder でのフォルダ表示・確認完了 |
+| **macOS Finder 連携** | `~/Downloads/TailSend/` への自動保存 & `open` | ✅ **PASS** | Finder でのフォルダ表示・確認完了 |
 

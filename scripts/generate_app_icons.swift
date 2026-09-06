@@ -3,7 +3,8 @@ import Foundation
 import AppKit
 import CoreGraphics
 
-let defaultSrcPath = "/Users/mat2uken/Downloads/icon.png"
+let repoRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+let defaultSrcPath = repoRoot.appendingPathComponent("ui/icon.png").path
 let srcPath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : defaultSrcPath
 
 guard let srcImage = NSImage(contentsOfFile: srcPath) else {
@@ -20,7 +21,6 @@ let srcW = srcCgImage.width
 let srcH = srcCgImage.height
 print("📷 Source image loaded: \(srcW)x\(srcH)")
 
-let repoRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
 
 // ==============================================================================
 // Helper 1: Resize CGImage directly (with alpha)

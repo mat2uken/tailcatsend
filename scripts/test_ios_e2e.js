@@ -1,4 +1,8 @@
-const sessionId = "p2ExAWEyAWEzeBx0Yy1pb3MtbmF0aXZl";
+const sessionId = process.argv[2] || process.env.TAILSEND_SESSION;
+if (!sessionId) {
+    console.error("Usage: node scripts/test_ios_e2e.js <SESSION_ID_OR_TOKEN>");
+    process.exit(1);
+}
 const relayUrl = `wss://tailsend-poc.mat2uken.workers.dev/relay?session=${encodeURIComponent(sessionId)}&role=client`;
 
 console.log(`[E2E Test] Connecting to iOS App via Edge Relay: ${relayUrl}`);

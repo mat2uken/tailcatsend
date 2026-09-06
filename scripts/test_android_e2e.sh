@@ -1,10 +1,11 @@
 #!/bin/bash
 set -e
 
-export PATH=$PATH:/Users/mat2uken/Library/Android/sdk/platform-tools
+export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
+export PATH="$PATH:$ANDROID_HOME/platform-tools"
 DEVICE_ID="${1:-$(adb devices | awk 'NR>1 && $2=="device" {print $1; exit}')}"
 echo "========================================================="
-echo "🧪 Starting Full Automated E2E Test: macOS <-> Android Xperia"
+echo "🧪 Starting Full Automated E2E Test: macOS <-> Android Device"
 echo "========================================================="
 
 # 1. Start macOS Host
@@ -38,15 +39,15 @@ if [ -z "$MAC_INVITE_URL" ]; then
 fi
 echo "✅ macOS Host Ready! Invite URL: $MAC_INVITE_URL"
 
-# 2. Launch Android Xperia App
-echo "2. Launching TailSend on Android Xperia ($DEVICE_ID)..."
+# 2. Launch Android App
+echo "2. Launching TailSend on Android Device ($DEVICE_ID)..."
 adb -s $DEVICE_ID shell am force-stop dev.tailcat.tailsend
 adb -s $DEVICE_ID shell "rm -f /data/local/tmp/tailsend_cmd.json /data/local/tmp/tailsend_res.json /sdcard/Download/tailsend_cmd.json /sdcard/Download/tailsend_res.json"
 adb -s $DEVICE_ID logcat -c
 adb -s $DEVICE_ID shell am start -n dev.tailcat.tailsend/android.app.NativeActivity
 
 echo "Waiting for Android app to acquire ConnBlob address..."
-XPERIA_ADDR=""
+ANDROID_ADDR=""
 for i in {1..30}; do
     XPERIA_ADDR=$(adb -s $DEVICE_ID logcat -d -s TailSendAndroid 2>/dev/null | grep "Acquired ConnBlob Address:" | tail -n 1 | awk '{print $NF}' || true)
     if [ -n "$XPERIA_ADDR" ]; then
