@@ -80,7 +80,14 @@ jobs:
           cp target/libtailcat_android.so target/aarch64-linux-android/release/libtailcat_android.so
 
       - name: Build Rust Android Native Library
+        env:
+          NDK_HOME: ${{ env.ANDROID_NDK_ROOT }}
         run: |
+          export CLANG_BIN=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$CLANG_BIN/aarch64-linux-android33-clang
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR=$CLANG_BIN/llvm-ar
+          export CC_aarch64_linux_android=$CLANG_BIN/aarch64-linux-android33-clang
+          export CXX_aarch64_linux_android=$CLANG_BIN/aarch64-linux-android33-clang++
           cargo build -p tailsend-android --target aarch64-linux-android --lib --release
 
       - name: Prepare JNI Libraries for Gradle
