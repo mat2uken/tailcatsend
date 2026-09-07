@@ -19,7 +19,7 @@ import (
 
 func main() {
 	bridge := js.ValueOf(map[string]any{
-		"bridgeVersion": "1.0.0-tailcat-7465d56",
+		"bridgeVersion": "1.0.0-tailcat-7a50a1a",
 		"listen":        js.FuncOf(tailcatListen),
 		"dial":          js.FuncOf(tailcatDial),
 	})
