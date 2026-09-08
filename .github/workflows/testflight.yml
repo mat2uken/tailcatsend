@@ -181,13 +181,21 @@ jobs:
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
         run: |
+          set -e
           mkdir -p "$HOME/.appstoreconnect/private_keys"
           echo "$APP_STORE_CONNECT_PRIVATE_KEY" > "$HOME/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
 
-          echo "🚀 Uploading TailSend.ipa to App Store Connect / TestFlight..."
+          IPA_PATH=$(ls build/ipa/*.ipa 2>/dev/null | head -n 1)
+          if [ -z "$IPA_PATH" ] || [ ! -f "$IPA_PATH" ]; then
+            echo "Error: No .ipa file found in build/ipa/"
+            ls -la build/ipa || true
+            exit 1
+          fi
+
+          echo "🚀 Uploading $IPA_PATH to App Store Connect / TestFlight..."
           xcrun altool --upload-app \
             --type ios \
-            --file build/ipa/TailSend.ipa \
+            --file "$IPA_PATH" \
             --apiKey "$APP_STORE_CONNECT_KEY_ID" \
             --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID" \
             --verbose
