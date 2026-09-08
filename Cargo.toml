@@ -73,3 +73,4 @@ qrcode = { version = "0.14", default-features = false }
 image = { version = "0.25", default-features = false, features = ["png"] }
 [profile.release]
 opt-level = 0
+strip = "symbols"
