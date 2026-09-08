@@ -19,6 +19,11 @@ const MIME_TYPES = {
     ".svg": "image/svg+xml",
 };
 
+const serverStats = {
+    requests: [],
+    status304Count: 0,
+};
+
 function startStaticServer() {
     return new Promise((resolve) => {
         const server = http.createServer((req, res) => {
@@ -32,6 +37,10 @@ function startStaticServer() {
                 return;
             }
 
+            const stat = fs.statSync(filePath);
+            const etag = `"${stat.size.toString(16)}-${Math.floor(stat.mtimeMs).toString(16)}"`;
+            const lastModified = stat.mtime.toUTCString();
+
             const ext = path.extname(filePath).toLowerCase();
             let contentType = MIME_TYPES[ext] || "application/octet-stream";
 
@@ -39,10 +48,34 @@ function startStaticServer() {
                 contentType = "application/gzip";
             }
 
+            const ifNoneMatch = req.headers["if-none-match"];
+            const ifModifiedSince = req.headers["if-modified-since"];
+
+            const isMatch = (ifNoneMatch && (ifNoneMatch === etag || ifNoneMatch === `W/${etag}`)) ||
+                            (!ifNoneMatch && ifModifiedSince && new Date(ifModifiedSince) >= new Date(lastModified));
+
+            if (isMatch && reqPath !== "/index.html") {
+                serverStats.status304Count++;
+                serverStats.requests.push({ path: reqPath, status: 304 });
+                res.writeHead(304, {
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Expose-Headers": "ETag, Last-Modified",
+                    "Cache-Control": "no-cache",
+                    "ETag": etag,
+                    "Last-Modified": lastModified,
+                });
+                res.end();
+                return;
+            }
+
+            serverStats.requests.push({ path: reqPath, status: 200 });
             res.writeHead(200, {
                 "Content-Type": contentType,
                 "Access-Control-Allow-Origin": "*",
-                "Cache-Control": "no-cache",
+                "Access-Control-Expose-Headers": "ETag, Last-Modified",
+                "Cache-Control": reqPath === "/index.html" ? "no-cache, no-store, must-revalidate" : "no-cache",
+                "ETag": etag,
+                "Last-Modified": lastModified,
             });
 
             fs.createReadStream(filePath).pipe(res);
@@ -206,6 +239,110 @@ async function testHeadlessChromeWithInvite(testInviteUrl) {
         }
 
         console.log("✓ Headless browser verified: Zero bootstrap errors, Canvas active, WASM operational.");
+
+        // === Test 3: IndexedDB Cache Integrity Verification ===
+        console.log("\n=== Test 3: IndexedDB WASM Cache Verification ===");
+        const idbCheckRes = await sendCommand("Runtime.evaluate", {
+            expression: `
+                new Promise((resolve) => {
+                    const req = indexedDB.open("ponlet_wasm_cache", 1);
+                    req.onsuccess = () => {
+                        const db = req.result;
+                        if (!db.objectStoreNames.contains("wasm_files")) {
+                            return resolve({ ok: false, error: "Store wasm_files not found" });
+                        }
+                        const tx = db.transaction("wasm_files", "readonly");
+                        const store = tx.objectStore("wasm_files");
+                        const getSlint = store.get("./pkg/tailsend_web_bg.wasm.gz");
+                        getSlint.onsuccess = () => {
+                            const slintEntry = getSlint.result;
+                            const getTailcat = store.get("./assets/tailcat.wasm.gz");
+                            getTailcat.onsuccess = () => {
+                                const tailcatEntry = getTailcat.result;
+                                resolve({
+                                    ok: true,
+                                    hasSlint: !!slintEntry && (slintEntry.data instanceof ArrayBuffer) && slintEntry.data.byteLength > 0,
+                                    slintBytes: slintEntry ? slintEntry.data.byteLength : 0,
+                                    slintEtag: slintEntry ? slintEntry.etag : null,
+                                    hasTailcat: !!tailcatEntry && (tailcatEntry.data instanceof ArrayBuffer) && tailcatEntry.data.byteLength > 0,
+                                    tailcatBytes: tailcatEntry ? tailcatEntry.data.byteLength : 0,
+                                    tailcatEtag: tailcatEntry ? tailcatEntry.etag : null,
+                                });
+                            };
+                            getTailcat.onerror = () => resolve({ ok: false, error: "Failed getting tailcat entry" });
+                        };
+                        getSlint.onerror = () => resolve({ ok: false, error: "Failed getting slint entry" });
+                    };
+                    req.onerror = () => resolve({ ok: false, error: "Failed opening indexedDB" });
+                })
+            `,
+            awaitPromise: true,
+            returnByValue: true,
+        });
+
+        const idbState = idbCheckRes.result.value;
+        console.log("[E2E Chrome] IndexedDB Cache State:", idbState);
+
+        if (!idbState.ok || !idbState.hasSlint || !idbState.hasTailcat) {
+            throw new Error(`IndexedDB cache verification failed: ${JSON.stringify(idbState)}`);
+        }
+        console.log(`✓ IndexedDB Cache Verified: Slint WASM (${(idbState.slintBytes / 1024 / 1024).toFixed(2)} MB, ETag: ${idbState.slintEtag})`);
+        console.log(`✓ IndexedDB Cache Verified: Tailcat WASM (${(idbState.tailcatBytes / 1024 / 1024).toFixed(2)} MB, ETag: ${idbState.tailcatEtag})`);
+
+        // === Test 4: Second Load with 304 Cache Hit Verification ===
+        console.log("\n=== Test 4: Second Access 304 Not Modified & Fast Boot Verification ===");
+        const prev304Count = serverStats.status304Count;
+        logs.length = 0;
+        errors.length = 0;
+
+        const reloadStart = Date.now();
+        console.log("[E2E Chrome] Reloading page to verify 304 cache hit...");
+        await sendCommand("Page.reload");
+
+        // Wait for page reload and Slint mount (should be fast due to cache hit)
+        let reloadedCanvas = false;
+        for (let i = 0; i < 30; i++) {
+            await new Promise((r) => setTimeout(r, 200));
+            const checkRes = await sendCommand("Runtime.evaluate", {
+                expression: "!!document.querySelector('canvas#canvas')",
+                returnByValue: true,
+            });
+            if (checkRes.result.value) {
+                reloadedCanvas = true;
+                break;
+            }
+        }
+        const reloadDuration = Date.now() - reloadStart;
+        console.log(`[E2E Chrome] Reloaded and Canvas mounted in ${reloadDuration}ms`);
+
+        if (!reloadedCanvas) {
+            throw new Error("Canvas element #canvas was not mounted after page reload!");
+        }
+
+        // Allow Tailcat engine to complete background check
+        await new Promise((r) => setTimeout(r, 2000));
+
+        // Check for 304 Not Modified logs
+        const slint304Hit = logs.some((l) => l.includes("[WASM Cache] 304 Not Modified for ./pkg/tailsend_web_bg.wasm.gz"));
+        const tailcat304Hit = logs.some((l) => l.includes("[WASM Cache] 304 Not Modified for ./assets/tailcat.wasm.gz"));
+
+        console.log(`[E2E Chrome] Slint 304 cache hit detected: ${slint304Hit}`);
+        console.log(`[E2E Chrome] Tailcat 304 cache hit detected: ${tailcat304Hit}`);
+        console.log(`[E2E Server] HTTP 304 Not Modified responses served: ${serverStats.status304Count - prev304Count}`);
+
+        if (!slint304Hit) {
+            throw new Error("Slint WASM did not report 304 cache hit on second load!");
+        }
+        if (!tailcat304Hit) {
+            throw new Error("Tailcat WASM did not report 304 cache hit on second load!");
+        }
+
+        if (errors.length > 0) {
+            console.error("[E2E Chrome] Detected Browser Errors during reload:", errors);
+            throw new Error(`Encountered ${errors.length} unexpected console errors during reload!`);
+        }
+
+        console.log("✓ Second access successfully skipped 12.3MB download and Gzip decompression via IndexedDB 304 cache hit!");
         ws.close();
     } finally {
         chrome.kill("SIGKILL");

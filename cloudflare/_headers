@@ -8,25 +8,25 @@
 
 /assets/*.wasm.gz
   Content-Type: application/gzip
-  Cache-Control: no-cache, no-store, must-revalidate
+  Cache-Control: no-cache
 
 /pkg/*.wasm.gz
   Content-Type: application/gzip
-  Cache-Control: no-cache, no-store, must-revalidate
+  Cache-Control: no-cache
 
 /assets/*.js
-  Cache-Control: no-cache, no-store, must-revalidate
+  Cache-Control: no-cache
 
 /pkg/*.js
-  Cache-Control: no-cache, no-store, must-revalidate
+  Cache-Control: no-cache
 
 /assets/*.wasm
   Content-Type: application/wasm
-  Cache-Control: no-cache, no-store, must-revalidate
+  Cache-Control: no-cache
 
 /pkg/*.wasm
   Content-Type: application/wasm
-  Cache-Control: no-cache, no-store, must-revalidate
+  Cache-Control: no-cache
 
 /index.html
   Cache-Control: no-cache, no-store, must-revalidate
