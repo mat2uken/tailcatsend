@@ -176,7 +176,7 @@ pub fn run_app() -> Result<(), JsValue> {
             let now = (js_sys::Date::now() / 1000.0) as u64;
 
             let invitation = InvitationV1::new(host_address, session_id, invite_secret, now, 600);
-            let base_url = web_sys::window().and_then(|w| w.location().origin().ok()).unwrap_or_else(|| "https://ponlet.mat2uken.app".to_string());
+            let base_url = "https://ponlet.mat2uken.app".to_string();
             let invite_url = invitation.to_qr_url(&base_url).unwrap_or_default();
             let session_token = invitation.to_base64url().unwrap_or_default();
 
@@ -474,7 +474,7 @@ pub fn run_app() -> Result<(), JsValue> {
                         let now = (js_sys::Date::now() / 1000.0) as u64;
 
                         let invitation = InvitationV1::new(host_address, session_id, invite_secret, now, 600);
-                        let base_url = web_sys::window().and_then(|w| w.location().origin().ok()).unwrap_or_else(|| "https://ponlet.mat2uken.app".to_string());
+                        let base_url = "https://ponlet.mat2uken.app".to_string();
                         let invite_url = invitation.to_qr_url(&base_url).unwrap_or_default();
                         let session_token = invitation.to_base64url().unwrap_or_default();
 
