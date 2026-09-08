@@ -43,6 +43,7 @@ import (
 	"unsafe"
 
 	"github.com/tailscale/tailcat"
+	_ "tailscale.com/feature/webrtc"
 	"tailscale.com/net/netmon"
 	"tailscale.com/tailcfg"
 	"tailscale.com/types/key"

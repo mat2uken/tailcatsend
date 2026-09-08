@@ -1,4 +1,4 @@
-﻿// TailSend Web Tailcat WASM Bridge
+// TailSend Web Tailcat WASM Bridge
 package main
 
 import (
@@ -9,12 +9,19 @@ import (
 	"io"
 	"log"
 	"net"
+	"sync"
 	"syscall/js"
 	"time"
 
 	"github.com/tailscale/tailcat"
+	_ "tailscale.com/feature/webrtc"
 	"tailscale.com/types/key"
 	"tailscale.com/types/logger"
+)
+
+var (
+	clientsMu     sync.Mutex
+	cachedClients = make(map[string]*tailcat.Client)
 )
 
 func main() {
@@ -151,24 +158,39 @@ func tailcatDial(this js.Value, args []js.Value) any {
 			}
 			priv = pk.Private
 		}
-		cl := &tailcat.Client{
-			Server:     tailcat.Addr(addr),
-			Key:        priv,
-			Logf:       logf,
-			DERPMapURL: derpMapURL,
+		clientsMu.Lock()
+		cl, ok := cachedClients[addr]
+		if !ok {
+			cl = &tailcat.Client{
+				Server:     tailcat.Addr(addr),
+				Key:        priv,
+				Logf:       logf,
+				DERPMapURL: derpMapURL,
+			}
+			cachedClients[addr] = cl
 		}
+		clientsMu.Unlock()
+
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
-		if err := pingUntil(ctx, cl); err != nil {
-			cl.Close()
-			return nil, err
+		if !ok {
+			if err := pingUntil(ctx, cl); err != nil {
+				clientsMu.Lock()
+				delete(cachedClients, addr)
+				clientsMu.Unlock()
+				cl.Close()
+				return nil, err
+			}
 		}
 		c, err := cl.DialTCPPort(ctx, port)
 		if err != nil {
+			clientsMu.Lock()
+			delete(cachedClients, addr)
+			clientsMu.Unlock()
 			cl.Close()
 			return nil, fmt.Errorf("DialTCPPort: %w", err)
 		}
-		return makeJSConn(c, port, func() { cl.Close() }), nil
+		return makeJSConn(c, port, nil), nil
 	})
 }
 

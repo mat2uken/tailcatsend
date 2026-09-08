@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/tailscale/tailcat"
+	_ "tailscale.com/feature/webrtc"
 	"tailscale.com/tailcfg"
 	"tailscale.com/types/key"
 	"tailscale.com/types/logger"
