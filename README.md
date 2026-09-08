@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Slint UI](https://img.shields.io/badge/UI-Slint-purple.svg)](https://slint.dev/)
-[![Web Client](https://img.shields.io/badge/Web_Client-Cloudflare_Pages-orange.svg)](https://mktailcatsend.pages.dev)
+[![Web Client](https://img.shields.io/badge/Web_Client-Cloudflare_Pages-orange.svg)](https://ponlet.mat2uken.app)
 
 > **TailSend** is a modern, secure, cross-platform peer-to-peer (P2P) file transfer application built with **Rust**, **Slint UI**, and **Tailcat** (WireGuard mesh networking).
 
@@ -34,7 +34,7 @@ Transfer files, photos, videos, and clipboard text directly between devices with
 
 Access the web client directly from any modern browser (desktop or mobile) without installation:
 
-👉 **[https://mktailcatsend.pages.dev](https://mktailcatsend.pages.dev)**
+👉 **[https://ponlet.mat2uken.app](https://ponlet.mat2uken.app)**
 
 *(Powered by WebAssembly + Cloudflare Pages static streaming decompression)*
 

@@ -40,5 +40,5 @@ finally {
 }
 
 Write-Host "`n✅ Cloudflare Pages Deployment Complete!" -ForegroundColor Green
-Write-Host "Live URL: https://mktailcatsend.pages.dev" -ForegroundColor Green
+Write-Host "Live URL: https://ponlet.mat2uken.app" -ForegroundColor Green
 Write-Host "========================================================`n" -ForegroundColor Cyan

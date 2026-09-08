@@ -117,7 +117,7 @@ fn parse_tailcat_address(input: &str) -> String {
 }
 
 fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
-    let base_url = "https://mktailcatsend.pages.dev".to_string();
+    let base_url = "https://ponlet.mat2uken.app".to_string();
     
     // Create Slint AppWindow on Main Thread
     let app = AppWindow::new()?;

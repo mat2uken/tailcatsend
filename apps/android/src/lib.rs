@@ -127,7 +127,7 @@ fn get_android_download_dir() -> PathBuf {
 }
 
 fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
-    let base_url = "https://mktailcatsend.pages.dev".to_string();
+    let base_url = "https://ponlet.mat2uken.app".to_string();
 
     let app = AppWindow::new()?;
     app.set_top_safe_area(32.0);

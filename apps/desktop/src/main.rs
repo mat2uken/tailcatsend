@@ -195,7 +195,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let base_url = if args.len() > 1 && !args[1].trim().is_empty() {
         args[1].trim().to_string()
     } else {
-        std::env::var("TAILSEND_WEB_URL").unwrap_or_else(|_| "https://mktailcatsend.pages.dev".to_string())
+        std::env::var("TAILSEND_WEB_URL").unwrap_or_else(|_| "https://ponlet.mat2uken.app".to_string())
     };
 
     let app = AppWindow::new()?;
