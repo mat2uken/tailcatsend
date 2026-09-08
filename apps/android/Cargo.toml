@@ -10,9 +10,9 @@ crate-type = ["cdylib"]
 package = "jp.yasagure.ponlet"
 apk_name = "Ponlet"
 label = "Ponlet"
-sdk_version = 34
+sdk_version = 36
 min_sdk_version = 31
-target_sdk_version = 34
+target_sdk_version = 36
 
 [package.metadata.android.signing.release]
 path = "release.keystore"

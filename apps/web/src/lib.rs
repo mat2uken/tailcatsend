@@ -556,6 +556,13 @@ pub fn run_app() -> Result<(), JsValue> {
         trigger_paste_and_send();
     });
 
+    // Open External Links (Privacy Policy / OSS Licenses) in a new browser tab
+    app.on_open_url(move |url| {
+        if let Some(window) = web_sys::window() {
+            let _ = window.open_with_url(&url);
+        }
+    });
+
     // Cancel Transfer Callback
     let app_weak_cancel = app.as_weak();
     app.on_cancel_transfer(move || {

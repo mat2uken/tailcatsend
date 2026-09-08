@@ -2,18 +2,14 @@
   "name": "tailsend-poc",
   "main": "src/index.js",
   "compatibility_date": "2026-09-02",
-  "durable_objects": {
-    "bindings": [
-      {
-        "name": "RELAY_ROOM",
-        "class_name": "RelayRoom"
-      }
-    ]
-  },
   "migrations": [
     {
       "tag": "v1",
       "new_sqlite_classes": ["RelayRoom"]
+    },
+    {
+      "tag": "v2",
+      "deleted_sqlite_classes": ["RelayRoom"]
     }
   ],
   "assets": {

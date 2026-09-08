@@ -1040,6 +1040,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    // Open External Links (Privacy Policy / OSS Licenses) in the default browser
+    app.on_open_url(move |url| {
+        #[cfg(target_os = "windows")]
+        let _ = std::process::Command::new("cmd")
+            .args(["/C", "start", "", url.as_str()])
+            .spawn();
+        #[cfg(target_os = "macos")]
+        let _ = std::process::Command::new("open").arg(url.as_str()).spawn();
+        #[cfg(target_os = "linux")]
+        let _ = std::process::Command::new("xdg-open").arg(url.as_str()).spawn();
+    });
+
     // Active Countdown Timer for QR Expiration
     let _countdown_timer = slint::Timer::default();
     let app_weak_countdown = app_weak.clone();
