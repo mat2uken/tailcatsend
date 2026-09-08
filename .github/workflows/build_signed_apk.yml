@@ -1,0 +1,145 @@
+name: Build Signed Release APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: 'App Version Name (leave empty to use 1.0.0)'
+        required: false
+        default: ''
+      version_code:
+        description: 'App Version Code (leave empty for automatic date-based code)'
+        required: false
+        default: ''
+
+jobs:
+  build-signed-apk:
+    name: Build Signed Release APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: tailcat/go.sum
+
+      - name: Setup Android SDK Platforms
+        run: |
+          yes | "$ANDROID_HOME"/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          "$ANDROID_HOME"/cmdline-tools/latest/bin/sdkmanager "platforms;android-36" "build-tools;36.0.0" || true
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: release-native
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Decode Release Keystore
+        run: |
+          mkdir -p /tmp/keystore
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > /tmp/keystore/release.keystore
+          ls -la /tmp/keystore/release.keystore
+
+      - name: Build Go Tailcat Android Shared Library
+        run: |
+          export CC=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android33-clang
+          export CXX=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android33-clang++
+          mkdir -p target target/aarch64-linux-android/release-native
+          (cd tailcat/bridge/native && CGO_ENABLED=1 GOOS=android GOARCH=arm64 go build -ldflags="-checklinkname=0" -buildmode=c-shared -o ../../../target/libtailcat_android.so bridge.go)
+          cp target/libtailcat_android.so target/aarch64-linux-android/release-native/libtailcat_android.so
+
+      - name: Build Rust Android Native Library
+        env:
+          NDK_HOME: ${{ env.ANDROID_NDK_ROOT }}
+        run: |
+          export CLANG_BIN=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$CLANG_BIN/aarch64-linux-android31-clang
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_AR=$CLANG_BIN/llvm-ar
+          export CC_aarch64_linux_android=$CLANG_BIN/aarch64-linux-android31-clang
+          export CXX_aarch64_linux_android=$CLANG_BIN/aarch64-linux-android31-clang++
+          cargo build -p tailsend-android --target aarch64-linux-android --lib --profile release-native
+
+      - name: Prepare JNI Libraries for Gradle
+        run: |
+          JNI_DIR=apps/android/app/src/main/jniLibs/arm64-v8a
+          mkdir -p "$JNI_DIR"
+          cp target/aarch64-linux-android/release-native/libtailsend_android.so "$JNI_DIR/"
+          cp target/aarch64-linux-android/release-native/libtailcat_android.so "$JNI_DIR/"
+          ls -lh "$JNI_DIR"
+
+      - name: Configure Version Codes
+        run: |
+          VERSION_NAME="${{ github.event.inputs.version_name }}"
+          if [ -z "$VERSION_NAME" ]; then
+            VERSION_NAME="1.0.0"
+          fi
+
+          VERSION_CODE="${{ github.event.inputs.version_code }}"
+          if [ -z "$VERSION_CODE" ]; then
+            TODAY_YMD=$(TZ='Asia/Tokyo' date +'%Y%m%d')
+            NN=$(printf "%02d" "$(( GITHUB_RUN_NUMBER % 100 ))")
+            VERSION_CODE="${TODAY_YMD}${NN}"
+          fi
+
+          {
+            echo "VERSION_NAME=$VERSION_NAME"
+            echo "VERSION_CODE=$VERSION_CODE"
+          } >> "$GITHUB_ENV"
+
+          echo "Building Ponlet version: $VERSION_NAME (VersionCode: $VERSION_CODE)"
+
+      - name: Build Signed Release APK with Gradle
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          gradle -p apps/android :app:assembleRelease \
+            -PKEYSTORE_FILE=/tmp/keystore/release.keystore \
+            -PKEYSTORE_PASSWORD="$KEYSTORE_PASSWORD" \
+            -PKEY_ALIAS="$KEY_ALIAS" \
+            -PKEY_PASSWORD="$KEY_PASSWORD" \
+            -PVERSION_NAME="$VERSION_NAME" \
+            -PVERSION_CODE="$VERSION_CODE" \
+            --no-daemon --stacktrace
+
+          ls -lh apps/android/app/build/outputs/apk/release/
+
+      - name: Upload Signed APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ponlet-Android-Release-APK
+          path: apps/android/app/build/outputs/apk/release/*.apk
+          retention-days: 7
+
+      - name: Cleanup Keystore
+        if: always()
+        run: |
+          rm -rf /tmp/keystore
