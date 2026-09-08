@@ -32,6 +32,7 @@ struct DaemonEvent {
     path: Option<String>,
     error: Option<String>,
     is_derp: Option<bool>,
+    transport_type: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -407,6 +408,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 app.set_peer_name(I18n::connected_peer(is_ja).into());
                                 app.set_status_text(I18n::stream_active(is_ja).into());
                                 app.set_is_derp_relay(is_derp);
+                                app.set_transport_type(ev.transport_type.unwrap_or(if is_derp { 2 } else { 0 }));
                             }
                         });
                     }
@@ -437,12 +439,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                             let w = app_weak_daemon.clone();
                             let t = text.clone();
+                            let t_type = ev.transport_type.unwrap_or(if is_derp { 2 } else { 0 });
                             let _ = slint::invoke_from_event_loop(move || {
                                 if let Some(app) = w.upgrade() {
                                     let is_ja = app.get_current_language() == "ja";
                                     app.set_screen_index(3);
                                     app.set_peer_name(I18n::connected_peer(is_ja).into());
                                     app.set_is_derp_relay(is_derp);
+                                    app.set_transport_type(t_type);
                                     if is_handshake {
                                         app.set_status_text(I18n::direct_connected(is_ja).into());
                                     } else {
@@ -484,6 +488,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 app.set_transfer_status(I18n::file_recv_status(is_ja).into());
                                 app.set_status_text(I18n::file_recv_start(is_ja, &fname).into());
                                 app.set_is_derp_relay(is_derp);
+                                app.set_transport_type(ev.transport_type.unwrap_or(if is_derp { 2 } else { 0 }));
                             }
                         });
                     }
@@ -746,6 +751,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 app.set_peer_name(I18n::connected_peer(is_ja).into());
                 app.set_status_text(I18n::direct_connected(is_ja).into());
                 app.set_is_derp_relay(is_derp);
+                app.set_transport_type(if is_derp { 2 } else { 0 });
             }
             // Send test handshake ping over Tailcat
             let _ = ipc_tx_join.send(DaemonCommand {
@@ -781,6 +787,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         app.set_peer_name(I18n::connected_peer(is_ja).into());
                         app.set_status_text(I18n::direct_connected(is_ja).into());
                         app.set_is_derp_relay(is_derp);
+                        app.set_transport_type(if is_derp { 2 } else { 0 });
 
                         let _ = ipc_tx_paste_join.send(DaemonCommand {
                             action: "send_text".to_string(),

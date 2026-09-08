@@ -32,7 +32,8 @@
             width: 100vw !important;
             height: 100vh !important;
             display: block;
-            touch-action: manipulation;
+            touch-action: none !important;
+            -webkit-touch-callout: none;
             z-index: 1;
         }
         #loader {
@@ -241,7 +242,7 @@
     </div>
 
     <canvas id="canvas"></canvas>
-    <input type="file" id="global-file-picker" style="position:fixed;top:-1000px;left:-1000px;opacity:0;pointer-events:none;" />
+    <input type="file" id="global-file-picker" style="position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;pointer-events:auto;clip:rect(0,0,0,0);" />
 
     <script type="module">
         const statusEl = document.getElementById("status");
@@ -268,6 +269,7 @@
 
         function hideLoader() {
             if (loaderEl) {
+                loaderEl.style.pointerEvents = "none";
                 loaderEl.style.opacity = "0";
                 setTimeout(() => {
                     if (loaderEl && loaderEl.parentNode) {
@@ -379,6 +381,25 @@
             return getTargetAddress();
         }
 
+        // Transport Type Poller (0: Direct WireGuard, 1: WebRTC DataChannel, 2: DERP Relay)
+        let transportPoller = null;
+        function startTransportPoller(targetAddr) {
+            if (transportPoller) clearInterval(transportPoller);
+            const checkTransport = async () => {
+                if (!window.tailcatGetTransport) return;
+                try {
+                    const addr = targetAddr || getTargetAddress();
+                    if (!addr) return;
+                    const tType = await window.tailcatGetTransport(addr);
+                    if (window.setSlintTransportType) {
+                        window.setSlintTransportType(tType);
+                    }
+                } catch (_) {}
+            };
+            transportPoller = setInterval(checkTransport, 2000);
+            setTimeout(checkTransport, 300);
+        }
+
         // Send Initial Direct P2P Handshake to Host (including own address for two-way communication)
         async function sendInitialP2PHandshake(hostAddrOverride, ownAddrOverride) {
             const addr = hostAddrOverride || getTargetAddress();
@@ -413,6 +434,7 @@
                 if (window.updateSlintStatusText) {
                     window.updateSlintStatusText("直接暗号化P2Pで接続しました！");
                 }
+                startTransportPoller(addr);
             } catch (err) {
                 console.warn("[Ponlet Web] Handshake notice:", err);
                 if (window.updateSlintStatusText) {
@@ -544,6 +566,7 @@
                 if (window.updateSlintStatusText) {
                     window.updateSlintStatusText("直接暗号化P2Pで接続しました！");
                 }
+                startTransportPoller(window.targetPeerAddress);
             } else if (text.trim().length > 0) {
                 if (window.onPeerConnectedSlint) {
                     window.onPeerConnectedSlint("接続された相手端末");

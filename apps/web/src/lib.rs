@@ -149,6 +149,7 @@ pub fn run_app() -> Result<(), JsValue> {
                 app.set_can_disconnect(true);
                 app.set_can_send(true);
                 app.set_is_derp_relay(true);
+                app.set_transport_type(2);
             }
             Err(e) => {
                 let is_ja = app.get_current_language() == "ja";
@@ -212,6 +213,7 @@ pub fn run_app() -> Result<(), JsValue> {
             app.set_can_disconnect(true);
             app.set_can_send(true);
             app.set_is_derp_relay(true);
+            app.set_transport_type(2);
         }
     }) as Box<dyn FnMut(String)>);
     let _ = js_sys::Reflect::set(&window, &JsValue::from_str("onPeerConnectedSlint"), on_peer_connected.as_ref().unchecked_ref());
@@ -221,10 +223,21 @@ pub fn run_app() -> Result<(), JsValue> {
     let set_derp_relay = Closure::wrap(Box::new(move |is_derp: bool| {
         if let Some(app) = app_weak_derp.upgrade() {
             app.set_is_derp_relay(is_derp);
+            app.set_transport_type(if is_derp { 2 } else { 1 });
         }
     }) as Box<dyn FnMut(bool)>);
     let _ = js_sys::Reflect::set(&window, &JsValue::from_str("setSlintDerpRelay"), set_derp_relay.as_ref().unchecked_ref());
     set_derp_relay.forget();
+
+    let app_weak_transport = app.as_weak();
+    let set_transport_type = Closure::wrap(Box::new(move |t_type: i32| {
+        if let Some(app) = app_weak_transport.upgrade() {
+            app.set_transport_type(t_type);
+            app.set_is_derp_relay(t_type == 2);
+        }
+    }) as Box<dyn FnMut(i32)>);
+    let _ = js_sys::Reflect::set(&window, &JsValue::from_str("setSlintTransportType"), set_transport_type.as_ref().unchecked_ref());
+    set_transport_type.forget();
 
     // Set up JS bridge callbacks for UI updates from incoming streams
     let app_weak_msg = app.as_weak();
@@ -593,12 +606,6 @@ pub fn run_app() -> Result<(), JsValue> {
                 }
             }
         }
-    });
-
-    // 30fps Continuous Repaint Pump Timer for WebAssembly Canvas
-    let _repaint_timer = slint::Timer::default();
-    _repaint_timer.start(slint::TimerMode::Repeated, std::time::Duration::from_millis(33), move || {
-        // Keeps WebAssembly canvas repainting smoothly during active stream transfers
     });
 
     app.run().map_err(|e| JsValue::from_str(&e.to_string()))?;

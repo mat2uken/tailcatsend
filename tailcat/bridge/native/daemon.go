@@ -24,18 +24,20 @@ import (
 )
 
 type DaemonMessage struct {
-	Event    string  `json:"event"`
-	Address  string  `json:"address,omitempty"`
-	Port     uint16  `json:"port,omitempty"`
-	Handle   uint64  `json:"handle,omitempty"`
-	Text     string  `json:"text,omitempty"`
-	Filename string  `json:"filename,omitempty"`
-	Size     int64   `json:"size,omitempty"`
-	Bytes    int64   `json:"bytes,omitempty"`
-	Progress float64 `json:"progress,omitempty"`
-	Speed    string  `json:"speed,omitempty"`
-	Path     string  `json:"path,omitempty"`
-	Error    string  `json:"error,omitempty"`
+	Event         string  `json:"event"`
+	Address       string  `json:"address,omitempty"`
+	Port          uint16  `json:"port,omitempty"`
+	Handle        uint64  `json:"handle,omitempty"`
+	Text          string  `json:"text,omitempty"`
+	Filename      string  `json:"filename,omitempty"`
+	Size          int64   `json:"size,omitempty"`
+	Bytes         int64   `json:"bytes,omitempty"`
+	Progress      float64 `json:"progress,omitempty"`
+	Speed         string  `json:"speed,omitempty"`
+	Path          string  `json:"path,omitempty"`
+	Error         string  `json:"error,omitempty"`
+	TransportType int     `json:"transport_type,omitempty"`
+	IsDERP        *bool   `json:"is_derp,omitempty"`
 }
 
 type CommandMessage struct {
@@ -132,10 +134,13 @@ func main() {
 			d.streams[handle] = c
 			d.mu.Unlock()
 
+			tType, isDerp := d.getTransportType("")
 			d.broadcast(DaemonMessage{
-				Event:  "incoming_stream",
-				Port:   port,
-				Handle: handle,
+				Event:         "incoming_stream",
+				Port:          port,
+				Handle:        handle,
+				TransportType: tType,
+				IsDERP:        &isDerp,
 			})
 
 			// Handle Port 101 (Text message) and Port 102 (File transfer)
@@ -153,11 +158,14 @@ func main() {
 						line, err := reader.ReadString('\n')
 						msgText := strings.TrimSpace(line)
 						if msgText != "" {
+							curTType, curIsDerp := d.getTransportType("")
 							d.broadcast(DaemonMessage{
-								Event:  "incoming_text",
-								Port:   101,
-								Handle: h,
-								Text:   msgText,
+								Event:         "incoming_text",
+								Port:          101,
+								Handle:        h,
+								Text:          msgText,
+								TransportType: curTType,
+								IsDERP:        &curIsDerp,
 							})
 						}
 						if err != nil {
@@ -581,4 +589,49 @@ func (d *Daemon) handleDial(ipcConn net.Conn, cmd CommandMessage) {
 		Handle: handle,
 	})
 	ipcConn.Write(append(res, '\n'))
+}
+
+func (d *Daemon) getTransportType(addr string) (int, bool) {
+	// 0: Direct P2P (WireGuard UDP), 1: WebRTC P2P (DataChannel), 2: DERP Relay
+	d.mu.Lock()
+	var cl *tailcat.Client
+	if addr != "" {
+		cl = d.clients[addr]
+	} else {
+		for _, c := range d.clients {
+			cl = c
+			break
+		}
+	}
+	srv := d.server
+	d.mu.Unlock()
+
+	if cl != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		res, err := cl.DiscoPing(ctx)
+		if err == nil && res != nil && res.Endpoint != "" {
+			if strings.Contains(res.Endpoint, "127.3.3.") || strings.Contains(res.Endpoint, "webrtc") {
+				return 1, false // WebRTC DataChannel
+			}
+			return 0, false // Direct WireGuard
+		}
+		return 2, true // DERP Relay
+	}
+
+	if srv != nil {
+		st := srv.Status()
+		if st != nil {
+			for _, ps := range st.Peer {
+				if ps != nil && ps.CurAddr != "" {
+					if strings.Contains(ps.CurAddr, "127.3.3.") || strings.Contains(ps.CurAddr, "webrtc") {
+						return 1, false // WebRTC DataChannel
+					}
+					return 0, false // Direct WireGuard
+				}
+			}
+		}
+		return 2, true
+	}
+	return 2, true
 }

@@ -246,6 +246,8 @@ component PeerHeaderCard inherits ModernCard {
     in property <string> peer-name: "Peer";
     in property <bool> is-ja: true;
     in property <bool> is-derp: false;
+    // 0: Direct P2P (WireGuard UDP), 1: WebRTC P2P (DataChannel), 2: DERP Relay
+    in property <int> transport-type: root.is-derp ? 2 : 0;
 
     border-radius-custom: 12px;
     card-border: #1e3a8a;
@@ -295,16 +297,22 @@ component PeerHeaderCard inherits ModernCard {
                         width: 6px;
                         height: 6px;
                         border-radius: 3px;
-                        background: root.is-derp ? #38bdf8 : Theme.success;
+                        background: root.transport-type == 0
+                            ? Theme.success
+                            : (root.transport-type == 1 ? Theme.accent-cyan : #f59e0b);
                         y: (parent.height - self.height) / 2;
                     }
                     Text {
-                        text: root.is-derp
-                            ? (root.is-ja ? "P2P接続中 (DERPリレー)" : "P2P Connected (DERP Relay)")
-                            : (root.is-ja ? "P2P接続中 (直接通信)" : "P2P Connected (Direct)");
+                        text: root.transport-type == 0
+                            ? (root.is-ja ? "P2P接続中 (Direct WireGuard)" : "P2P Connected (Direct WireGuard)")
+                            : (root.transport-type == 1
+                                ? (root.is-ja ? "P2P接続中 (WebRTC DataChannel)" : "P2P Connected (WebRTC DataChannel)")
+                                : (root.is-ja ? "P2P接続中 (DERPリレー)" : "P2P Connected (DERP Relay)"));
                         font-size: 10px;
                         font-weight: 600;
-                        color: root.is-derp ? #38bdf8 : Theme.success;
+                        color: root.transport-type == 0
+                            ? Theme.success
+                            : (root.transport-type == 1 ? Theme.accent-cyan : #f59e0b);
                         vertical-alignment: center;
                     }
                 }
@@ -312,8 +320,14 @@ component PeerHeaderCard inherits ModernCard {
         }
 
         StatusBadge {
-            text: root.is-derp ? (root.is-ja ? "DERPリレー" : "DERP Relay") : "P2P";
-            dot-color: root.is-derp ? #f59e0b : Theme.accent-cyan;
+            text: root.transport-type == 0
+                ? (root.is-ja ? "Direct P2P" : "Direct P2P")
+                : (root.transport-type == 1
+                    ? (root.is-ja ? "WebRTC P2P" : "WebRTC P2P")
+                    : (root.is-ja ? "DERPリレー" : "DERP Relay"));
+            dot-color: root.transport-type == 0
+                ? Theme.success
+                : (root.transport-type == 1 ? Theme.accent-cyan : #f59e0b);
         }
     }
 }
@@ -739,6 +753,8 @@ export component AppWindow inherits Window {
     in-out property <bool> can_disconnect: false;
     in-out property <bool> can_send: true;
     in-out property <bool> is_derp_relay: false;
+    // 0: Direct P2P (WireGuard UDP), 1: WebRTC P2P (DataChannel), 2: DERP Relay
+    in-out property <int> transport_type: root.is_derp_relay ? 2 : 0;
 
     in-out property <image> qr_code_image;
     in-out property <bool> has_qr_image: false;
@@ -1330,6 +1346,7 @@ export component AppWindow inherits Window {
                                 peer-name: root.peer_name;
                                 is-ja: root.is_ja;
                                 is-derp: root.is_derp_relay;
+                                transport-type: root.transport_type;
                             }
 
                             // ------------------------------------------------

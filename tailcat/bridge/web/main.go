@@ -22,6 +22,7 @@ import (
 var (
 	clientsMu     sync.Mutex
 	cachedClients = make(map[string]*tailcat.Client)
+	currentServer *tailcat.Server
 )
 
 func main() {
@@ -29,11 +30,13 @@ func main() {
 		"bridgeVersion": "1.0.0-tailcat-7a50a1a",
 		"listen":        js.FuncOf(tailcatListen),
 		"dial":          js.FuncOf(tailcatDial),
+		"getTransport":  js.FuncOf(tailcatGetTransport),
 	})
 
 	js.Global().Set("tailSendTailcat", bridge)
 	js.Global().Set("tailcatListen", js.FuncOf(tailcatListen))
 	js.Global().Set("tailcatDial", js.FuncOf(tailcatDial))
+	js.Global().Set("tailcatGetTransport", js.FuncOf(tailcatGetTransport))
 
 	if f := js.Global().Get("onTailcatReady"); f.Type() == js.TypeFunction {
 		f.Invoke()
@@ -108,11 +111,20 @@ func tailcatListen(this js.Value, args []js.Value) any {
 			srv.Close()
 			return nil, fmt.Errorf("Server.Start: %w", err)
 		}
+		clientsMu.Lock()
+		currentServer = srv
+		clientsMu.Unlock()
+
 		return map[string]any{
 			"addr":           string(addr),
 			"address":        string(addr),
 			"privateKeyJSON": string(keyOut),
 			"close": js.FuncOf(func(this js.Value, args []js.Value) any {
+				clientsMu.Lock()
+				if currentServer == srv {
+					currentServer = nil
+				}
+				clientsMu.Unlock()
 				srv.Close()
 				return nil
 			}),
@@ -205,6 +217,11 @@ func pingUntil(ctx context.Context, cl *tailcat.Client) error {
 		if ctx.Err() != nil {
 			return fmt.Errorf("ping: %w", err)
 		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("ping: %w", ctx.Err())
+		case <-time.After(200 * time.Millisecond):
+		}
 	}
 }
 
@@ -292,4 +309,43 @@ func makePromise(f func() (any, error)) js.Value {
 
 func rejectedPromise(err error) js.Value {
 	return js.Global().Get("Promise").Call("reject", js.Global().Get("Error").New(err.Error()))
+}
+
+func tailcatGetTransport(this js.Value, args []js.Value) any {
+	addr := ""
+	if len(args) > 0 && args[0].Type() == js.TypeString {
+		addr = args[0].String()
+	}
+
+	return makePromise(func() (any, error) {
+		// Return 1 for WebRTC P2P (DataChannel), 2 for DERP Relay
+		clientsMu.Lock()
+		cl, hasClient := cachedClients[addr]
+		srv := currentServer
+		clientsMu.Unlock()
+
+		if hasClient && cl != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			res, err := cl.DiscoPing(ctx)
+			if err == nil && res != nil && res.Endpoint != "" {
+				return 1, nil // WebRTC P2P (DataChannel)
+			}
+			return 2, nil // DERP Relay
+		}
+
+		if srv != nil {
+			st := srv.Status()
+			if st != nil {
+				for _, ps := range st.Peer {
+					if ps != nil && ps.CurAddr != "" {
+						return 1, nil // WebRTC P2P (DataChannel)
+					}
+				}
+			}
+			return 2, nil
+		}
+
+		return 2, nil
+	})
 }
