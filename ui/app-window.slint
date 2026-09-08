@@ -790,6 +790,10 @@ export component AppWindow inherits Window {
     in-out property <bool> copy_feedback_active: false;
     in-out property <bool> text_copied_feedback: false;
 
+    // Telemetry opt-out (persisted by the platform backend)
+    in-out property <bool> telemetry_enabled: true;
+    callback telemetry_toggled(bool);
+
     // Callbacks
     callback copy_invite();
     callback regenerate_invite();
@@ -1457,8 +1461,57 @@ export component AppWindow inherits Window {
                 // ============================================================
                 VerticalLayout {
                     alignment: center;
-                    height: 26px;
+                    height: 41px;
                     spacing: 1px;
+
+                    // Telemetry opt-out toggle
+                    HorizontalLayout {
+                        alignment: center;
+                        height: 14px;
+                        spacing: 5px;
+
+                        telemetry_touch := TouchArea {
+                            mouse-cursor: pointer;
+                            accessible-role: checkbox;
+                            accessible-checked: root.telemetry_enabled;
+                            accessible-label: root.is_ja ? "利用状況データを送信" : "Send usage data";
+                            clicked => {
+                                root.telemetry_enabled = !root.telemetry_enabled;
+                                root.telemetry_toggled(root.telemetry_enabled);
+                            }
+
+                            HorizontalLayout {
+                                spacing: 5px;
+                                alignment: start;
+
+                                Rectangle {
+                                    width: 11px;
+                                    height: 11px;
+                                    border-radius: 3px;
+                                    border-width: 1px;
+                                    border-color: root.telemetry_enabled ? Theme.accent-cyan : Theme.text-muted;
+                                    background: root.telemetry_enabled ? Theme.accent-cyan : transparent;
+                                    animate background { duration: 120ms; }
+
+                                    if root.telemetry_enabled : Text {
+                                        text: "✓";
+                                        font-size: 9px;
+                                        color: Theme.bg-main;
+                                        horizontal-alignment: center;
+                                        vertical-alignment: center;
+                                    }
+                                }
+
+                                Text {
+                                    text: root.is_ja ? "利用状況データを送信" : "Send usage data";
+                                    font-size: 10px;
+                                    color: telemetry_touch.has-hover ? Theme.text-secondary : Theme.text-muted;
+                                    vertical-alignment: center;
+                                    animate color { duration: 120ms; }
+                                }
+                            }
+                        }
+                    }
 
                     Text {
                         text: "Powered by Tailcat (BSD-3) & Slint UI · © 2026 Ponlet";

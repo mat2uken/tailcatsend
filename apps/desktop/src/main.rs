@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use arboard::Clipboard;
 use log::{info, warn};
@@ -14,6 +14,8 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 use tokio::process::Command;
 use tokio::sync::mpsc;
+
+mod telemetry;
 
 slint::include_modules!();
 
@@ -191,6 +193,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting Ponlet Desktop Native Application (Pure Tailcat P2P)...");
     println!("\n🚀 Ponlet Desktop Native App is starting (Pure Tailcat WireGuard/DERP Mesh)...");
 
+    let started_at = Instant::now();
+
     let args: Vec<String> = std::env::args().collect();
     let base_url = if args.len() > 1 && !args[1].trim().is_empty() {
         args[1].trim().to_string()
@@ -207,6 +211,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     app.set_current_language(initial_lang.into());
     info!("Detected system language: {} (Auto-initialized)", initial_lang);
 
+    // Telemetry: install the platform backend (no-op unless GA4 env vars are
+    // set) and restore the persisted opt-out state.
+    let telemetry_initial = telemetry::init(&initial_lang);
+    tailsend_telemetry::events::app_start("desktop", std::env::consts::OS, env!("CARGO_PKG_VERSION"), initial_lang);
+    tailsend_telemetry::set_user_property("platform", "desktop");
+    tailsend_telemetry::set_user_property("app_version", env!("CARGO_PKG_VERSION"));
+    tailsend_telemetry::set_user_property("os_version", std::env::consts::OS);
+    tailsend_telemetry::set_user_property("language", initial_lang);
+
     // Show window immediately so user sees UI instantly
     app.set_screen_index(0);
     app.set_status_text(I18n::boot_status(is_ja_init).into());
@@ -219,6 +232,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Store host address for invite regeneration
     let host_addr_shared = Arc::new(Mutex::new(String::new()));
     let host_addr_shared_init = host_addr_shared.clone();
+
+    // Transfer start timestamp for duration telemetry
+    let transfer_started_at: Arc<Mutex<Option<Instant>>> = Arc::new(Mutex::new(None));
+    let transfer_started_at_daemon = transfer_started_at.clone();
 
     // IPC channel to communicate with Tailcat daemon
     let (ipc_tx, mut ipc_rx) = mpsc::unbounded_channel::<DaemonCommand>();
@@ -276,6 +293,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         if let Ok(ev) = serde_json::from_str::<DaemonEvent>(&line) {
                             if ev.event == "ready" {
                                 if let Some(addr) = ev.address {
+                                    let transport = if addr.contains("derp") { "relay" } else { "direct" };
+                                    tailsend_telemetry::events::session_created(transport);
                                     real_host_address = addr;
                                     break;
                                 }
@@ -401,6 +420,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 *guard = Some(addr.clone());
                             }
                         }
+                        tailsend_telemetry::events::peer_connected(if is_derp { "relay" } else { "direct" });
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(app) = w.upgrade() {
                                 let is_ja = app.get_current_language() == "ja";
@@ -437,6 +457,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 is_handshake = true;
                             }
 
+                            if !is_handshake {
+                                tailsend_telemetry::events::text_message_received(
+                                    tailsend_telemetry::length_bucket(text.chars().count()),
+                                );
+                            }
+
                             let w = app_weak_daemon.clone();
                             let t = text.clone();
                             let t_type = ev.transport_type.unwrap_or(if is_derp { 2 } else { 0 });
@@ -466,6 +492,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let is_derp = ev.is_derp.unwrap_or_else(|| {
                             ev.address.as_ref().map(|a| a.contains("derp")).unwrap_or(false)
                         });
+                        tailsend_telemetry::events::transfer_started(
+                            1,
+                            if is_derp { "relay" } else { "direct" },
+                            "receive",
+                        );
+                        if let Ok(mut guard) = transfer_started_at_daemon.lock() {
+                            *guard = Some(Instant::now());
+                        }
                         let w = app_weak_daemon.clone();
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(app) = w.upgrade() {
@@ -525,6 +559,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "incoming_file" => {
                         let fname = ev.filename.unwrap_or_else(|| "file.bin".to_string());
                         let fsize = ev.size.unwrap_or(0) as f64 / 1048576.0;
+                        let total_bytes = ev.size.unwrap_or(0).max(0) as u64;
                         let fpath = ev.path.unwrap_or_default();
                         let saved_path = if !fpath.is_empty() {
                             fpath
@@ -532,6 +567,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             get_download_dir().join(&fname).to_string_lossy().to_string()
                         };
                         println!("📁 [P2P Direct File Received]: {} ({:.1} MB) -> {}", fname, fsize, saved_path);
+
+                        let is_derp = ev.is_derp.unwrap_or_else(|| {
+                            ev.address.as_ref().map(|a| a.contains("derp")).unwrap_or(false)
+                        });
+                        let duration_ms = transfer_started_at_daemon
+                            .lock()
+                            .ok()
+                            .and_then(|guard| *guard)
+                            .map(|t| t.elapsed().as_millis())
+                            .unwrap_or(0);
+                        tailsend_telemetry::events::transfer_completed(
+                            1,
+                            total_bytes,
+                            duration_ms,
+                            if is_derp { "relay" } else { "direct" },
+                            "receive",
+                        );
 
                         let w = app_weak_daemon.clone();
                         let saved_path_clone = saved_path.clone();
@@ -564,6 +616,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "send_file_success" => {
                         let fname = ev.filename.unwrap_or_else(|| "file.bin".to_string());
                         let total_mb = ev.size.unwrap_or(0) as f64 / 1048576.0;
+                        let total_bytes = ev.size.unwrap_or(0).max(0) as u64;
+                        let is_derp = ev.transport_type.unwrap_or(0) == 2;
+                        let duration_ms = transfer_started_at_daemon
+                            .lock()
+                            .ok()
+                            .and_then(|guard| *guard)
+                            .map(|t| t.elapsed().as_millis())
+                            .unwrap_or(0);
+                        tailsend_telemetry::events::transfer_completed(
+                            1,
+                            total_bytes,
+                            duration_ms,
+                            if is_derp { "relay" } else { "direct" },
+                            "send",
+                        );
                         let w = app_weak_daemon.clone();
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(app) = w.upgrade() {
@@ -592,6 +659,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     "error" => {
                         let err_msg = ev.error.unwrap_or_else(|| "Unknown error".to_string());
                         warn!("Tailcat daemon error event: {}", err_msg);
+                        tailsend_telemetry::events::error("transport");
                         let w = app_weak_daemon.clone();
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(app) = w.upgrade() {
@@ -605,6 +673,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
+        }
+    });
+
+    // Telemetry opt-out toggle (Slint flips the property before invoking)
+    app.set_telemetry_enabled(telemetry_initial);
+    let app_weak_telemetry = app_weak.clone();
+    app.on_telemetry_toggled(move |enabled| {
+        tailsend_telemetry::set_enabled(enabled);
+        if let Some(app) = app_weak_telemetry.upgrade() {
+            app.set_telemetry_enabled(enabled);
         }
     });
 
@@ -856,6 +934,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         filename: None,
                         path: None,
                     });
+                    tailsend_telemetry::events::text_message_sent(
+                        tailsend_telemetry::length_bucket(trimmed.chars().count()),
+                    );
                 }
             }
         }
@@ -891,6 +972,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_weak_pick = app_weak.clone();
     let ipc_tx_file = ipc_tx_clone.clone();
     let target_addr_file = target_peer_addr.clone();
+    let transfer_started_at_send = transfer_started_at.clone();
     app.on_pick_files(move || {
         if let Some(path) = rfd::FileDialog::new().pick_file() {
             let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
@@ -927,6 +1009,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             filename: Some(file_name),
                             path: Some(path_str),
                         });
+                        tailsend_telemetry::events::transfer_started(
+                            1,
+                            if target.contains("derp") { "relay" } else { "direct" },
+                            "send",
+                        );
+                        if let Ok(mut guard) = transfer_started_at_send.lock() {
+                            *guard = Some(Instant::now());
+                        }
                     }
                 }
             }
@@ -1071,6 +1161,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     app.show()?;
     slint::run_event_loop()?;
+
+    // Best-effort session end event (not sent on SIGKILL)
+    tailsend_telemetry::events::app_end(started_at.elapsed().as_millis());
     Ok(())
 }
 

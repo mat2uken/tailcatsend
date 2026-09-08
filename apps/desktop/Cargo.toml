@@ -15,6 +15,8 @@ tailsend-platform-api = { workspace = true }
 tailsend-transfer = { workspace = true, features = ["tokio-runtime"] }
 tailsend-ui-controller = { workspace = true }
 tailsend-qr = { workspace = true }
+tailsend-telemetry = { workspace = true }
+ureq = { workspace = true }
 slint = { workspace = true, features = ["backend-winit", "renderer-femtovg", "compat-1-2"] }
 tokio = { workspace = true }
 env_logger = { workspace = true }
