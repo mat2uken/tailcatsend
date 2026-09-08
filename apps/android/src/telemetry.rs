@@ -9,7 +9,6 @@
 use std::sync::OnceLock;
 
 use jni::objects::{Global, JClass, JObject, JString, JValue, JValueOwned};
-use jni::refs::LoaderContext;
 use jni::{jni_sig, jni_str, Env, JavaVM};
 use tailsend_telemetry::TelemetryBackend;
 
@@ -27,12 +26,38 @@ fn find_bridge_class<'local>(
     if let Some(class) = BRIDGE_CLASS.get() {
         return Ok(class);
     }
-    let context = match loader_obj {
-        Some(obj) => LoaderContext::FromObject(obj),
-        None => LoaderContext::None,
+    let class: JClass<'local> = match loader_obj {
+        Some(obj) => {
+            // Context.getClassLoader() returns the APK's PathClassLoader.
+            // Class.getClassLoader() on the NativeActivity object would give
+            // the framework's BootClassLoader, which cannot see APK classes.
+            use jni::refs::Reference as _;
+            let loader_obj = env
+                .call_method(
+                    obj,
+                    jni_str!("getClassLoader"),
+                    jni_sig!("()Ljava/lang/ClassLoader;"),
+                    &[],
+                )?
+                .l()?;
+            let loader = unsafe { jni::objects::JClassLoader::from_raw(env, loader_obj.as_raw()) };
+            let name = env.new_string("jp.yasagure.ponlet.TelemetryBridge")?;
+            match JClass::for_name_with_loader(env, name, true, &loader) {
+                Ok(class) => class,
+                Err(_) => {
+                    // Surface the Java-side exception (ClassNotFoundException,
+                    // NoClassDefFoundError, LinkageError, ...) to logcat.
+                    env.exception_describe();
+                    env.exception_clear();
+                    return Err(jni::errors::Error::NoClassDefFound {
+                        requested: "jp.yasagure.ponlet.TelemetryBridge".to_string(),
+                        cause: None,
+                    });
+                }
+            }
+        }
+        None => env.load_class(jni_str!("jp.yasagure.ponlet.TelemetryBridge"))?,
     };
-    let class: JClass<'local> =
-        context.load_class(env, jni_str!("jp.yasagure.ponlet.TelemetryBridge"), true)?;
     let global = env.new_global_ref(class)?;
     let _ = BRIDGE_CLASS.set(global);
     Ok(BRIDGE_CLASS.get().unwrap())
