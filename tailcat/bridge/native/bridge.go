@@ -250,11 +250,14 @@ func tc_listener_create(
 		setLastError("no valid DERP region found")
 		return TC_INTERNAL_ERROR
 	}
+	if pk.Public.PresharedKey.IsZero() {
+		pk.Public.PresharedKey = tailcat.NewPresharedKey()
+	}
 	pk.Public.Region = []*tailcfg.DERPRegion{reg}
 	pk.Public.RegionID = reg.RegionID
 	blob := pk.Public.ConnBlob()
 
-	srv := &tailcat.Server{Key: pk.Private, Logf: tcLogf, Region: reg}
+	srv := &tailcat.Server{Key: pk.Private, PresharedKey: pk.Public.PresharedKey, Logf: tcLogf, Region: reg}
 
 	state.mu.Lock()
 	handle := state.nextHandle

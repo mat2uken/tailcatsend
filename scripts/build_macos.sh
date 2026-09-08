@@ -31,9 +31,12 @@ fi
 if [ ! -f "$ROOT_DIR/tailcat/pkg/tailcat/go.mod" ]; then
     echo "Initializing Tailcat submodule..."
     git -C "$ROOT_DIR" submodule update --init --recursive --quiet
-    if [ -f "$ROOT_DIR/tailcat/patches/0001-android-selinux-netmon-fallback.patch" ]; then
-        git -C "$ROOT_DIR/tailcat/pkg/tailcat" apply "$ROOT_DIR/tailcat/patches/0001-android-selinux-netmon-fallback.patch" || true
-    fi
+fi
+
+# Submodule working tree may be reset by submodule operations; re-apply the
+# patch on every build (no-op when already applied).
+if [ -f "$ROOT_DIR/tailcat/patches/0001-android-selinux-netmon-fallback.patch" ]; then
+    git -C "$ROOT_DIR/tailcat/pkg/tailcat" apply "$ROOT_DIR/tailcat/patches/0001-android-selinux-netmon-fallback.patch" || true
 fi
 
 # 2. Build Go Tailcat Native Engine

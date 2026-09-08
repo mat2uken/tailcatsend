@@ -12,9 +12,12 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 if [ ! -f "$PROJECT_ROOT/tailcat/pkg/tailcat/go.mod" ]; then
     echo "Initializing Tailcat submodule..."
     git -C "$PROJECT_ROOT" submodule update --init --recursive --quiet
-    if [ -f "$PROJECT_ROOT/tailcat/patches/0001-android-selinux-netmon-fallback.patch" ]; then
-        git -C "$PROJECT_ROOT/tailcat/pkg/tailcat" apply "$PROJECT_ROOT/tailcat/patches/0001-android-selinux-netmon-fallback.patch" || true
-    fi
+fi
+
+# Submodule working tree may be reset by submodule operations; re-apply the
+# patch on every build (no-op when already applied).
+if [ -f "$PROJECT_ROOT/tailcat/patches/0001-android-selinux-netmon-fallback.patch" ]; then
+    git -C "$PROJECT_ROOT/tailcat/pkg/tailcat" apply "$PROJECT_ROOT/tailcat/patches/0001-android-selinux-netmon-fallback.patch" || true
 fi
 
 echo "=== 1. Building Tailcat Go C-ABI for Android arm64 ==="
