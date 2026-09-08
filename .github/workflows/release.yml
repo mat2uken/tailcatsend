@@ -194,8 +194,8 @@ jobs:
 
       - name: Setup Android SDK Platforms
         run: |
-          yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
-          $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager "platforms;android-30" "platforms;android-34" "build-tools;34.0.0"
+          yes | "$ANDROID_HOME"/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          "$ANDROID_HOME"/cmdline-tools/latest/bin/sdkmanager "platforms;android-30" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -305,12 +305,7 @@ jobs:
           fi
 
           TODAY_YMD=$(TZ='Asia/Tokyo' date +'%Y%m%d')
-          TODAY_ISO=$(TZ='Asia/Tokyo' date +'%Y-%m-%d')
-          RUN_COUNT=$(gh run list --workflow=release.yml --created=">=$TODAY_ISO" --json databaseId -q '. | length' 2>/dev/null || echo "0")
-          if [ -z "$RUN_COUNT" ] || [ "$RUN_COUNT" -le 0 ]; then
-            RUN_COUNT=1
-          fi
-          NN=$(printf "%02d" "$RUN_COUNT")
+          NN=$(printf "%02d" "$(( GITHUB_RUN_NUMBER % 100 ))")
           BUILD_NUMBER="${TODAY_YMD}${NN}"
 
           echo "Setting Version: $MARKETING_VERSION (Build: $BUILD_NUMBER)"

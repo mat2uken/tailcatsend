@@ -138,12 +138,7 @@ jobs:
           BUILD_NUMBER="${{ github.event.inputs.build_number }}"
           if [ -z "$BUILD_NUMBER" ]; then
             TODAY_YMD=$(TZ='Asia/Tokyo' date +'%Y%m%d')
-            TODAY_ISO=$(TZ='Asia/Tokyo' date +'%Y-%m-%d')
-            RUN_COUNT=$(gh run list --workflow=testflight.yml --created=">=$TODAY_ISO" --json databaseId -q '. | length' 2>/dev/null || echo "0")
-            if [ -z "$RUN_COUNT" ] || [ "$RUN_COUNT" -le 0 ]; then
-              RUN_COUNT=1
-            fi
-            NN=$(printf "%02d" "$RUN_COUNT")
+            NN=$(printf "%02d" "$(( GITHUB_RUN_NUMBER % 100 ))")
             BUILD_NUMBER="${TODAY_YMD}${NN}"
           fi
 

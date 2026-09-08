@@ -132,12 +132,7 @@ jobs:
           VERSION_CODE="${{ github.event.inputs.version_code }}"
           if [ -z "$VERSION_CODE" ]; then
             TODAY_YMD=$(TZ='Asia/Tokyo' date +'%Y%m%d')
-            TODAY_ISO=$(TZ='Asia/Tokyo' date +'%Y-%m-%d')
-            RUN_COUNT=$(gh run list --workflow=google_play.yml --created=">=$TODAY_ISO" --json databaseId -q '. | length' 2>/dev/null || echo "0")
-            if [ -z "$RUN_COUNT" ] || [ "$RUN_COUNT" -le 0 ]; then
-              RUN_COUNT=1
-            fi
-            NN=$(printf "%02d" "$RUN_COUNT")
+            NN=$(printf "%02d" "$(( GITHUB_RUN_NUMBER % 100 ))")
             VERSION_CODE="${TODAY_YMD}${NN}"
           fi
 
