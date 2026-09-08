@@ -112,6 +112,7 @@ fn parse_tailcat_address(input: &str) -> String {
 
 fn get_android_download_dir() -> PathBuf {
     let candidates = [
+        PathBuf::from("/data/data/jp.yasagure.ponlet/files/Download"),
         PathBuf::from("/data/data/dev.tailcat.tailsend/files/Download"),
         PathBuf::from("/sdcard/Download/Ponlet"),
         PathBuf::from("/storage/emulated/0/Download/Ponlet"),
@@ -122,7 +123,7 @@ fn get_android_download_dir() -> PathBuf {
             return dir.clone();
         }
     }
-    PathBuf::from("/data/data/dev.tailcat.tailsend/files")
+    PathBuf::from("/data/data/jp.yasagure.ponlet/files")
 }
 
 fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
@@ -534,11 +535,13 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
     let target_addr_file = target_peer_addr_clone.clone();
     std::thread::spawn(move || {
         let cmd_candidates = [
+            PathBuf::from("/data/data/jp.yasagure.ponlet/files/tailsend_cmd.json"),
             PathBuf::from("/data/data/dev.tailcat.tailsend/files/tailsend_cmd.json"),
             PathBuf::from("/data/local/tmp/tailsend_cmd.json"),
             PathBuf::from("/sdcard/Download/tailsend_cmd.json"),
         ];
         let res_candidates = [
+            PathBuf::from("/data/data/jp.yasagure.ponlet/files/tailsend_res.json"),
             PathBuf::from("/data/data/dev.tailcat.tailsend/files/tailsend_res.json"),
             PathBuf::from("/data/local/tmp/tailsend_res.json"),
             PathBuf::from("/sdcard/Download/tailsend_res.json"),

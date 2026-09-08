@@ -41,15 +41,15 @@ echo "✅ macOS Host Ready! Invite URL: $MAC_INVITE_URL"
 
 # 2. Launch Android App
 echo "2. Launching TailSend on Android Device ($DEVICE_ID)..."
-adb -s $DEVICE_ID shell am force-stop dev.tailcat.tailsend
+adb -s $DEVICE_ID shell am force-stop jp.yasagure.ponlet
 adb -s $DEVICE_ID shell "rm -f /data/local/tmp/tailsend_cmd.json /data/local/tmp/tailsend_res.json /sdcard/Download/tailsend_cmd.json /sdcard/Download/tailsend_res.json"
 adb -s $DEVICE_ID logcat -c
-adb -s $DEVICE_ID shell am start -n dev.tailcat.tailsend/android.app.NativeActivity
+adb -s $DEVICE_ID shell am start -n jp.yasagure.ponlet/android.app.NativeActivity
 
 echo "Waiting for Android app to acquire ConnBlob address..."
 ANDROID_ADDR=""
 for i in {1..30}; do
-    XPERIA_ADDR=$(adb -s $DEVICE_ID logcat -d -s TailSendAndroid 2>/dev/null | grep "Acquired ConnBlob Address:" | tail -n 1 | awk '{print $NF}' || true)
+    XPERIA_ADDR=$(adb -s $DEVICE_ID logcat -d -s PonletAndroid 2>/dev/null | grep "Acquired ConnBlob Address:" | tail -n 1 | awk '{print $NF}' || true)
     if [ -n "$XPERIA_ADDR" ]; then
         break
     fi
@@ -58,7 +58,7 @@ done
 
 if [ -z "$XPERIA_ADDR" ]; then
     echo "❌ Android app failed to start. Logcat:"
-    adb -s $DEVICE_ID logcat -d -s TailSendAndroid | tail -n 25
+    adb -s $DEVICE_ID logcat -d -s PonletAndroid | tail -n 25
     kill $MAC_PID 2>/dev/null || true
     exit 1
 fi
@@ -69,15 +69,15 @@ sleep 3
 # Helper to send command to Android via internal files dir
 send_android_cmd() {
     local cmd="$1"
-    adb -s $DEVICE_ID shell "run-as dev.tailcat.tailsend rm -f /data/data/dev.tailcat.tailsend/files/tailsend_res.json"
+    adb -s $DEVICE_ID shell "run-as jp.yasagure.ponlet rm -f /data/data/jp.yasagure.ponlet/files/tailsend_res.json"
     sleep 0.2
-    adb -s $DEVICE_ID shell "run-as dev.tailcat.tailsend sh -c 'echo '\''$cmd'\'' > /data/data/dev.tailcat.tailsend/files/tailsend_cmd.json'"
+    adb -s $DEVICE_ID shell "run-as jp.yasagure.ponlet sh -c 'echo '\''$cmd'\'' > /data/data/jp.yasagure.ponlet/files/tailsend_cmd.json'"
 }
 
 wait_android_res() {
     local timeout=${1:-10}
     for ((j=0; j<timeout*2; j++)); do
-        local res=$(adb -s $DEVICE_ID shell "run-as dev.tailcat.tailsend cat /data/data/dev.tailcat.tailsend/files/tailsend_res.json 2>/dev/null" | tr -d '\r\n' || true)
+        local res=$(adb -s $DEVICE_ID shell "run-as jp.yasagure.ponlet cat /data/data/jp.yasagure.ponlet/files/tailsend_res.json 2>/dev/null" | tr -d '\r\n' || true)
         if [ -n "$res" ]; then
             echo "$res"
             return 0
@@ -108,7 +108,7 @@ done
 if [ $CONNECTED -eq 0 ]; then
     echo "❌ P2P Handshake timeout. macOS Log:"
     cat "$MAC_LOG"
-    adb -s $DEVICE_ID logcat -d -s TailSendAndroid | tail -n 30
+    adb -s $DEVICE_ID logcat -d -s PonletAndroid | tail -n 30
     kill $MAC_PID 2>/dev/null || true
     exit 1
 fi
@@ -149,14 +149,14 @@ except Exception as e:
 sleep 3
 
 echo "7. Checking file received on Android Xperia..."
-adb -s $DEVICE_ID shell "run-as dev.tailcat.tailsend ls -lh /data/data/dev.tailcat.tailsend/files/Download/" || true
+adb -s $DEVICE_ID shell "run-as jp.yasagure.ponlet ls -lh /data/data/jp.yasagure.ponlet/files/Download/" || true
 sleep 3
 
 # 8. Test Android -> macOS File Transfer (Port 102)
 echo "8. Testing File Transfer (Android Xperia -> macOS)..."
 rm -f "$HOME/Downloads/TailSend/xperia_upload.bin"
-adb -s $DEVICE_ID shell "run-as dev.tailcat.tailsend sh -c 'echo TAILSEND_XPERIA_TO_MACOS_PAYLOAD_E2E_TEST_VERIFIED > /data/data/dev.tailcat.tailsend/files/xperia_upload.bin'"
-send_android_cmd "{\"action\":\"send_file\",\"path\":\"/data/data/dev.tailcat.tailsend/files/xperia_upload.bin\"}"
+adb -s $DEVICE_ID shell "run-as jp.yasagure.ponlet sh -c 'echo TAILSEND_XPERIA_TO_MACOS_PAYLOAD_E2E_TEST_VERIFIED > /data/data/jp.yasagure.ponlet/files/xperia_upload.bin'"
+send_android_cmd "{\"action\":\"send_file\",\"path\":\"/data/data/jp.yasagure.ponlet/files/xperia_upload.bin\"}"
 res=$(wait_android_res 20 || true)
 echo "Android send_file response: $res"
 sleep 3
