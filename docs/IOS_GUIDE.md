@@ -8,7 +8,7 @@ TailSend iOS アプリは、Rust (Slint UI + Tokio) および Swift (UIKit / Met
 
 - **UI レイヤー**: Slint (Metal / UIKit ネイティブレンダリング)
 - **非同期ランタイム**: Tokio (マルチスレッドバックグラウンド通信)
-- **転送エンジン**: 64 KiB チャンクストリーミング + Cloudflare Edge Relay & Tailcat Mesh
+- **転送エンジン**: 64 KiB チャンクストリーミング + Tailcat Mesh (WireGuard P2P / DERP)
 - **パッケージング**: Swift / XcodeGen (`apps/ios/Ponlet.xcodeproj`) & `scripts/build_ios.sh`
 
 ---
@@ -46,13 +46,11 @@ open apps/ios/Ponlet.xcodeproj
 
 ---
 
-## 🧪 E2E 転送テスト（Mac ↔ iOS Simulator）
+## 🧪 E2E 転送テスト
 
-iOS シミュレータ上で Ponlet を起動後、Mac 側から以下を実行してテキストと 5MB ファイルの転送を検証できます：
+旧エッジリレー (Cloudflare Workers `/relay`) を前提とした `test_ios_e2e.js` などのテストスクリプトは、現行アーキテクチャ（Tailcat WireGuard P2P / DERP）への移行に伴い削除されました。
 
-```bash
-node scripts/test_ios_e2e.js
-```
+現行アーキテクチャでの E2E 検証は、実機（またはシミュレータ）上のアプリ同士を Tailcat 招待URL経由で接続して行います。実装例は Android 向けの `scripts/test_android_e2e.sh` を参照してください。
 
 ---
 
