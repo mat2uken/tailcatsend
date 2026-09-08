@@ -21,7 +21,7 @@ key_alias = "android"
 key_password = "android"
 
 [package.metadata.android.application]
-has_code = false
+has_code = true
 
 [package.metadata.android.activity]
 name = "android.app.NativeActivity"
@@ -42,10 +42,13 @@ name = "android.permission.WRITE_EXTERNAL_STORAGE"
 tailsend-protocol = { workspace = true }
 tailsend-qr = { workspace = true }
 tailsend-ui-controller = { workspace = true }
+tailsend-telemetry = { workspace = true }
 ciborium = { workspace = true }
 
 slint = { workspace = true, features = ["backend-android-activity-06", "renderer-femtovg", "compat-1-2"] }
 android-activity = { version = "0.6", features = ["native-activity"] }
+# android-activity 0.6 内部と同じ jni 系バージョンに揃える
+jni = "0.22"
 
 tokio = { version = "1.43", features = ["rt-multi-thread", "sync", "time", "macros", "io-util", "fs"] }
 futures = { workspace = true }

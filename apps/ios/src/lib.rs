@@ -1,7 +1,7 @@
 use std::ffi::CStr;
 use std::os::raw::c_char;
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use log::{error, info};
 use rand::RngCore;
@@ -11,6 +11,8 @@ use tailsend_qr::generate_qr_rgba;
 use tokio::sync::mpsc;
 
 slint::include_modules!();
+
+mod telemetry;
 
 // C-ABI Types & Bindings from tailcat_bridge.h
 type TcHandle = u64;
@@ -77,7 +79,10 @@ pub extern "C" fn tailsend_ios_main() {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     info!("Starting Ponlet iOS Native Application (Pure Tailcat WireGuard/DERP Mesh)...");
 
-    if let Err(e) = run_ios_app() {
+    let telemetry_initial = telemetry::init();
+    let started_at = Instant::now();
+
+    if let Err(e) = run_ios_app(telemetry_initial, started_at) {
         error!("Ponlet iOS run error: {:?}", e);
     }
 }
@@ -116,7 +121,7 @@ fn parse_tailcat_address(input: &str) -> String {
     }
 }
 
-fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
+fn run_ios_app(telemetry_initial: bool, started_at: Instant) -> Result<(), Box<dyn std::error::Error>> {
     let base_url = "https://ponlet.mat2uken.app".to_string();
     
     // Create Slint AppWindow on Main Thread
@@ -189,6 +194,7 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
                 }
 
                 info!("⚡ [Tailcat iOS] Acquired ConnBlob Address: {}", real_host_address);
+                tailsend_telemetry::events::session_created("tailcat");
 
                 // 2. Generate QR Code with Tailcat ConnBlob
                 let mut session_id = [0u8; 16];
@@ -258,6 +264,7 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
                             let stream = event.object_handle;
                             let port = event.port;
                             info!("📥 [Tailcat iOS] Incoming Stream accepted on Port {}", port);
+                            tailsend_telemetry::events::peer_connected("direct");
 
                             let w = app_weak_listener.clone();
                             let _ = slint::invoke_from_event_loop(move || {
@@ -293,6 +300,12 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
                                     }
                                     if text.starts_with("🤝") {
                                         is_handshake = true;
+                                    }
+
+                                    if !is_handshake {
+                                        tailsend_telemetry::events::text_message_received(
+                                            tailsend_telemetry::length_bucket(text.chars().count()),
+                                        );
                                     }
 
                                     let w = app_weak_listener.clone();
@@ -390,6 +403,7 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
                             };
                             unsafe { tc_stream_close(out_stream); }
                             info!("✅ [Tailcat P2P] Direct handshake successfully delivered to Host with addr: {}", my_host_addr);
+                            tailsend_telemetry::events::peer_connected("direct");
                         } else {
                             error!("❌ [Tailcat P2P] Failed to dial Host: status {}", dial_res);
                         }
@@ -504,6 +518,16 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
         let _ = regen_tx_disc.send(());
     });
 
+    // Telemetry opt-out toggle (Slint flips the property before invoking)
+    app.set_telemetry_enabled(telemetry_initial);
+    let app_weak_telemetry = app_weak.clone();
+    app.on_telemetry_toggled(move |enabled| {
+        tailsend_telemetry::set_enabled(enabled);
+        if let Some(app) = app_weak_telemetry.upgrade() {
+            app.set_telemetry_enabled(enabled);
+        }
+    });
+
     // ✉️ Compose Text Message Handler (Direct P2P via Tailcat Port 101)
     let app_weak_text = app_weak.clone();
     let target_addr_text = target_peer_addr.clone();
@@ -542,6 +566,9 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
                         };
                         unsafe { tc_stream_close(out_stream); }
                         info!("✅ [Tailcat P2P iOS] Text delivered directly to Mac!");
+                        tailsend_telemetry::events::text_message_sent(
+                            tailsend_telemetry::length_bucket(m_copy.chars().count()),
+                        );
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(app) = app_weak_status.upgrade() {
                                 app.set_status_text("Message sent directly via Tailcat P2P!".into());
@@ -549,6 +576,7 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
                         });
                     } else {
                         error!("❌ [Tailcat P2P iOS] Failed to send text: dial error {}", dial_res);
+                        tailsend_telemetry::record_error("transport");
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(app) = app_weak_status.upgrade() {
                                 app.set_status_text("Error sending message to Mac".into());
@@ -593,6 +621,11 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
                                 tc_stream_write_all(out_stream, m_copy.as_ptr(), m_copy.len(), 10000)
                             };
                             unsafe { tc_stream_close(out_stream); }
+                            tailsend_telemetry::events::text_message_sent(
+                                tailsend_telemetry::length_bucket(m_copy.chars().count()),
+                            );
+                        } else {
+                            tailsend_telemetry::record_error("transport");
                         }
                     });
                 }
@@ -615,6 +648,7 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
             app.set_is_transferring(false);
             app.set_transfer_status("Transfer cancelled".into());
         }
+        tailsend_telemetry::events::transfer_cancelled("user");
     });
 
     // 📤 Share Received Text
@@ -658,5 +692,7 @@ fn run_ios_app() -> Result<(), Box<dyn std::error::Error>> {
 
     app.show()?;
     slint::run_event_loop()?;
+
+    tailsend_telemetry::events::app_end(started_at.elapsed().as_millis());
     Ok(())
 }

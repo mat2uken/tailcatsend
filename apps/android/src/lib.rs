@@ -2,7 +2,7 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use log::{error, info};
@@ -11,6 +11,8 @@ use slint::{Image, SharedPixelBuffer};
 use tailsend_protocol::invitation::InvitationV1;
 use tailsend_qr::generate_qr_rgba;
 use tokio::sync::mpsc;
+
+mod telemetry;
 
 slint::include_modules!();
 
@@ -83,9 +85,12 @@ fn android_main(app: android_activity::AndroidApp) {
 
     info!("🚀 Starting Ponlet Android Native Application (Slint + Pure Tailcat WireGuard)...");
 
+    // Telemetry: install the Firebase-backed backend (no-op without Firebase config)
+    let telemetry_initial = telemetry::startup(&app);
+
     slint::android::init(app).expect("Failed to initialize Slint Android backend");
 
-    if let Err(e) = run_android_app() {
+    if let Err(e) = run_android_app(telemetry_initial) {
         error!("Ponlet Android run error: {:?}", e);
     }
 }
@@ -126,11 +131,21 @@ fn get_android_download_dir() -> PathBuf {
     PathBuf::from("/data/data/jp.yasagure.ponlet/files")
 }
 
-fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
+fn run_android_app(telemetry_initial: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let started_at = Instant::now();
     let base_url = "https://ponlet.mat2uken.app".to_string();
 
     let app = AppWindow::new()?;
     app.set_top_safe_area(32.0);
+    // Telemetry opt-out toggle (Slint flips the property before invoking)
+    app.set_telemetry_enabled(telemetry_initial);
+    let app_weak_telemetry = app.as_weak();
+    app.on_telemetry_toggled(move |enabled| {
+        tailsend_telemetry::set_enabled(enabled);
+        if let Some(app) = app_weak_telemetry.upgrade() {
+            app.set_telemetry_enabled(enabled);
+        }
+    });
     let app_weak = app.as_weak();
 
     let target_peer_addr: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
@@ -202,6 +217,7 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             info!("⚡ [Tailcat Android] Acquired ConnBlob Address: {}", real_host_address);
+            tailsend_telemetry::events::session_created("unknown");
 
             // 2. Generate QR Code with Tailcat ConnBlob
             let mut session_id = [0u8; 16];
@@ -271,6 +287,7 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
                         let stream = event.object_handle;
                         let port = event.port;
                         info!("📥 [Tailcat Android] Incoming Stream accepted on Port {}", port);
+                        tailsend_telemetry::events::peer_connected("direct");
 
                         let w = app_weak_listener.clone();
                         let _ = slint::invoke_from_event_loop(move || {
@@ -306,6 +323,12 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
                                 }
                                 if text.starts_with("🤝") {
                                     is_handshake = true;
+                                }
+
+                                if !is_handshake {
+                                    tailsend_telemetry::events::text_message_received(
+                                        tailsend_telemetry::length_bucket(text.chars().count()),
+                                    );
                                 }
 
                                 let w = app_weak_listener.clone();
@@ -359,6 +382,8 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
                                 let total_mb = expected_size as f64 / 1048576.0;
                                 let out_path = out_dir.join(&filename);
                                 info!("📁 [Tailcat Android] Receiving file: {} -> {}", filename, out_path.display());
+                                tailsend_telemetry::events::transfer_started(1, "direct", "receive");
+                                let file_started_at = Instant::now();
 
                                 let w = app_weak_listener.clone();
                                 let fn_start = filename.clone();
@@ -427,6 +452,14 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
 
                                     let final_mb = total_bytes as f64 / 1048576.0;
                                     info!("✅ [Tailcat Android] File successfully saved: {} ({:.1} MB)", out_path.display(), final_mb);
+                                    let duration_ms = file_started_at.elapsed().as_millis();
+                                    tailsend_telemetry::events::transfer_completed(
+                                        1,
+                                        total_bytes.max(0) as u64,
+                                        duration_ms,
+                                        "direct",
+                                        "receive",
+                                    );
 
                                     let w_done = app_weak_listener.clone();
                                     let fn_done = filename.clone();
@@ -511,6 +544,7 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
                         info!("📡 [Tailcat Android] tc_stream_write_all handshake result: {}", write_res);
                         unsafe { tc_stream_close(dial_handle); }
                         info!("✅ [Tailcat Android] Direct P2P Handshake delivered to Host with addr: {}", real_host_addr_join);
+                        tailsend_telemetry::events::peer_connected(if target_addr.contains("derp") { "relay" } else { "direct" });
 
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(app) = w2.upgrade() {
@@ -518,6 +552,7 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         });
                     } else {
+                        tailsend_telemetry::record_error("transport");
                         let mut err_buf = [0u8; 256];
                         let mut err_len: usize = 0;
                         unsafe { tc_last_error(err_buf.as_mut_ptr(), err_buf.len(), &mut err_len); }
@@ -600,8 +635,12 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
                                                 tc_stream_write_all(dial_handle, text.as_ptr(), text.len(), 10000)
                                             };
                                             unsafe { tc_stream_close(dial_handle); }
+                                            tailsend_telemetry::events::text_message_sent(
+                                                tailsend_telemetry::length_bucket(text.chars().count()),
+                                            );
                                             write_res("{\"status\":\"ok\",\"action\":\"send_text\"}\n");
                                         } else {
+                                            tailsend_telemetry::record_error("transport");
                                             write_res(&format!("{{\"status\":\"error\",\"code\":{}}}\n", dial_res));
                                         }
                                     } else {
@@ -620,6 +659,12 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
                                         let fname = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "sample.bin".to_string());
                                         let data = fs::read(&p).unwrap_or_else(|_| b"Sample Payload".to_vec());
                                         let fsize = data.len();
+                                        let file_started_at = Instant::now();
+                                        tailsend_telemetry::events::transfer_started(
+                                            1,
+                                            if addr.contains("derp") { "relay" } else { "direct" },
+                                            "send",
+                                        );
 
                                         let derp_url = "https://tailcat.dev/derpmap.json";
                                         let addr_bytes = addr.as_bytes();
@@ -644,8 +689,16 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
                                                 tc_stream_write_all(dial_handle, data.as_ptr(), data.len(), 30000)
                                             };
                                             unsafe { tc_stream_close(dial_handle); }
+                                            tailsend_telemetry::events::transfer_completed(
+                                                1,
+                                                fsize as u64,
+                                                file_started_at.elapsed().as_millis(),
+                                                if addr.contains("derp") { "relay" } else { "direct" },
+                                                "send",
+                                            );
                                             write_res("{\"status\":\"ok\",\"action\":\"send_file\"}\n");
                                         } else {
+                                            tailsend_telemetry::record_error("transport");
                                             let mut err_buf = vec![0u8; 1024];
                                             let mut err_len: usize = 0;
                                             let _ = unsafe { tc_last_error(err_buf.as_mut_ptr(), err_buf.len(), &mut err_len) };
@@ -710,6 +763,9 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
                         tc_stream_write_all(dial_handle, t.as_ptr(), t.len(), 10000)
                     };
                     unsafe { tc_stream_close(dial_handle); }
+                    tailsend_telemetry::events::text_message_sent(
+                        tailsend_telemetry::length_bucket(t.chars().count()),
+                    );
 
                     let w_cb = w.clone();
                     let t_cb = t.clone();
@@ -748,6 +804,12 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
                 let file_data = fs::read(&sample_file).unwrap_or_else(|_| b"Xperia Sample File".to_vec());
                 let file_size = file_data.len() as i64;
                 let total_mb = file_size as f64 / 1048576.0;
+                let file_started_at = Instant::now();
+                tailsend_telemetry::events::transfer_started(
+                    1,
+                    if addr.contains("derp") { "relay" } else { "direct" },
+                    "send",
+                );
 
                 let addr_bytes = addr.as_bytes();
                 let mut dial_handle: TcHandle = 0;
@@ -772,6 +834,13 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
                         tc_stream_write_all(dial_handle, file_data.as_ptr(), file_data.len(), 30000)
                     };
                     unsafe { tc_stream_close(dial_handle); }
+                    tailsend_telemetry::events::transfer_completed(
+                        1,
+                        file_size as u64,
+                        file_started_at.elapsed().as_millis(),
+                        if addr.contains("derp") { "relay" } else { "direct" },
+                        "send",
+                    );
 
                     let w_cb = w.clone();
                     let fn_cb = filename.clone();
@@ -811,5 +880,10 @@ fn run_android_app() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     app.show()?;
-    slint::run_event_loop().map_err(|e| e.to_string().into())
+    let loop_result = slint::run_event_loop();
+
+    // Best-effort session end event (not sent when the process is killed)
+    tailsend_telemetry::events::app_end(started_at.elapsed().as_millis());
+
+    loop_result.map_err(|e| e.to_string().into())
 }

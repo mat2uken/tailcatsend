@@ -1,6 +1,8 @@
 use wasm_bindgen::prelude::*;
 use tailsend_protocol::invitation::InvitationV1;
 
+mod telemetry;
+
 slint::include_modules!();
 
 #[wasm_bindgen]
@@ -113,6 +115,10 @@ impl I18nWeb {
 pub fn run_app() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
 
+    // Telemetry: install the platform backend (no-op unless the JS bridge
+    // is available and Firebase config placeholders have been replaced).
+    let telemetry_initial = telemetry::init();
+
     let app = AppWindow::new().map_err(|e| JsValue::from_str(&e.to_string()))?;
 
     let window = web_sys::window().ok_or_else(|| JsValue::from_str("No window object"))?;
@@ -121,6 +127,16 @@ pub fn run_app() -> Result<(), JsValue> {
     let nav_lang = window.navigator().language().unwrap_or_default().to_lowercase();
     let initial_lang = if nav_lang.starts_with("ja") { "ja" } else { "en" };
     app.set_current_language(initial_lang.into());
+
+    // Telemetry startup event & user properties (no-op while disabled)
+    let os_version = telemetry::detect_os_version(
+        &window.navigator().user_agent().unwrap_or_default(),
+    );
+    tailsend_telemetry::events::app_start("web", os_version, env!("CARGO_PKG_VERSION"), initial_lang);
+    tailsend_telemetry::set_user_property("platform", "web");
+    tailsend_telemetry::set_user_property("app_version", env!("CARGO_PKG_VERSION"));
+    tailsend_telemetry::set_user_property("os_version", os_version);
+    tailsend_telemetry::set_user_property("language", initial_lang);
 
     let hash = window.location().hash().unwrap_or_default();
 
@@ -194,6 +210,7 @@ pub fn run_app() -> Result<(), JsValue> {
                 app.set_screen_index(1);
                 let is_ja = app.get_current_language() == "ja";
                 app.set_status_text(I18nWeb::scan_qr_status(is_ja).into());
+                tailsend_telemetry::events::session_created("unknown");
             }
         }
     }) as Box<dyn FnMut(String)>);
@@ -214,6 +231,9 @@ pub fn run_app() -> Result<(), JsValue> {
             app.set_can_send(true);
             app.set_is_derp_relay(true);
             app.set_transport_type(2);
+            tailsend_telemetry::events::peer_connected(
+                if app.get_transport_type() == 2 { "relay" } else { "direct" },
+            );
         }
     }) as Box<dyn FnMut(String)>);
     let _ = js_sys::Reflect::set(&window, &JsValue::from_str("onPeerConnectedSlint"), on_peer_connected.as_ref().unchecked_ref());
@@ -247,8 +267,11 @@ pub fn run_app() -> Result<(), JsValue> {
             let peer_label = I18nWeb::label_peer(is_ja);
             let new_log = format!("{}: {}\n{}", peer_label, text, app.get_received_message_log());
             app.set_received_message_log(new_log.into());
-            app.set_last_received_text(text.into());
+            app.set_last_received_text(text.clone().into());
             app.set_status_text(I18nWeb::msg_received(is_ja).into());
+            tailsend_telemetry::events::text_message_received(tailsend_telemetry::length_bucket(
+                text.chars().count(),
+            ));
         }
     }) as Box<dyn FnMut(String)>);
     let _ = js_sys::Reflect::set(&window, &JsValue::from_str("onIncomingTextMessageSlint"), on_incoming_text.as_ref().unchecked_ref());
@@ -329,6 +352,9 @@ pub fn run_app() -> Result<(), JsValue> {
                 trigger_open_composer(&current);
             } else {
                 send_tailcat_text_message(&text_to_send);
+                tailsend_telemetry::events::text_message_sent(tailsend_telemetry::length_bucket(
+                    text_to_send.chars().count(),
+                ));
                 let is_ja = app.get_current_language() == "ja";
                 let me_label = I18nWeb::label_me(is_ja);
                 let log_text = format!("{}: {}\n{}", me_label, text_to_send, app.get_received_message_log());
@@ -534,6 +560,7 @@ pub fn run_app() -> Result<(), JsValue> {
                         app.set_can_disconnect(true);
                         app.set_can_send(true);
                         app.set_is_derp_relay(true);
+                        tailsend_telemetry::events::session_created("unknown");
                     }
 
                     if let Ok(func) = js_sys::Reflect::get(&window, &JsValue::from_str("connectToPeerFromInput")) {
@@ -612,6 +639,16 @@ pub fn run_app() -> Result<(), JsValue> {
                     app.set_status_text(I18nWeb::invite_expired(is_ja).into());
                 }
             }
+        }
+    });
+
+    // Telemetry opt-out toggle (Slint flips the property before invoking)
+    app.set_telemetry_enabled(telemetry_initial);
+    let app_weak_telemetry = app.as_weak();
+    app.on_telemetry_toggled(move |enabled| {
+        tailsend_telemetry::set_enabled(enabled);
+        if let Some(app) = app_weak_telemetry.upgrade() {
+            app.set_telemetry_enabled(enabled);
         }
     });
 

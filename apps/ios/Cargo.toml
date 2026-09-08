@@ -13,6 +13,7 @@ tailsend-platform-api = { workspace = true }
 tailsend-transfer = { workspace = true }
 tailsend-core = { workspace = true }
 tailsend-qr = { workspace = true }
+tailsend-telemetry = { workspace = true }
 tailsend-ui-controller = { workspace = true }
 
 [target.'cfg(target_os = "ios")'.dependencies]
