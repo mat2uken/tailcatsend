@@ -5,6 +5,8 @@ package main
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ifaddrs.h>
+#include <net/if.h>
 
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -116,6 +118,99 @@ func (staticDERPCache) Get(url string) ([]byte, string, time.Time, bool) {
 
 func (staticDERPCache) Put(url string, data []byte, etag string) error {
 	return nil
+}
+
+func init() {
+	netmon.RegisterInterfaceGetter(interfacesViaGetifaddrs)
+}
+
+// interfacesViaGetifaddrs enumerates interfaces with getifaddrs(3).
+// On Android 11+ the netlink dump behind net.Interfaces is denied
+// (SELinux nlmsg_read), so the standard library cannot list
+// interfaces; getifaddrs in bionic still works.
+func interfacesViaGetifaddrs() ([]netmon.Interface, error) {
+	var ifap *C.struct_ifaddrs
+	if rc := C.getifaddrs(&ifap); rc != 0 {
+		return nil, fmt.Errorf("getifaddrs: %v", int(rc))
+	}
+	defer C.freeifaddrs(ifap)
+
+	type entry struct {
+		iface *net.Interface
+		addrs []net.Addr
+	}
+	entries := map[string]*entry{}
+	var order []string
+	for cur := ifap; cur != nil; cur = cur.ifa_next {
+		name := C.GoString(cur.ifa_name)
+		e, ok := entries[name]
+		if !ok {
+			e = &entry{iface: &net.Interface{Name: name, MTU: 1500}}
+			entries[name] = e
+			order = append(order, name)
+		}
+		e.iface.Flags |= cgoFlagsToNetFlags(cur.ifa_flags)
+		if cur.ifa_addr == nil {
+			continue
+		}
+		switch int(cur.ifa_addr.sa_family) {
+		case C.AF_INET:
+			sa := (*C.struct_sockaddr_in)(unsafe.Pointer(cur.ifa_addr))
+			ip := net.IP(C.GoBytes(unsafe.Pointer(&sa.sin_addr.s_addr), 4))
+			e.addrs = append(e.addrs, ipAddrWithMask(ip, cur.ifa_netmask))
+		case C.AF_INET6:
+			sa := (*C.struct_sockaddr_in6)(unsafe.Pointer(cur.ifa_addr))
+			ip := net.IP(C.GoBytes(unsafe.Pointer(&sa.sin6_addr), 16))
+			e.addrs = append(e.addrs, ipAddrWithMask(ip, cur.ifa_netmask))
+		}
+	}
+	ret := make([]netmon.Interface, 0, len(order))
+	for _, name := range order {
+		e := entries[name]
+		cs := C.CString(name)
+		e.iface.Index = int(C.if_nametoindex(cs))
+		C.free(unsafe.Pointer(cs))
+		ret = append(ret, netmon.Interface{Interface: e.iface, AltAddrs: e.addrs})
+	}
+	return ret, nil
+}
+
+func cgoFlagsToNetFlags(f C.uint) net.Flags {
+	var out net.Flags
+	mask := map[C.uint]net.Flags{
+		0x1:    net.FlagUp,
+		0x2:    net.FlagBroadcast,
+		0x8:    net.FlagLoopback,
+		0x10:   net.FlagPointToPoint,
+		0x40:   net.FlagRunning,
+		0x1000: net.FlagMulticast,
+	}
+	for k, v := range mask {
+		if f&k != 0 {
+			out |= v
+		}
+	}
+	return out
+}
+
+func ipAddrWithMask(ip net.IP, netmask *C.struct_sockaddr) net.Addr {
+	if netmask == nil {
+		return &net.IPAddr{IP: ip}
+	}
+	var maskLen int
+	switch int(netmask.sa_family) {
+	case C.AF_INET:
+		sa := (*C.struct_sockaddr_in)(unsafe.Pointer(netmask))
+		mask := net.IPMask(C.GoBytes(unsafe.Pointer(&sa.sin_addr.s_addr), 4))
+		maskLen, _ = net.IPv4Mask(mask[0], mask[1], mask[2], mask[3]).Size()
+		return &net.IPNet{IP: ip, Mask: net.CIDRMask(maskLen, 32)}
+	case C.AF_INET6:
+		sa := (*C.struct_sockaddr_in6)(unsafe.Pointer(netmask))
+		mask := net.IPMask(C.GoBytes(unsafe.Pointer(&sa.sin6_addr), 16))
+		maskLen, _ = mask.Size()
+		return &net.IPNet{IP: ip, Mask: net.CIDRMask(maskLen, 128)}
+	}
+	return &net.IPAddr{IP: ip}
 }
 
 func tcLogf(format string, args ...any) {

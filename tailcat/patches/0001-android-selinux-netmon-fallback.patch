@@ -1,26 +1,62 @@
-﻿diff --git a/tailcat.go b/tailcat.go
-index b09d464..3731202 100644
+diff --git a/tailcat.go b/tailcat.go
+index 41cd966fe..274d25fc5 100644
 --- a/tailcat.go
 +++ b/tailcat.go
-@@ -596,8 +596,8 @@ func (s *Server) Start() error {
+@@ -596,8 +596,17 @@ func (s *Server) Start() error {
+ 	netMon, err := netmon.New(bus, func(format string, args ...any) {
  		logf(format, args...)
  	})
++	if runtime.GOOS == "android" {
++		for i := 0; err == nil && i < 40 && !netMon.InterfaceState().AnyInterfaceUp(); i++ {
++			netMon.Close()
++			time.Sleep(250 * time.Millisecond)
++			netMon, err = netmon.New(bus, func(format string, args ...any) {
++				logf(format, args...)
++			})
++		}
++	}
  	if err != nil {
 -		lb.Close() // closes the subsystems started so far
--		return fmt.Errorf("netmon.New: %w", err)
-+		logf("netmon.New failed, falling back to static monitor: %v", err)
-+		netMon = netmon.NewStatic()
++		lb.Close()
+ 		return fmt.Errorf("netmon.New: %w", err)
  	}
  	sys.Set(netMon)
+@@ -703,6 +712,9 @@ func (s *Server) Start() error {
+ 		lb.Close()
+ 		return err
+ 	}
++	if runtime.GOOS == "android" {
++		netMon.InjectEvent()
++	}
+ 	return nil
+ }
  
-@@ -1814,8 +1814,8 @@ func (c *Client) initLocked() error {
+@@ -1833,8 +1845,17 @@ func (c *Client) initLocked() error {
+ 	netMon, err := netmon.New(bus, func(format string, args ...any) {
  		logf(format, args...)
  	})
++	if runtime.GOOS == "android" {
++		for i := 0; err == nil && i < 40 && !netMon.InterfaceState().AnyInterfaceUp(); i++ {
++			netMon.Close()
++			time.Sleep(250 * time.Millisecond)
++			netMon, err = netmon.New(bus, func(format string, args ...any) {
++				logf(format, args...)
++			})
++		}
++	}
  	if err != nil {
 -		lb.Close() // closes the subsystems started so far
--		return fmt.Errorf("netmon.New: %w", err)
-+		logf("netmon.New failed, falling back to static monitor: %v", err)
-+		netMon = netmon.NewStatic()
++		lb.Close()
+ 		return fmt.Errorf("netmon.New: %w", err)
  	}
  	sys.Set(netMon)
- 
+@@ -1970,6 +1991,9 @@ func (c *Client) ensureStarted(ctx context.Context) error {
+ 	if err := c.lb.Start(); err != nil {
+ 		return err
+ 	}
++	if runtime.GOOS == "android" {
++		c.lb.sys.NetMon.Get().InjectEvent()
++	}
+ 	c.started = true
+ 	return nil
+ }
