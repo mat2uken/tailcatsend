@@ -14,9 +14,9 @@ on:
           - beta
           - production
       version_name:
-        description: 'App Version Name (e.g. 1.0.0)'
+        description: 'App Version Name (e.g. 1.0.0; leave empty to auto-detect from tag or use 1.0.0)'
         required: false
-        default: '1.0.0'
+        default: ''
       version_code:
         description: 'App Version Code (leave empty for automatic github.run_number)'
         required: false
@@ -30,6 +30,8 @@ jobs:
     name: Build AAB & Deploy to Google Play
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      PLAY_CONFIG_JSON: ${{ secrets.PLAY_CONFIG_JSON }}
 
     steps:
       - name: Checkout Repository
@@ -109,11 +111,15 @@ jobs:
           cp target/libtailcat_android.so "$JNI_DIR/"
           ls -lh "$JNI_DIR"
 
-      - name: Configure Version Codes
+      - name: Configure Version Codes & Release Parameters
         run: |
-          VERSION_NAME="${{ github.event.inputs.version_name || '1.0.0' }}"
-          if [ -n "${{ github.ref_name }}" ] && [[ "${{ github.ref_name }}" =~ ^v ]]; then
-            VERSION_NAME="${GITHUB_REF_NAME#v}"
+          VERSION_NAME="${{ github.event.inputs.version_name }}"
+          if [ -z "$VERSION_NAME" ]; then
+            if [ -n "$GITHUB_REF_NAME" ] && [[ "$GITHUB_REF_NAME" =~ ^v ]]; then
+              VERSION_NAME="${GITHUB_REF_NAME#v}"
+            else
+              VERSION_NAME="1.0.0"
+            fi
           fi
 
           VERSION_CODE="${{ github.event.inputs.version_code }}"
@@ -121,9 +127,24 @@ jobs:
             VERSION_CODE="${{ github.run_number }}"
           fi
 
-          echo "VERSION_NAME=$VERSION_NAME" >> $GITHUB_ENV
-          echo "VERSION_CODE=$VERSION_CODE" >> $GITHUB_ENV
-          echo "Building Ponlet version: $VERSION_NAME (Code: $VERSION_CODE)"
+          TRACK="${{ github.event.inputs.track || 'internal' }}"
+          if [ -z "$TRACK" ]; then
+            TRACK="internal"
+          fi
+
+          {
+            echo "VERSION_NAME=$VERSION_NAME"
+            echo "VERSION_CODE=$VERSION_CODE"
+            echo "TRACK=$TRACK"
+          } >> "$GITHUB_ENV"
+
+          echo "Building Ponlet version: $VERSION_NAME (Code: $VERSION_CODE, Track: $TRACK)"
+
+          if [ -n "$PLAY_CONFIG_JSON" ]; then
+            echo "Google Play service account JSON secret is configured."
+          else
+            echo "::notice::PLAY_CONFIG_JSON secret is not set. Google Play Console deployment step will be skipped."
+          fi
 
       - name: Build Android App Bundle (AAB) with Gradle
         env:
@@ -155,14 +176,12 @@ jobs:
 
       - name: Deploy to Google Play Console
         if: env.PLAY_CONFIG_JSON != ''
-        env:
-          PLAY_CONFIG_JSON: ${{ secrets.PLAY_CONFIG_JSON }}
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_CONFIG_JSON }}
           packageName: jp.yasagure.ponlet
           releaseFiles: ponlet-release.aab
-          track: ${{ github.event.inputs.track || 'internal' }}
+          track: ${{ env.TRACK }}
           status: completed
 
       - name: Cleanup Keystore
