@@ -86,21 +86,32 @@ async function testHeadlessChromeWithInvite(testInviteUrl) {
     console.log(`\n=== Test 2: Headless Browser Runtime & Exception Free Verification ===`);
     console.log(`Testing URL: ${testInviteUrl}`);
 
-    const chromePath = fs.existsSync("C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe")
-        ? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
-        : "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
+    const macChromePath = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+    const chromePath = fs.existsSync(macChromePath)
+        ? macChromePath
+        : (fs.existsSync("C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe")
+            ? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+            : "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe");
 
     console.log(`[E2E Chrome] Launching: ${chromePath}`);
 
     const debugPort = 9223;
-    const chrome = spawn(chromePath, [
+    const isMac = process.platform === "darwin";
+    const chromeArgs = [
         "--headless=new",
         `--remote-debugging-port=${debugPort}`,
-        "--disable-gpu",
         "--no-sandbox",
         "--disable-dev-shm-usage",
-        testInviteUrl,
-    ]);
+        "--enable-webgl",
+    ];
+    if (!isMac) {
+        chromeArgs.push("--disable-gpu");
+    } else {
+        chromeArgs.push("--use-gl=angle");
+    }
+    chromeArgs.push(testInviteUrl);
+
+    const chrome = spawn(chromePath, chromeArgs);
 
     const logs = [];
     const errors = [];
