@@ -1,0 +1,1575 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>オープンソースライセンス — Ponlet (TailSend)</title>
+    <meta name="description" content="Ponlet (TailSend) が使用しているオープンソースソフトウェアのライセンスおよび著作権表示一覧です。Slint UI, Tailcat, Tailscale, Pion WebRTCなどのライセンス条項を掲載しています。">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+    <style>
+        :root {
+            --bg-main: #07151e;
+            --surface-card: #0d2330;
+            --surface-card-hover: #133144;
+            --surface-nested: #081a24;
+            --surface-active: #173b52;
+            --border-subtle: #163d54;
+            --border-active: #2dd4bf;
+            --primary: #f97316;
+            --primary-hover: #fb923c;
+            --primary-pressed: #ea580c;
+            --accent-cyan: #2dd4bf;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #5e7a8c;
+            --badge-mit: #38bdf8;
+            --badge-bsd: #a78bfa;
+            --badge-apache: #34d399;
+            --badge-slint: #f97316;
+            --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans JP", sans-serif;
+            --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-main);
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            line-height: 1.6;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        a {
+            color: var(--accent-cyan);
+            text-decoration: none;
+            transition: color 0.15s ease;
+        }
+
+        a:hover {
+            color: #5eead4;
+            text-decoration: underline;
+        }
+
+        /* ── Header ── */
+        header {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background-color: rgba(7, 21, 30, 0.92);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .header-inner {
+            max-width: 1120px;
+            margin: 0 auto;
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        .brand-link {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: var(--text-primary);
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 1.25rem;
+            letter-spacing: -0.02em;
+        }
+
+        .brand-link:hover {
+            text-decoration: none;
+        }
+
+        .brand-logo {
+            width: 34px;
+            height: 34px;
+            border-radius: 9px;
+            display: block;
+        }
+
+        .brand-name {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+        }
+
+        .brand-badge {
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 2px 7px;
+            background: rgba(249, 115, 22, 0.15);
+            color: var(--primary);
+            border: 1px solid rgba(249, 115, 22, 0.3);
+            border-radius: 999px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        nav {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .nav-link {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            font-weight: 500;
+            padding: 6px 14px;
+            border-radius: 8px;
+            transition: all 0.15s ease;
+        }
+
+        .nav-link:hover {
+            color: var(--text-primary);
+            background-color: var(--surface-card);
+            text-decoration: none;
+        }
+
+        .nav-link.active {
+            color: var(--primary);
+            background-color: rgba(249, 115, 22, 0.12);
+        }
+
+        /* ── Main Container ── */
+        main {
+            flex: 1;
+            max-width: 1120px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 36px 20px 60px;
+        }
+
+        /* ── Hero Section ── */
+        .hero {
+            margin-bottom: 32px;
+        }
+
+        .hero-title {
+            font-size: 2.1rem;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            color: var(--text-primary);
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .hero-subtitle {
+            font-size: 1.05rem;
+            color: var(--text-secondary);
+            max-width: 820px;
+            line-height: 1.65;
+        }
+
+        /* ── Slint Attribution Banner (Featured) ── */
+        .featured-attribution {
+            background: linear-gradient(135deg, rgba(13, 35, 48, 0.95), rgba(23, 59, 82, 0.7));
+            border: 1px solid rgba(249, 115, 22, 0.4);
+            border-radius: 14px;
+            padding: 24px 28px;
+            margin-bottom: 36px;
+            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 24px;
+            flex-wrap: wrap;
+        }
+
+        .slint-badge-content {
+            display: flex;
+            align-items: flex-start;
+            gap: 20px;
+            flex: 1;
+            min-width: 280px;
+        }
+
+        .slint-logo-icon {
+            width: 52px;
+            height: 52px;
+            flex-shrink: 0;
+            background: rgba(249, 115, 22, 0.15);
+            border: 1px solid rgba(249, 115, 22, 0.3);
+            border-radius: 12px;
+            padding: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .slint-logo-icon svg {
+            width: 100%;
+            height: 100%;
+            fill: #f97316;
+        }
+
+        .slint-text h3 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 6px;
+        }
+
+        .slint-tag {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #fed7aa;
+            background: rgba(249, 115, 22, 0.25);
+            padding: 2px 8px;
+            border-radius: 6px;
+        }
+
+        .slint-text p {
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+
+        .slint-actions {
+            display: flex;
+            gap: 12px;
+            flex-shrink: 0;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.88rem;
+            font-weight: 600;
+            padding: 9px 18px;
+            border-radius: 9px;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            text-decoration: none;
+        }
+
+        .btn:hover {
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background-color: var(--primary);
+            color: #ffffff;
+            border: 1px solid var(--primary-hover);
+        }
+
+        .btn-primary:hover {
+            background-color: var(--primary-hover);
+            color: #ffffff;
+        }
+
+        .btn-secondary {
+            background-color: var(--surface-nested);
+            color: var(--text-primary);
+            border: 1px solid var(--border-subtle);
+        }
+
+        .btn-secondary:hover {
+            background-color: var(--surface-card);
+            border-color: var(--accent-cyan);
+            color: var(--text-primary);
+        }
+
+        /* ── Search & Filter Bar ── */
+        .filter-section {
+            margin-bottom: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .search-wrapper {
+            position: relative;
+            max-width: 480px;
+            width: 100%;
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 18px;
+            height: 18px;
+            fill: var(--text-muted);
+            pointer-events: none;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 10px 16px 10px 42px;
+            font-size: 0.95rem;
+            background-color: var(--surface-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 10px;
+            color: var(--text-primary);
+            outline: none;
+            transition: all 0.15s ease;
+            font-family: inherit;
+        }
+
+        .search-input:focus {
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.15);
+        }
+
+        .search-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        .category-tabs {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding-bottom: 4px;
+            scrollbar-width: thin;
+        }
+
+        .tab-btn {
+            background: var(--surface-card);
+            color: var(--text-secondary);
+            border: 1px solid var(--border-subtle);
+            padding: 7px 14px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            border-radius: 8px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: all 0.15s ease;
+        }
+
+        .tab-btn:hover {
+            background: var(--surface-card-hover);
+            color: var(--text-primary);
+        }
+
+        .tab-btn.active {
+            background: var(--primary);
+            color: #ffffff;
+            border-color: var(--primary);
+            font-weight: 600;
+        }
+
+        /* ── Categories & Cards Grid ── */
+        .category-group {
+            margin-bottom: 40px;
+        }
+
+        .category-group.hidden {
+            display: none;
+        }
+
+        .category-header {
+            display: flex;
+            align-items: baseline;
+            gap: 12px;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .category-title {
+            font-size: 1.35rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .category-count {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            font-weight: normal;
+        }
+
+        .cards-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(330px, 1fr));
+            gap: 18px;
+        }
+
+        .card {
+            background-color: var(--surface-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            border-color: var(--surface-active);
+            box-shadow: 0 8px 24px -6px rgba(0, 0, 0, 0.4);
+        }
+
+        .card.hidden {
+            display: none;
+        }
+
+        .card-top {
+            margin-bottom: 14px;
+        }
+
+        .card-header-row {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .component-name {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #ffffff;
+            letter-spacing: -0.01em;
+            word-break: break-word;
+        }
+
+        .license-badge {
+            font-size: 0.72rem;
+            font-weight: 700;
+            padding: 3px 8px;
+            border-radius: 6px;
+            white-space: nowrap;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+        }
+
+        .badge-mit {
+            background: rgba(56, 189, 248, 0.15);
+            color: var(--badge-mit);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+        }
+
+        .badge-bsd {
+            background: rgba(167, 139, 250, 0.15);
+            color: var(--badge-bsd);
+            border: 1px solid rgba(167, 139, 250, 0.3);
+        }
+
+        .badge-apache {
+            background: rgba(52, 211, 153, 0.15);
+            color: var(--badge-apache);
+            border: 1px solid rgba(52, 211, 153, 0.3);
+        }
+
+        .badge-slint {
+            background: rgba(249, 115, 22, 0.15);
+            color: var(--badge-slint);
+            border: 1px solid rgba(249, 115, 22, 0.3);
+        }
+
+        .copyright-line {
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            margin-bottom: 10px;
+            line-height: 1.4;
+        }
+
+        .component-desc {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            line-height: 1.55;
+        }
+
+        .card-bottom {
+            margin-top: 14px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(22, 61, 84, 0.6);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 0.85rem;
+        }
+
+        .role-tag {
+            font-size: 0.75rem;
+            color: var(--accent-cyan);
+            background: rgba(45, 212, 191, 0.1);
+            padding: 2px 7px;
+            border-radius: 4px;
+            font-weight: 500;
+        }
+
+        /* ── Full License Texts Accordion ── */
+        .license-texts-section {
+            margin-top: 50px;
+            padding-top: 36px;
+            border-top: 2px solid var(--border-subtle);
+        }
+
+        .section-heading {
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .section-desc {
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+            margin-bottom: 24px;
+        }
+
+        .accordion-item {
+            background-color: var(--surface-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 10px;
+            margin-bottom: 14px;
+            overflow: hidden;
+            transition: border-color 0.15s ease;
+        }
+
+        .accordion-item:hover {
+            border-color: var(--surface-active);
+        }
+
+        summary {
+            padding: 16px 20px;
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: var(--text-primary);
+            cursor: pointer;
+            list-style: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            user-select: none;
+        }
+
+        summary::-webkit-details-marker {
+            display: none;
+        }
+
+        summary::after {
+            content: "";
+            width: 10px;
+            height: 10px;
+            border-right: 2px solid var(--text-secondary);
+            border-bottom: 2px solid var(--text-secondary);
+            transform: rotate(45deg);
+            transition: transform 0.2s ease;
+            margin-right: 4px;
+        }
+
+        details[open] summary::after {
+            transform: rotate(-135deg);
+        }
+
+        details[open] summary {
+            background-color: rgba(22, 61, 84, 0.3);
+            border-bottom: 1px solid var(--border-subtle);
+        }
+
+        .license-pre {
+            background-color: var(--surface-nested);
+            color: #e2e8f0;
+            padding: 20px;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            word-break: break-word;
+            max-height: 480px;
+            overflow-y: auto;
+            scrollbar-width: thin;
+        }
+
+        /* ── No Results State ── */
+        #no-results {
+            display: none;
+            text-align: center;
+            padding: 48px 20px;
+            color: var(--text-muted);
+        }
+
+        #no-results p {
+            font-size: 1.1rem;
+            margin-top: 8px;
+        }
+
+        /* ── Footer ── */
+        footer {
+            background-color: var(--surface-nested);
+            border-top: 1px solid var(--border-subtle);
+            padding: 32px 20px;
+            margin-top: auto;
+        }
+
+        .footer-inner {
+            max-width: 1120px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            gap: 16px;
+        }
+
+        .footer-links {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            justify-content: center;
+            font-size: 0.9rem;
+        }
+
+        .footer-copy {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .slint-footer-attribution {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* ── Responsive Tweaks ── */
+        @media (max-width: 768px) {
+            .hero-title {
+                font-size: 1.7rem;
+            }
+            .featured-attribution {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .slint-actions {
+                width: 100%;
+            }
+            .cards-grid {
+                grid-template-columns: 1fr;
+            }
+            .header-inner {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+            }
+            nav {
+                width: 100%;
+                justify-content: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header Navigation -->
+    <header>
+        <div class="header-inner">
+            <a href="index.html" class="brand-link">
+                <img src="favicon.png" alt="Ponlet Logo" class="brand-logo" width="34" height="34">
+                <div class="brand-name">
+                    <span>Ponlet</span>
+                    <span class="brand-badge">OSS</span>
+                </div>
+            </a>
+            <nav>
+                <a href="index.html" class="nav-link">アプリを開く</a>
+                <a href="privacy.html" class="nav-link">プライバシーポリシー</a>
+                <a href="licenses.html" class="nav-link active">オープンソースライセンス</a>
+                <a href="https://github.com/mat2uken/tailcatsend" target="_blank" rel="noopener noreferrer" class="nav-link">GitHub</a>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main>
+        <!-- Hero Section -->
+        <section class="hero">
+            <h1 class="hero-title">
+                オープンソースライセンス
+            </h1>
+            <p class="hero-subtitle">
+                Ponlet (TailSend) は多くのオープンソースソフトウェアおよび開発者コミュニティの貢献によって実現されています。本ソフトウェアに含まれる、またはリンクされている主要コンポーネントのライセンス条項および著作権表示を以下に明記します。
+            </p>
+        </section>
+
+        <!-- Featured Slint Attribution Box -->
+        <section class="featured-attribution">
+            <div class="slint-badge-content">
+                <div class="slint-logo-icon" title="Slint UI Toolkit">
+                    <svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                        <title>Slint</title>
+                        <path d="m6.503 23.914 13.61-9.399s.614-.351.614-.906c0-.739-.776-.979-.776-.979l-7.488-2.953c-.267-.104-.634.189-.29.56l2.479 2.471s.688.675.688 1.117-.423.836-.423.836l-9.02 8.684c-.32.31.113.87.606.569zM17.497.087 3.887 9.484s-.614.351-.614.906c0 .739.776.98.776.98l7.488 2.953c.267.103.636-.19.29-.559l-2.479-2.48s-.688-.673-.688-1.116c0-.444.423-.837.423-.837L18.097.654c.326-.31-.106-.87-.6-.567z"/>
+                    </svg>
+                </div>
+                <div class="slint-text">
+                    <h3>
+                        Built with Slint
+                        <span class="slint-tag">GUI Framework</span>
+                    </h3>
+                    <p>
+                        Ponlet のユーザーインターフェースは、<strong>Slint GUI Toolkit</strong>（Slint Royalty-Free License）を利用して構築されています。
+                    </p>
+                    <p style="font-size: 0.82rem; color: var(--text-muted);">
+                        "Slint" is a registered trademark of SixtyFPS GmbH.
+                    </p>
+                </div>
+            </div>
+            <div class="slint-actions">
+                <a href="https://slint.dev" target="_blank" rel="noopener noreferrer" class="btn btn-primary">
+                    slint.dev を開く
+                </a>
+                <a href="#license-slint" class="btn btn-secondary">
+                    ライセンス条項を確認
+                </a>
+            </div>
+        </section>
+
+        <!-- Search & Category Filters -->
+        <section class="filter-section">
+            <div class="search-wrapper">
+                <svg class="search-icon" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M10 2a8 8 0 105.293 14.707l5 5a1 1 0 001.414-1.414l-5-5A8 8 0 0010 2zm-6 8a6 6 0 1112 0 6 6 0 01-12 0z"/>
+                </svg>
+                <input type="text" id="searchInput" class="search-input" placeholder="コンポーネント名、ライセンス、キーワードで検索..." autocomplete="off">
+            </div>
+
+            <div class="category-tabs">
+                <button class="tab-btn active" data-category="all">すべて表示</button>
+                <button class="tab-btn" data-category="app">アプリ本体</button>
+                <button class="tab-btn" data-category="ui">UIツールキット</button>
+                <button class="tab-btn" data-category="network">ネットワーク &amp; 通信コア</button>
+                <button class="tab-btn" data-category="rust">Rust クレート</button>
+                <button class="tab-btn" data-category="go">Go モジュール</button>
+            </div>
+        </section>
+
+        <!-- No Results Fallback -->
+        <div id="no-results">
+            <svg width="48" height="48" fill="var(--text-muted)" viewBox="0 0 24 24" style="margin: 0 auto; display: block;">
+                <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0 0 16 9.5 6.5 6.5 0 1 0 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+            </svg>
+            <p>該当するコンポーネントが見つかりませんでした。</p>
+        </div>
+
+        <!-- 1. Main Project Application -->
+        <section class="category-group" data-group="app">
+            <div class="category-header">
+                <h2 class="category-title">1. 本プロジェクト</h2>
+                <span class="category-count">1 コンポーネント</span>
+            </div>
+            <div class="cards-grid">
+                <div class="card" data-keywords="ponlet tailsend p2p transfer file application mit mat2uken">
+                    <div class="card-top">
+                        <div class="card-header-row">
+                            <span class="component-name">Ponlet / TailSend</span>
+                            <span class="license-badge badge-mit">MIT</span>
+                        </div>
+                        <div class="copyright-line">Copyright (c) 2026 mat2uken / contributors</div>
+                        <p class="component-desc">
+                            WebAssembly / WebRTC / WireGuard を活用した高速かつプライバシー重視のP2P暗号化ファイル転送ツール。ブラウザ間およびネイティブデバイス間でのダイレクト転送を提供します。
+                        </p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="role-tag">Core Application</span>
+                        <a href="https://github.com/mat2uken/tailcatsend" target="_blank" rel="noopener noreferrer">リポジトリ &rarr;</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 2. UI Toolkit -->
+        <section class="category-group" data-group="ui">
+            <div class="category-header">
+                <h2 class="category-title">2. UIツールキット</h2>
+                <span class="category-count">1 コンポーネント</span>
+            </div>
+            <div class="cards-grid">
+                <div class="card" data-keywords="slint ui toolkit royalty-free gui sixtyfps web desktop mobile">
+                    <div class="card-top">
+                        <div class="card-header-row">
+                            <span class="component-name">Slint UI Toolkit</span>
+                            <span class="license-badge badge-slint">Slint Royalty-Free</span>
+                        </div>
+                        <div class="copyright-line">Copyright (c) SixtyFPS GmbH &lt;info@slint.dev&gt;</div>
+                        <p class="component-desc">
+                            RustネイティブおよびWebAssemblyに対応した次世代GUIフレームワーク。宣言的マークアップにより滑らかでレスポンシブなユーザーインターフェースを単一のコードベースから実現します。
+                        </p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="role-tag">UI Framework</span>
+                        <a href="https://slint.dev" target="_blank" rel="noopener noreferrer">slint.dev &rarr;</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 3. Networking & Transport Core -->
+        <section class="category-group" data-group="network">
+            <div class="category-header">
+                <h2 class="category-title">3. ネットワーキング &amp; 通信コア</h2>
+                <span class="category-count">5 コンポーネント</span>
+            </div>
+            <div class="cards-grid">
+                <!-- Tailcat -->
+                <div class="card" data-keywords="tailcat tailscale p2p transport derp wireguard bsd">
+                    <div class="card-top">
+                        <div class="card-header-row">
+                            <span class="component-name">Tailcat</span>
+                            <span class="license-badge badge-bsd">BSD-3-Clause</span>
+                        </div>
+                        <div class="copyright-line">Copyright (c) 2020 Tailscale Inc &amp; contributors</div>
+                        <p class="component-desc">
+                            Tailscale / WireGuard の技術をベースにした軽量P2Pトランスポートレイヤー。暗号化接続およびDERPリレーを用いたNAT越えを支援します。
+                        </p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="role-tag">P2P Transport</span>
+                        <a href="https://github.com/tailscale/tailcat" target="_blank" rel="noopener noreferrer">リポジトリ &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- Tailscale Networking Stack -->
+                <div class="card" data-keywords="tailscale networking stack tailscale.com mesh netstack bsd">
+                    <div class="card-top">
+                        <div class="card-header-row">
+                            <span class="component-name">Tailscale Networking Stack</span>
+                            <span class="license-badge badge-bsd">BSD-3-Clause</span>
+                        </div>
+                        <div class="copyright-line">Copyright (c) Tailscale Inc</div>
+                        <p class="component-desc">
+                            セキュアなメッシュネットワーク、キー交換、接続ネゴシエーション、DERPプロトコルハンドリングを提供するTailscaleコアスタック。
+                        </p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="role-tag">Mesh Core</span>
+                        <a href="https://github.com/tailscale/tailscale" target="_blank" rel="noopener noreferrer">リポジトリ &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- wireguard-go -->
+                <div class="card" data-keywords="wireguard-go wireguard tunnel encryption mit">
+                    <div class="card-top">
+                        <div class="card-header-row">
+                            <span class="component-name">wireguard-go</span>
+                            <span class="license-badge badge-mit">MIT</span>
+                        </div>
+                        <div class="copyright-line">Copyright (c) WireGuard LLC / Tailscale Inc</div>
+                        <p class="component-desc">
+                            暗号化トンネリングプロトコル WireGuard の高機能・ポータブルなGo言語実装。セキュアなエンドツーエンドパケット転送を担います。
+                        </p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="role-tag">VPN Tunnel</span>
+                        <a href="https://github.com/tailscale/wireguard-go" target="_blank" rel="noopener noreferrer">リポジトリ &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- gVisor Netstack -->
+                <div class="card" data-keywords="gvisor netstack google tcp ip userspace apache">
+                    <div class="card-top">
+                        <div class="card-header-row">
+                            <span class="component-name">gVisor Netstack</span>
+                            <span class="license-badge badge-apache">Apache-2.0</span>
+                        </div>
+                        <div class="copyright-line">Copyright (c) Google LLC</div>
+                        <p class="component-desc">
+                            Googleが開発するユーザースペースTCP/IPネットワークスタック。仮想環境やブラウザ上でも独立した高機能ネットワークスタックを提供します。
+                        </p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="role-tag">Userspace TCP/IP</span>
+                        <a href="https://github.com/google/gvisor" target="_blank" rel="noopener noreferrer">リポジトリ &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- Pion WebRTC -->
+                <div class="card" data-keywords="pion webrtc datachannel datachannels p2p mit">
+                    <div class="card-top">
+                        <div class="card-header-row">
+                            <span class="component-name">Pion WebRTC</span>
+                            <span class="license-badge badge-mit">MIT</span>
+                        </div>
+                        <div class="copyright-line">Copyright (c) 2018 Pion and contributors</div>
+                        <p class="component-desc">
+                            ピュアGoで構築されたWebRTC実装 (`pion/webrtc`, `pion/datachannel`)。Webブラウザと直接P2Pデータチャネルを確立し、直接的な低遅延データ通信を実現します。
+                        </p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="role-tag">WebRTC Core</span>
+                        <a href="https://github.com/pion/webrtc" target="_blank" rel="noopener noreferrer">リポジトリ &rarr;</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 4. Rust Crates -->
+        <section class="category-group" data-group="rust">
+            <div class="category-header">
+                <h2 class="category-title">4. 主要 Rust クレート</h2>
+                <span class="category-count">9 グループ / ライブラリ</span>
+            </div>
+            <div class="cards-grid">
+                <!-- tokio -->
+                <div class="card" data-keywords="tokio async runtime rust mit">
+                    <div class="card-top">
+                        <div class="card-header-row">
+                            <span class="component-name">tokio</span>
+                            <span class="license-badge badge-mit">MIT</span>
+                        </div>
+                        <div class="copyright-line">Copyright (c) Tokio Contributors</div>
+                        <p class="component-desc">
+                            高並行性と低遅延を誇る非同期ランタイム。マルチプラットフォームでのI/Oタスク、タイマー、チャネル通信を効率的に処理します。
+                        </p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="role-tag">Async Runtime</span>
+                        <a href="https://crates.io/crates/tokio" target="_blank" rel="noopener noreferrer">crates.io &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- serde -->
+                <div class="card" data-keywords="serde serde_json serde_bytes serialization json mit apache">
+                    <div class="card-top">
+                        <div class="card-header-row">
+                            <span class="component-name">serde / serde_json / serde_bytes</span>
+                            <span class="license-badge badge-mit">MIT / Apache-2.0</span>
+                        </div>
+                        <div class="copyright-line">Copyright (c) Erick Tryzelaar and David Tolnay</div>
+                        <p class="component-desc">
+                            Rustのエコシステムを支える標準的なシリアライズ / デシリアライズ基盤。型安全なJSON変換およびバイナリデータ処理を提供します。
+                        </p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="role-tag">Serialization</span>
+                        <a href="https://crates.io/crates/serde" target="_blank" rel="noopener noreferrer">crates.io &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- ciborium -->
+                <div class="card" data-keywords="ciborium cbor binary serialization apache">
+                    <div class="card-top">
+                        <div class="card-header-row">
+                            <span class="component-name">ciborium</span>
+                            <span class="license-badge badge-apache">Apache-2.0</span>
+                        </div>
+                        <div class="copyright-line">Copyright (c) Enarx Contributors</div>
+                        <p class="component-desc">
+                            RFC 8949に準拠したCBOR（Concise Binary Object Representation）エンコーダ / デコーダ。軽量・高効率なバイナリシリアライズを実現。
+                        </p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="role-tag">CBOR Engine</span>
+                        <a href="https://crates.io/crates/ciborium" target="_blank" rel="noopener noreferrer">crates.io &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- sha2 & hmac -->
+                <div class="card" data-keywords="sha2 hmac rustcrypto hash authentication crypto mit apache">
+                    <div class="card-top">
+                        <div class="card-header-row">
+                            <span class="component-name">sha2 / hmac</span>
+                            <span class="license-badge badge-mit">MIT / Apache-2.0</span>
+                        </div>
+                        <div class="copyright-line">RustCrypto Developers</div>
+                        <p class="component-desc">
+                            暗号学的ハッシュ関数 SHA-256 および HMAC メッセージ認証コード。安全なペイロード検証とハッシュツリー生成に使用されます。
+                        </p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="role-tag">Cryptography</span>
+                        <a href="https://github.com/RustCrypto" target="_blank" rel="noopener noreferrer">RustCrypto &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- subtle -->
+                <div class="card" data-keywords="subtle constant-time timing attacks security crypto bsd">
+                    <div class="card-top">
+                        <div class="card-header-row">
+                            <span class="component-name">subtle</span>
+                            <span class="license-badge badge-bsd">BSD-3-Clause</span>
+                        </div>
+                        <div class="copyright-line">Copyright (c) 2016-2019 Isis Lovecruft, Henry de Valence</div>
+                        <p class="component-desc">
+                            タイミング攻撃（サイドチャネル攻撃）を防ぐためのピュアRust製コンスタントタイム（定数時間）等価性検証ライブラリ。
+                        </p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="role-tag">Constant-Time Sec</span>
+                        <a href="https://crates.io/crates/subtle" target="_blank" rel="noopener noreferrer">crates.io &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- base64 -->
+                <div class="card" data-keywords="base64 encoding decoding mit apache">
+                    <div class="card-top">
+                        <div class="card-header-row">
+                            <span class="component-name">base64</span>
+                            <span class="license-badge badge-mit">MIT / Apache-2.0</span>
+                        </div>
+                        <div class="copyright-line">Copyright (c) 2015 Alice Maz, 2017-2023 Marshall Pierce</div>
+                        <p class="component-desc">
+                            高速かつ安全なBase64エンコード / デコードライブラリ。QRコードやURL共有用トークン文字列の相互変換に使用されます。
+                        </p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="role-tag">Encoding</span>
+                        <a href="https://crates.io/crates/base64" target="_blank" rel="noopener noreferrer">crates.io &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- qrcode & image -->
+                <div class="card" data-keywords="qrcode image qr matrix png generator mit apache">
+                    <div class="card-top">
+                        <div class="card-header-row">
+                            <span class="component-name">qrcode / image</span>
+                            <span class="license-badge badge-mit">MIT / Apache-2.0</span>
+                        </div>
+                        <div class="copyright-line">qrcode &amp; image crate developers</div>
+                        <p class="component-desc">
+                            デバイス間ペアリング用のQRコードマトリクス生成と、PNG等のピクセル画像バッファ変換および描画サポート。
+                        </p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="role-tag">QR &amp; Image</span>
+                        <a href="https://crates.io/crates/qrcode" target="_blank" rel="noopener noreferrer">crates.io &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- wasm-bindgen ecosystem -->
+                <div class="card" data-keywords="wasm-bindgen web-sys js-sys wasm webassembly dom mit apache">
+                    <div class="card-top">
+                        <div class="card-header-row">
+                            <span class="component-name">wasm-bindgen / web-sys / js-sys</span>
+                            <span class="license-badge badge-mit">MIT / Apache-2.0</span>
+                        </div>
+                        <div class="copyright-line">The wasm-bindgen Developers</div>
+                        <p class="component-desc">
+                            RustとJavaScript / ブラウザWeb API（ReadableStream, File, Clipboard, WebRTC等）を安全かつ高速に連携させるWebAssemblyバインディング基盤。
+                        </p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="role-tag">Wasm Interop</span>
+                        <a href="https://github.com/rustwasm/wasm-bindgen" target="_blank" rel="noopener noreferrer">GitHub &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- utilities -->
+                <div class="card" data-keywords="getrandom thiserror async-trait bytes log utilities mit apache">
+                    <div class="card-top">
+                        <div class="card-header-row">
+                            <span class="component-name">getrandom / thiserror / async-trait / bytes / log</span>
+                            <span class="license-badge badge-mit">MIT / Apache-2.0</span>
+                        </div>
+                        <div class="copyright-line">Respective crate authors and contributors</div>
+                        <p class="component-desc">
+                            暗号乱数生成（getrandom）、宣言的エラーハンドリング（thiserror）、非同期トレイト（async-trait）、バイトバッファ管理（bytes）、ロギング基盤（log）。
+                        </p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="role-tag">Utility Crates</span>
+                        <a href="https://crates.io" target="_blank" rel="noopener noreferrer">crates.io &rarr;</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 5. Go Modules -->
+        <section class="category-group" data-group="go">
+            <div class="category-header">
+                <h2 class="category-title">5. 主要 Go モジュール</h2>
+                <span class="category-count">4 モジュール</span>
+            </div>
+            <div class="cards-grid">
+                <!-- golang.org/x/* -->
+                <div class="card" data-keywords="golang.org/x/crypto golang.org/x/net golang.org/x/sync golang.org/x/sys go bsd">
+                    <div class="card-top">
+                        <div class="card-header-row">
+                            <span class="component-name">golang.org/x (crypto, net, sync, sys)</span>
+                            <span class="license-badge badge-bsd">BSD-3-Clause</span>
+                        </div>
+                        <div class="copyright-line">Copyright (c) 2009 The Go Authors</div>
+                        <p class="component-desc">
+                            Go言語公式の準標準拡張パッケージ群。最新の暗号化プリミティブ、ネットワーク拡張、並行同期制御、低レイヤーOSシステムコールインターフェースを提供します。
+                        </p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="role-tag">Go Standard Extensions</span>
+                        <a href="https://pkg.go.dev/golang.org/x" target="_blank" rel="noopener noreferrer">pkg.go.dev &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- coder/websocket -->
+                <div class="card" data-keywords="coder websocket coder/websocket ws apache">
+                    <div class="card-top">
+                        <div class="card-header-row">
+                            <span class="component-name">github.com/coder/websocket</span>
+                            <span class="license-badge badge-apache">Apache-2.0</span>
+                        </div>
+                        <div class="copyright-line">Copyright (c) 2019 Coder Technologies Inc</div>
+                        <p class="component-desc">
+                            外部依存ゼロで極めて高スループット・低遅延なGo言語向けWebSocketライブラリ。リレー通信やシグナリング接続の確立に使用されます。
+                        </p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="role-tag">WebSocket Client</span>
+                        <a href="https://github.com/coder/websocket" target="_blank" rel="noopener noreferrer">GitHub &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- fxamacker/cbor/v2 -->
+                <div class="card" data-keywords="fxamacker cbor binary encoding go mit">
+                    <div class="card-top">
+                        <div class="card-header-row">
+                            <span class="component-name">github.com/fxamacker/cbor/v2</span>
+                            <span class="license-badge badge-mit">MIT</span>
+                        </div>
+                        <div class="copyright-line">Copyright (c) 2019 Faye Amacker</div>
+                        <p class="component-desc">
+                            RFC 8949およびRFC 7049に準拠したセキュアで高速なGo向けCBORライブラリ。Rust側との型互換なバイナリ通信フォーマットを保証します。
+                        </p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="role-tag">Go CBOR</span>
+                        <a href="https://github.com/fxamacker/cbor" target="_blank" rel="noopener noreferrer">GitHub &rarr;</a>
+                    </div>
+                </div>
+
+                <!-- google/uuid -->
+                <div class="card" data-keywords="google uuid guid bsd">
+                    <div class="card-top">
+                        <div class="card-header-row">
+                            <span class="component-name">github.com/google/uuid</span>
+                            <span class="license-badge badge-bsd">BSD-3-Clause</span>
+                        </div>
+                        <div class="copyright-line">Copyright (c) 2009, 2014 Google Inc.</div>
+                        <p class="component-desc">
+                            RFC 4122準拠のUUID（バージョン4等）を生成・検証するGoogle公式Goパッケージ。セッションおよびピア識別子の一意性を保証します。
+                        </p>
+                    </div>
+                    <div class="card-bottom">
+                        <span class="role-tag">UUID Identifier</span>
+                        <a href="https://github.com/google/uuid" target="_blank" rel="noopener noreferrer">GitHub &rarr;</a>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 6. Full License Texts Accordion -->
+        <section class="license-texts-section" id="license-texts">
+            <h2 class="section-heading">ライセンス本文 (Full License Texts)</h2>
+            <p class="section-desc">
+                各コンポーネントに適用されている主要オープンソースライセンスの全文です。クリックして展開してご覧いただけます。
+            </p>
+
+            <!-- Slint Royalty-Free License -->
+            <details class="accordion-item" id="license-slint">
+                <summary>
+                    <span>Slint Royalty-free Desktop, Mobile, and Web Applications License Version 2.0</span>
+                </summary>
+                <pre class="license-pre">Slint Royalty-free Desktop, Mobile, and Web Applications License
+Version 2.0
+
+Preamble
+
+Slint is a toolkit that can be used to build user interfaces for applications. Slint (hereafter referred to as Software) is made available under different licenses by SixtyFPS GmbH incorporated at Oranienburger Str. 44, 16540 Hohen Neuendorf, Germany (SixtyFPS). The Slint Royalty-free Desktop, Mobile, and Web Applications License is suitable for those who develop desktop, mobile, or web applications and do not want to use open source components under copyleft licenses.
+
+1. Grant of Rights
+
+SixtyFPS hereby grants You a world-wide, royalty-free, non-exclusive license to use, reproduce, make available, modify, display, perform, distribute the Software as part of a Desktop, Mobile, or Web Application.
+
+A Desktop Application is a computer program that is designed to run on a general-purpose computer (PC or notebook), typically installed and executed locally on the computer's operating system.
+
+A Mobile Application is a computer program that is designed to run on a general-purpose mobile computer (mobile phone or tablet), typically installed and executed locally on the computer's operating system.
+
+A Web Application is a computer program that is designed to run in the sandbox environment provided by a web browser.
+
+Desktop Application, Mobile Application, and Web Application are hereafter referred to as Application.
+
+2. License Conditions - Attribution
+
+You may distribute the Software as part of an Application, modified or unmodified, provided that You do either of the following:
+
+(a) Display the AboutSlint widget in an "About" screen or dialog that is accessible from the top level menu of the Application. In the absence of such a screen or dialog, display the widget in the "Splash Screen" of the Application.
+
+(b) Display the Slint attribution badge on a public webpage, preferably where the binaries of your Application can be downloaded from, in such a way that it can be easily found by any visitor to that page.
+
+3. Limitations
+
+The License does not permit to distribute or make the Software publicly available alone and without integration into an Application. For this purpose you may use the Software under the GNU General Public License, version 3.
+
+The License does not permit the use of the Software within Embedded Systems. An Embedded System is a computer system designed to perform a specific task within a larger mechanical or electrical system.
+
+The License does not permit the distribution of Application that exposes the APIs, in part or in total, of the Software.
+
+You may not remove or alter any license notices (including copyright notices, disclaimers of warranty, or limitations of liability) contained within the source code form of the Software.
+
+4. Warranty and Liability
+
+SixtyFPS is only liable for conflicting rights of third parties if SixtyFPS was aware of these rights without informing you. Unless required by applicable law or agreed to in writing, SixtyFPS provides the Software on an "as is" basis, without warranties or conditions of any kind, either express or implied, including, without limitation, any warranties or conditions of merchantability, or fitness for a particular purpose.
+
+Unless required by law, SixtyFPS won't be liable for any direct, indirect, incidental, or consequential damages arising in any way out of the use of the Software.</pre>
+            </details>
+
+            <!-- MIT License -->
+            <details class="accordion-item" id="license-mit">
+                <summary>
+                    <span>The MIT License (MIT)</span>
+                </summary>
+                <pre class="license-pre">MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.</pre>
+            </details>
+
+            <!-- BSD 3-Clause License -->
+            <details class="accordion-item" id="license-bsd">
+                <summary>
+                    <span>BSD 3-Clause "New" or "Revised" License</span>
+                </summary>
+                <pre class="license-pre">BSD 3-Clause License
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.</pre>
+            </details>
+
+            <!-- Apache License 2.0 -->
+            <details class="accordion-item" id="license-apache">
+                <summary>
+                    <span>Apache License, Version 2.0</span>
+                </summary>
+                <pre class="license-pre">                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS</pre>
+            </details>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-inner">
+            <div class="slint-footer-attribution">
+                <span>Built with</span>
+                <a href="https://slint.dev" target="_blank" rel="noopener noreferrer" style="color: var(--primary); font-weight: 600;">Slint (https://slint.dev)</a>
+            </div>
+            <div class="footer-links">
+                <a href="index.html">ホーム</a>
+                <a href="privacy.html">プライバシーポリシー</a>
+                <a href="licenses.html">オープンソースライセンス</a>
+                <a href="https://github.com/mat2uken/tailcatsend" target="_blank" rel="noopener noreferrer">GitHub</a>
+            </div>
+            <div class="footer-copy">
+                &copy; 2026 mat2uken / Ponlet Contributors. Released under the MIT License.
+            </div>
+        </div>
+    </footer>
+
+    <!-- Interactive Filtering Script -->
+    <script>
+        (function() {
+            const searchInput = document.getElementById('searchInput');
+            const tabButtons = document.querySelectorAll('.tab-btn');
+            const groups = document.querySelectorAll('.category-group');
+            const cards = document.querySelectorAll('.card');
+            const noResults = document.getElementById('no-results');
+
+            let currentCategory = 'all';
+            let currentSearchTerm = '';
+
+            function updateFilter() {
+                let totalVisible = 0;
+
+                groups.forEach(group => {
+                    const groupCategory = group.getAttribute('data-group');
+                    const categoryMatches = (currentCategory === 'all' || currentCategory === groupCategory);
+
+                    let visibleInGroup = 0;
+                    const groupCards = group.querySelectorAll('.card');
+
+                    groupCards.forEach(card => {
+                        const keywords = (card.getAttribute('data-keywords') || '').toLowerCase();
+                        const textContent = card.textContent.toLowerCase();
+                        const searchMatches = !currentSearchTerm || 
+                                              keywords.includes(currentSearchTerm) || 
+                                              textContent.includes(currentSearchTerm);
+
+                        if (categoryMatches && searchMatches) {
+                            card.classList.remove('hidden');
+                            visibleInGroup++;
+                            totalVisible++;
+                        } else {
+                            card.classList.add('hidden');
+                        }
+                    });
+
+                    if (visibleInGroup > 0) {
+                        group.classList.remove('hidden');
+                    } else {
+                        group.classList.add('hidden');
+                    }
+                });
+
+                if (totalVisible === 0) {
+                    noResults.style.display = 'block';
+                } else {
+                    noResults.style.display = 'none';
+                }
+            }
+
+            // Tab Switching
+            tabButtons.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    tabButtons.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    currentCategory = btn.getAttribute('data-category');
+                    updateFilter();
+                });
+            });
+
+            // Search Input with Debounce
+            let debounceTimer;
+            searchInput.addEventListener('input', (e) => {
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    currentSearchTerm = e.target.value.trim().toLowerCase();
+                    updateFilter();
+                }, 150);
+            });
+        })();
+    </script>
+</body>
+</html>

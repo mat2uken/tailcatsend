@@ -13,8 +13,9 @@ Android 向け Ponlet アプリの構成、署名キーストア情報、およ�
 | **UI フレームワーク** | Slint (Android NativeActivity / FemtovG レンダラー) |
 | **P2P 通信エンジン** | Go Tailcat (WireGuard / P2P Mesh) + Tokio |
 | **対応アーキテクチャ** | `arm64-v8a` |
-| **最小 SDK / ターゲット SDK** | minSdk 31 (Android 12+) / targetSdk 34 (Android 14) |
+| **最小 SDK / ターゲット SDK** | minSdk 31 (Android 12+) / targetSdk 36 (Android 16) |
 | **署名形式** | AAB (Android App Bundle) / v1, v2, v3 署名 |
+| **バージョンコード採番形式** | `YYYYMMDDNN`（当日ビルドごとに自動インクリメント） |
 
 ---
 
@@ -40,11 +41,12 @@ Android 向け Ponlet アプリの構成、署名キーストア情報、およ�
 
 Google Play の仕様上、新規アプリ登録時は API 経由でのバイナリアップロードが制限されています。**初回のみ Google Play Console の Web UI から手動で AAB をアップロード** し、パッケージ名と署名鍵の紐付けを完了させる必要があります。
 
-### 最新バイナリ情報 (v1.0.2)
-- **対象バージョン**: `1.0.2` (Version Code: 7)
-- **ビルド実行**: GitHub Actions [Run #34178656309](https://github.com/mat2uken/tailcatsend/actions/runs/34178656309)
+### 最新バイナリ情報 (targetSdk 36 対応)
+- **対象バージョン**: `1.0.2`
+- **targetSdk**: `36` (Google Play 必須要件に適合)
+- **バージョンコード**: `YYYYMMDDNN` 形式（例: `2026090801`）
 - **AAB ファイル配置先**:
-  - `~/Desktop/ponlet-release.aab`（最新 v1.0.2 バイナリを配置済み、約 35 MB）
+  - `~/Desktop/ponlet-release.aab`（最新ビルド完了後に配置）
   - リポジトリ内: `build/dist/ponlet-release.aab`
   - GitHub Actions アーティファクト: `Ponlet-Android-AAB`
 
@@ -74,12 +76,12 @@ Google Play Console の本人確認が完了次第、以下の手順を順番に
 
 ### Step 3: ストア掲載情報の必須項目入力（初期セットアップ）
 Google Play ダッシュボードの「アプリのセットアップ」に表示される以下の必須項目を入力します：
-- **プライバシーポリシー**: URL を入力（Web サイトまたは GitHub Pages 等）
+- **プライバシーポリシー**: `https://mktailcatsend.pages.dev/privacy.html` を入力（リポジトリの `dist/privacy.html` にて公開）
 - **アプリのアクセス権**: 「特別なアクセス権なしで利用可能」
 - **広告**: 「アプリに広告は含まれていません」
 - **コンテンツのレーティング**: アンケートに回答してレーティングを取得
-- **ターゲット層**: 18歳以上（または対象年齢）
-- **データセーフティ**: データ収集に関する設問に回答（アカウント情報、ファイル送受信等）
+- **ターゲット層**: 18歳以上（または全年齢）
+- **データセーフティ**: データ収集に関する設問に回答（P2P 直接通信のためサーバーでの個人情報・ファイル保存は一切行わない「ゼロデータ保持」方針）
 
 ### Step 4: Google Play Developer API とサービスアカウントのセットアップ
 GitHub Actions から完全自動でデプロイできるようにするための設定です。

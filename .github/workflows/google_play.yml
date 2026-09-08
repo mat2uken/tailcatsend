@@ -60,6 +60,11 @@ jobs:
           go-version: '1.24'
           cache-dependency-path: tailcat/go.sum
 
+      - name: Setup Android SDK Platforms
+        run: |
+          yes | "$ANDROID_HOME"/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          "$ANDROID_HOME"/cmdline-tools/latest/bin/sdkmanager "platforms;android-36" "build-tools;36.0.0" || true
+
       - name: Setup Android NDK
         uses: nttld/setup-ndk@v1
         with:
@@ -112,6 +117,8 @@ jobs:
           ls -lh "$JNI_DIR"
 
       - name: Configure Version Codes & Release Parameters
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           VERSION_NAME="${{ github.event.inputs.version_name }}"
           if [ -z "$VERSION_NAME" ]; then
@@ -124,7 +131,14 @@ jobs:
 
           VERSION_CODE="${{ github.event.inputs.version_code }}"
           if [ -z "$VERSION_CODE" ]; then
-            VERSION_CODE="${{ github.run_number }}"
+            TODAY_YMD=$(TZ='Asia/Tokyo' date +'%Y%m%d')
+            TODAY_ISO=$(TZ='Asia/Tokyo' date +'%Y-%m-%d')
+            RUN_COUNT=$(gh run list --workflow=google_play.yml --created=">=$TODAY_ISO" --json databaseId -q '. | length' 2>/dev/null || echo "0")
+            if [ -z "$RUN_COUNT" ] || [ "$RUN_COUNT" -le 0 ]; then
+              RUN_COUNT=1
+            fi
+            NN=$(printf "%02d" "$RUN_COUNT")
+            VERSION_CODE="${TODAY_YMD}${NN}"
           fi
 
           TRACK="${{ github.event.inputs.track || 'internal' }}"
@@ -138,7 +152,7 @@ jobs:
             echo "TRACK=$TRACK"
           } >> "$GITHUB_ENV"
 
-          echo "Building Ponlet version: $VERSION_NAME (Code: $VERSION_CODE, Track: $TRACK)"
+          echo "Building Ponlet version: $VERSION_NAME (VersionCode: $VERSION_CODE, Track: $TRACK)"
 
           if [ -n "$PLAY_CONFIG_JSON" ]; then
             echo "Google Play service account JSON secret is configured."

@@ -127,6 +127,8 @@ jobs:
           cargo build -p tailsend-ios --target aarch64-apple-ios --release
 
       - name: Configure App Version & Build Number
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           MARKETING_VERSION="${{ github.event.inputs.version || '1.0.0' }}"
           if [ -n "${{ github.ref_name }}" ] && [[ "${{ github.ref_name }}" =~ ^v ]]; then
@@ -135,7 +137,14 @@ jobs:
 
           BUILD_NUMBER="${{ github.event.inputs.build_number }}"
           if [ -z "$BUILD_NUMBER" ]; then
-            BUILD_NUMBER="${{ github.run_number }}"
+            TODAY_YMD=$(TZ='Asia/Tokyo' date +'%Y%m%d')
+            TODAY_ISO=$(TZ='Asia/Tokyo' date +'%Y-%m-%d')
+            RUN_COUNT=$(gh run list --workflow=testflight.yml --created=">=$TODAY_ISO" --json databaseId -q '. | length' 2>/dev/null || echo "0")
+            if [ -z "$RUN_COUNT" ] || [ "$RUN_COUNT" -le 0 ]; then
+              RUN_COUNT=1
+            fi
+            NN=$(printf "%02d" "$RUN_COUNT")
+            BUILD_NUMBER="${TODAY_YMD}${NN}"
           fi
 
           echo "Setting Version: $MARKETING_VERSION (Build: $BUILD_NUMBER)"
@@ -177,8 +186,8 @@ jobs:
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
         run: |
-          mkdir -p ~/.appstoreconnect/private_keys
-          echo "$APP_STORE_CONNECT_PRIVATE_KEY" > ~/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          echo "$APP_STORE_CONNECT_PRIVATE_KEY" > "$HOME/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
 
           echo "🚀 Uploading TailSend.ipa to App Store Connect / TestFlight..."
           xcrun altool --upload-app \
