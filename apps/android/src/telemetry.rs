@@ -8,11 +8,35 @@
 
 use std::sync::OnceLock;
 
-use jni::objects::{JObject, JString, JValue, JValueOwned};
+use jni::objects::{Global, JClass, JObject, JString, JValue, JValueOwned};
+use jni::refs::LoaderContext;
 use jni::{jni_sig, jni_str, Env, JavaVM};
 use tailsend_telemetry::TelemetryBackend;
 
 static JVM: OnceLock<JavaVM> = OnceLock::new();
+static BRIDGE_CLASS: OnceLock<Global<JClass>> = OnceLock::new();
+
+/// Finds `TelemetryBridge` through the APK classloader. A plain `FindClass`
+/// from a native thread resolves against the system classloader, which cannot
+/// see APK classes on a real device, so the class is loaded once through the
+/// activity's loader (`LoaderContext::FromObject`) and cached as a global ref.
+fn find_bridge_class<'local>(
+    env: &mut Env<'local>,
+    loader_obj: Option<&JObject<'local>>,
+) -> jni::errors::Result<&'static Global<JClass<'static>>> {
+    if let Some(class) = BRIDGE_CLASS.get() {
+        return Ok(class);
+    }
+    let context = match loader_obj {
+        Some(obj) => LoaderContext::FromObject(obj),
+        None => LoaderContext::None,
+    };
+    let class: JClass<'local> =
+        context.load_class(env, jni_str!("jp.yasagure.ponlet.TelemetryBridge"), true)?;
+    let global = env.new_global_ref(class)?;
+    let _ = BRIDGE_CLASS.set(global);
+    Ok(BRIDGE_CLASS.get().unwrap())
+}
 
 pub struct AndroidTelemetryBackend;
 
@@ -31,9 +55,9 @@ pub fn init(app: &android_activity::AndroidApp) -> bool {
     let result: Result<bool, jni::errors::Error> = vm.attach_current_thread(
         |env: &mut Env| -> jni::errors::Result<bool> {
             let activity = unsafe { JObject::from_raw(env, activity_raw) };
-            let class = env.find_class(jni_str!("jp/yasagure/ponlet/TelemetryBridge"))?;
+            let class = find_bridge_class(env, Some(&activity))?;
             let ret = env.call_static_method(
-                &class,
+                class,
                 jni_str!("initAndEnabled"),
                 jni_sig!("(Landroid/content/Context;)Z"),
                 &[JValue::Object(&activity)],
@@ -63,9 +87,9 @@ impl AndroidTelemetryBackend {
         let vm = JVM.get()?;
         let result: Result<Option<String>, jni::errors::Error> =
             vm.attach_current_thread(|env: &mut Env| -> jni::errors::Result<Option<String>> {
-                let class = env.find_class(jni_str!("jp/yasagure/ponlet/TelemetryBridge"))?;
+                let class = find_bridge_class(env, None)?;
                 let ret = env.call_static_method(
-                    &class,
+                    class,
                     jni_str!("osVersion"),
                     jni_sig!("()Ljava/lang/String;"),
                     &[],
@@ -79,9 +103,9 @@ impl AndroidTelemetryBackend {
         let vm = JVM.get()?;
         let result: Result<Option<String>, jni::errors::Error> =
             vm.attach_current_thread(|env: &mut Env| -> jni::errors::Result<Option<String>> {
-                let class = env.find_class(jni_str!("jp/yasagure/ponlet/TelemetryBridge"))?;
+                let class = find_bridge_class(env, None)?;
                 let ret = env.call_static_method(
-                    &class,
+                    class,
                     jni_str!("language"),
                     jni_sig!("()Ljava/lang/String;"),
                     &[],
@@ -111,9 +135,9 @@ impl TelemetryBackend for AndroidTelemetryBackend {
             vm.attach_current_thread(|env: &mut Env| -> jni::errors::Result<()> {
                 let jname = env.new_string(&name)?;
                 let jjson = env.new_string(&json)?;
-                let class = env.find_class(jni_str!("jp/yasagure/ponlet/TelemetryBridge"))?;
+                let class = find_bridge_class(env, None)?;
                 env.call_static_method(
-                    &class,
+                class,
                     jni_str!("logEvent"),
                     jni_sig!("(Ljava/lang/String;Ljava/lang/String;)V"),
                     &[JValue::Object(&jname), JValue::Object(&jjson)],
@@ -133,9 +157,9 @@ impl TelemetryBackend for AndroidTelemetryBackend {
             vm.attach_current_thread(|env: &mut Env| -> jni::errors::Result<()> {
                 let jname = env.new_string(&name)?;
                 let jvalue = env.new_string(&value)?;
-                let class = env.find_class(jni_str!("jp/yasagure/ponlet/TelemetryBridge"))?;
+                let class = find_bridge_class(env, None)?;
                 env.call_static_method(
-                    &class,
+                class,
                     jni_str!("setUserProperty"),
                     jni_sig!("(Ljava/lang/String;Ljava/lang/String;)V"),
                     &[JValue::Object(&jname), JValue::Object(&jvalue)],
@@ -151,9 +175,9 @@ impl TelemetryBackend for AndroidTelemetryBackend {
         let Some(vm) = JVM.get() else { return };
         let result: Result<(), jni::errors::Error> =
             vm.attach_current_thread(|env: &mut Env| -> jni::errors::Result<()> {
-                let class = env.find_class(jni_str!("jp/yasagure/ponlet/TelemetryBridge"))?;
+                let class = find_bridge_class(env, None)?;
                 env.call_static_method(
-                    &class,
+                class,
                     jni_str!("setEnabled"),
                     jni_sig!("(Z)V"),
                     &[JValue::Bool(enabled)],
@@ -171,9 +195,9 @@ impl TelemetryBackend for AndroidTelemetryBackend {
         let result: Result<Option<String>, jni::errors::Error> =
             vm.attach_current_thread(|env: &mut Env| -> jni::errors::Result<Option<String>> {
                 let jkey = env.new_string(&key)?;
-                let class = env.find_class(jni_str!("jp/yasagure/ponlet/TelemetryBridge"))?;
+                let class = find_bridge_class(env, None)?;
                 let ret = env.call_static_method(
-                    &class,
+                    class,
                     jni_str!("remoteString"),
                     jni_sig!("(Ljava/lang/String;)Ljava/lang/String;"),
                     &[JValue::Object(&jkey)],
