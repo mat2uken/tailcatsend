@@ -216,6 +216,10 @@
             opacity: 0.92;
         }
     </style>
+    <!-- Telemetry bridge must load before the wasm module (window.__tailcatTelemetry).
+         telemetry.js is an ES module that imports the Firebase SDK from gstatic. -->
+    <script src="./assets/firebase-config.js?v=20260908_2"></script>
+    <script type="module" src="./assets/telemetry.js?v=20260908_2"></script>
     <script src="./assets/wasm_exec.js?v=20260902_3"></script>
 </head>
 <body>
@@ -757,6 +761,7 @@
                             console.log(`⚡ [Ponlet Web] Incoming file: ${filename} (${totalBytes} bytes)`);
 
                             const totalMB = (totalBytes / 1048576).toFixed(1);
+                            window.telemetryEvent("transfer_started", { file_count: 1, transport: "direct", direction: "receive" });
                             if (window.updateSlintTransferState) {
                                 window.updateSlintTransferState(true, false, false, "ファイル受信中…", filename, `0.0 MB / ${totalMB} MB`, 0.0, "受信中…");
                             }
@@ -797,6 +802,7 @@
                 console.warn("[Ponlet Web] Stream read interrupted:", err);
                 if (totalBytes > 0 && receivedBytes < totalBytes) {
                     console.error(`[Ponlet Web] Incomplete file transfer: ${receivedBytes}/${totalBytes} bytes`);
+                    window.telemetryEvent("error", { category: "transport" });
                     if (window.updateSlintTransferState) {
                         window.updateSlintTransferState(false, false, false, "受信エラー: 転送が中断されました", filename, `${(receivedBytes / 1048576).toFixed(1)} MB / ${(totalBytes / 1048576).toFixed(1)} MB`, receivedBytes / totalBytes, "エラー");
                     }
@@ -826,6 +832,13 @@
                 }, 1500);
 
                 const finalMB = (receivedBytes / 1048576).toFixed(1);
+                window.telemetryEvent("transfer_completed", {
+                    file_count: 1,
+                    total_bytes: receivedBytes,
+                    duration_ms: Math.round(performance.now() - startTime),
+                    transport: "direct",
+                    direction: "receive"
+                });
                 if (window.updateSlintTransferState) {
                     window.updateSlintTransferState(false, true, false, "ファイル受信完了", filename, `${finalMB} MB`, 1.0, "保存完了");
                 }
@@ -1040,6 +1053,8 @@
             }
             console.log("[Ponlet Web] Streaming file via Tailcat P2P (Port 102) to " + addr + ":", file.name, file.size, "bytes");
             const totalMB = (file.size / 1048576).toFixed(1);
+            const transferStartTs = performance.now();
+            window.telemetryEvent("transfer_started", { file_count: 1, transport: "direct", direction: "send" });
 
             if (window.updateSlintTransferState) {
                 window.updateSlintTransferState(true, false, true, "接続中…", file.name, `0.0 MB / ${totalMB} MB`, 0.0, "接続中…");
@@ -1075,6 +1090,7 @@
                 for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
                     if (window.isTransferCancelled) {
                         console.log("[Ponlet Web] File transfer cancelled by user");
+                        window.telemetryEvent("transfer_cancelled", { reason: "user" });
                         break;
                     }
 
@@ -1127,12 +1143,19 @@
                 if (window.updateSlintTransferState) {
                     window.updateSlintTransferState(false, true, true, "ファイル送信完了", file.name, `${totalMB} MB`, 1.0, "送信完了");
                 }
+                window.telemetryEvent("transfer_completed", {
+                    file_count: 1,
+                    total_bytes: file.size,
+                    duration_ms: Math.round(performance.now() - transferStartTs),
+                    transport: "direct",
+                    direction: "send"
+                });
                 if (window.updateSlintStatusText) {
                     window.updateSlintStatusText(`${file.name} (${totalMB} MB) の送信が完了しました！`);
                 }
-                console.log("✅ [Ponlet Web] File successfully delivered to peer via Tailcat P2P!");
             } catch (err) {
                 console.error("[Ponlet Web] Failed to send file via Tailcat P2P:", err);
+                window.telemetryEvent("error", { category: "transport" });
                 alert("ファイル送信エラー: " + (err.message || err));
                 if (window.updateSlintTransferState) {
                     window.updateSlintTransferState(false, false, true, "送信エラー", file.name, "0.0 MB", 0.0, "エラー");
@@ -1196,7 +1219,24 @@
             try {
                 updateStatus("Launching Ponlet UI interface...");
                 const moduleUrl = "./pkg/tailsend_web.js";
-                const { default: initWasm, run_app } = await import(moduleUrl);
+                const { default: initWasm, run_app, telemetry_log_event } = await import(moduleUrl);
+
+                // Bridge for telemetry events that originate in this script
+                // (file transfer streams, app_end). Routed through the Rust
+                // telemetry layer so gating stays in one place.
+                window.telemetryEvent = function (name, params) {
+                    try {
+                        if (typeof telemetry_log_event === "function") {
+                            telemetry_log_event(name, JSON.stringify(params || {}));
+                        }
+                    } catch (e) { /* never break the app for telemetry */ }
+                };
+
+                const appStartTs = Date.now();
+                window.addEventListener("pagehide", () => {
+                    window.telemetryEvent("app_end", { session_duration_ms: Date.now() - appStartTs });
+                });
+
                 const slintBytes = await fetchAndDecompressWasmBytes("./pkg/tailsend_web_bg.wasm.gz");
                 await initWasm({ module_or_path: slintBytes });
 

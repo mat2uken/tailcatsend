@@ -580,9 +580,10 @@
                 <li><a href="#section-1">1. 基本理念とゼロデータ保持</a></li>
                 <li><a href="#section-2">2. 通信の仕組みとDERPリレー</a></li>
                 <li><a href="#section-3">3. 端末ローカルデータの管理</a></li>
-                <li><a href="#section-4">4. 第三者提供・トラッキングの排除</a></li>
-                <li><a href="#section-5">5. Google Play・法的準拠・子どものプライバシー</a></li>
-                <li><a href="#section-6">6. アプリ情報とお問い合わせ</a></li>
+                <li><a href="#section-4">4. テレメトリ(利用状況の送信)について</a></li>
+                <li><a href="#section-5">5. 第三者提供・トラッキングの排除</a></li>
+                <li><a href="#section-6">6. Google Play・法的準拠・子どものプライバシー</a></li>
+                <li><a href="#section-7">7. アプリ情報とお問い合わせ</a></li>
             </ul>
         </div>
 
@@ -615,11 +616,11 @@
                     <p>送受信された写真、書類、テキストなどの内容は端末間のみに存在し、サーバー上に保管・蓄積されることはありません。</p>
                 </div>
                 <div class="info-card">
-                    <span class="badge-pill danger">導入していません</span>
+                    <span class="badge-pill success">オプトアウト制</span>
                     <div class="info-card-header">
-                        <div class="info-card-title">トラッキング・アクセス解析</div>
+                        <div class="info-card-title">テレメトリ(利用状況の送信)</div>
                     </div>
-                    <p>広告配信SDKや外部の行動追跡ツール（Google Analytics、Firebase、Sentry等）は一切導入していません。</p>
+                    <p>品質改善を目的とした限定されたテレメトリをオプトアウト式で提供しています（既定はON、画面下部のフッターからOFFにできます）。広告配信SDKは導入しておらず、ファイル名・メッセージ本文など通信内容は一切送信されません。詳細は「4. テレメトリ」をご覧ください。</p>
                 </div>
             </div>
         </section>
@@ -669,18 +670,56 @@
             </div>
         </section>
 
-        <!-- Section 4 -->
+        <!-- Section 4: Telemetry -->
         <section id="section-4" class="policy-section">
             <div class="section-header">
                 <span class="section-num">04</span>
-                <h2 class="section-title">第三者提供・トラッキングの排除</h2>
-                <span class="section-sub">No Third-Party Sharing & Analytics</span>
+                <h2 class="section-title">テレメトリ（利用状況の送信）について</h2>
+                <span class="section-sub">Opt-Out Telemetry</span>
             </div>
             <p>
-                本アプリは、広告配信事業者、データブローカー、マーケティング企業を含むいかなる第三者に対しても、ユーザーデータの販売、提供、共有を行いません。
+                本アプリは、品質改善および安定性の向上を目的として、オプトアウト式のテレメトリ（利用状況の送信）を導入しています。テレメトリは<strong>既定で有効（ON）</strong>であり、アプリ画面下部の「テレメトリを送信」トグルからいつでもOFFにできます。
+            </p>
+            <ul>
+                <li><strong>Google Analytics for Firebase（Analytics）:</strong> iOS / Android / Web で利用します。</li>
+                <li><strong>Firebase Crashlytics:</strong> iOS / Android で利用します。クラッシュ発生時のレポート送信（ネイティブクラッシュのスタックトレースを含む）に使用します。</li>
+                <li><strong>Firebase Remote Config:</strong> iOS / Android / Web で利用します。設定値の取得のみに使用し、ユーザー識別情報は送信しません。</li>
+                <li><strong>Google Analytics 4 Measurement Protocol（直接HTTP POST）:</strong> Desktop 版のみで利用します。環境変数で設定した場合に限り有効になります。</li>
+            </ul>
+            <p>
+                <strong>送信されるイベント:</strong> <code>app_start</code>、<code>session_created</code>、<code>peer_connected</code>、<code>transfer_started</code>、<code>transfer_completed</code>、<code>transfer_cancelled</code>、<code>transfer_failed</code>、<code>text_message_sent</code> / <code>text_message_received</code>、<code>app_end</code>、<code>error</code>
             </p>
             <p>
-                また、サーバー側に送受信データやユーザーの個人情報が保持されていないため、公的機関等からの照会・要請があった場合でも、提供可能な通信データは存在しません。
+                <strong>送信されるパラメータ:</strong> プラットフォーム名、OSバージョン、アプリバージョン、言語設定、転送ファイル数、合計バイト数、転送時間、トランスポート種別（P2P直接 / 中継）、メッセージ長の区切り（桁）、エラーカテゴリ
+            </p>
+            <div class="info-grid">
+                <div class="info-card">
+                    <span class="badge-pill danger">送信しません</span>
+                    <div class="info-card-header">
+                        <div class="info-card-title">テレメトリに含まれない情報</div>
+                    </div>
+                    <p>ファイル名・ファイル内容、メッセージ本文、ピアの識別情報、位置情報は送信しません。また、セッション鍵や招待URLに関する情報、その他個人を特定できる情報も一切送信しません。IPアドレスに基づく追加情報を自前で収集することもありません。</p>
+                </div>
+                <div class="info-card">
+                    <span class="badge-pill success">クラッシュレポート</span>
+                    <div class="info-card-header">
+                        <div class="info-card-title">Crashlytics に含まれ得るもの</div>
+                    </div>
+                    <p>スタックトレース、端末種別、OSバージョン、アプリのバージョンが含まれる場合があります。</p>
+                </div>
+                <div class="info-card">
+                    <span class="badge-pill success">オプトアウト方法</span>
+                    <div class="info-card-header">
+                        <div class="info-card-title">テレメトリを OFF にする</div>
+                    </div>
+                    <p>アプリ画面下部の「テレメトリを送信」トグルをOFFにしてください。Web版ではブラウザストレージの設定に、Desktop版では設定の永続化に保存されます。OFF中は Analytics / Remote Config の取得を含め、テレメトリを一切送信しません。Crashlytics についても、OFFにした後のクラッシュは送信されません。</p>
+                </div>
+            </div>
+            <p>
+                テレメトリが有効な場合、上記のデータは Google LLC（Firebase / Google Analytics）へ送信されます。Google のプライバシーポリシーについては <a href="https://policies.google.com/privacy?hl=ja" target="_blank" rel="noopener noreferrer" style="color: var(--accent);">Google プライバシーポリシー</a> をご覧ください。
+            </p>
+            <p>
+                テレメトリ機能の利用に伴い、本ポリシーは対象サービス（Firebase 等）とともに更新されることがあります。重要な変更がある場合は本ページにて告知します。
             </p>
         </section>
 
@@ -688,6 +727,21 @@
         <section id="section-5" class="policy-section">
             <div class="section-header">
                 <span class="section-num">05</span>
+                <h2 class="section-title">第三者提供・トラッキングの排除</h2>
+                <span class="section-sub">No Third-Party Sharing & Analytics</span>
+            </div>
+            <p>
+                本アプリは、広告配信事業者、データブローカー、マーケティング企業を含むいかなる第三者に対しても、ユーザーデータの販売、提供、共有を行いません。テレメトリ機能を有効にしている場合を除き、本アプリがユーザーデータを第三者へ送信することはありません（テレメトリ有効時は前項のとおり Google LLC へ利用状況データが送信されます）。
+            </p>
+            <p>
+                また、サーバー側に送受信データやユーザーの個人情報が保持されていないため、公的機関等からの照会・要請があった場合でも、提供可能な通信データは存在しません。
+            </p>
+        </section>
+
+        <!-- Section 6 -->
+        <section id="section-6" class="policy-section">
+            <div class="section-header">
+                <span class="section-num">06</span>
                 <h2 class="section-title">Google Play・法的準拠・子どものプライバシー</h2>
                 <span class="section-sub">Compliance & Children's Privacy</span>
             </div>
@@ -695,15 +749,15 @@
                 本プライバシーポリシーは、Google Play デベロッパープログラムポリシー、個人情報保護法、および国際的なプライバシー基準に準拠するよう作成されています。
             </p>
             <ul>
-                <li><strong>子どものプライバシー:</strong> 本アプリは13歳未満の児童を含む、すべてのユーザーから個人を特定できる情報を収集しません。COPPA等の関係法令を遵守しています。</li>
+                <li><strong>子どものプライバシー:</strong> 本アプリは13歳未満の児童を含む、すべてのユーザーから個人を特定できる情報を収集しません。テレメトリにも個人を特定できる情報は含まれません。COPPA等の関係法令を遵守しています。</li>
                 <li><strong>データの削除と開示請求:</strong> サーバー上に保存される個人データが存在しないため、サーバー側でのアカウント削除やデータ消去の申請手続きは不要です。端末ローカルに保存されたデータは、ユーザー自身がファイルを削除するか、アプリをアンインストールすることで完全に消去されます。</li>
             </ul>
         </section>
 
-        <!-- Section 6 -->
-        <section id="section-6" class="policy-section">
+        <!-- Section 7 -->
+        <section id="section-7" class="policy-section">
             <div class="section-header">
-                <span class="section-num">06</span>
+                <span class="section-num">07</span>
                 <h2 class="section-title">アプリ情報とお問い合わせ</h2>
                 <span class="section-sub">App Info & Contact</span>
             </div>

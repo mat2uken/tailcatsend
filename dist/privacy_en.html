@@ -580,9 +580,10 @@
                 <li><a href="#section-1">1. Overview & Zero Data Retention</a></li>
                 <li><a href="#section-2">2. Communication Architecture & Relays</a></li>
                 <li><a href="#section-3">3. Local Data Storage</a></li>
-                <li><a href="#section-4">4. No Third-Party Sharing & Analytics</a></li>
-                <li><a href="#section-5">5. Compliance & Children's Privacy</a></li>
-                <li><a href="#section-6">6. App Info & Contact</a></li>
+                <li><a href="#section-4">4. Telemetry (Usage Reporting)</a></li>
+                <li><a href="#section-5">5. No Third-Party Sharing & Analytics</a></li>
+                <li><a href="#section-6">6. Compliance & Children's Privacy</a></li>
+                <li><a href="#section-7">7. App Info & Contact</a></li>
             </ul>
         </div>
 
@@ -615,11 +616,11 @@
                     <p>Transferred photos, documents, and clipboard text exist only on participating peer devices and are never stored on any server.</p>
                 </div>
                 <div class="info-card">
-                    <span class="badge-pill danger">Zero Trackers</span>
+                    <span class="badge-pill success">Opt-Out Telemetry</span>
                     <div class="info-card-header">
-                        <div class="info-card-title">Tracking & Analytics</div>
+                        <div class="info-card-title">Telemetry (Usage Reporting)</div>
                     </div>
-                    <p>No advertising SDKs, third-party analytics (Google Analytics, Firebase, Sentry), or behavioral tracking cookies are included.</p>
+                    <p>Limited telemetry for quality improvement is provided on an opt-out basis (enabled by default; it can be turned off from the footer at the bottom of the app). No advertising SDKs are included, and transferred content such as file names or message text is never sent. See "4. Telemetry" for details.</p>
                 </div>
             </div>
         </section>
@@ -669,18 +670,56 @@
             </div>
         </section>
 
-        <!-- Section 4 -->
+        <!-- Section 4: Telemetry -->
         <section id="section-4" class="policy-section">
             <div class="section-header">
                 <span class="section-num">04</span>
-                <h2 class="section-title">No Third-Party Sharing & Analytics</h2>
-                <span class="section-sub">Complete Data Isolation</span>
+                <h2 class="section-title">Telemetry (Usage Reporting)</h2>
+                <span class="section-sub">Opt-Out Telemetry</span>
             </div>
             <p>
-                We do not sell, rent, trade, or share user data with advertising networks, data brokers, analytics providers, or any other commercial third parties.
+                The App includes opt-out telemetry (usage reporting) for the purpose of quality improvement and stability. Telemetry is <strong>enabled by default</strong> and can be turned off at any time using the "Send telemetry" toggle in the footer at the bottom of the app.
+            </p>
+            <ul>
+                <li><strong>Google Analytics for Firebase (Analytics):</strong> Used on iOS / Android / Web.</li>
+                <li><strong>Firebase Crashlytics:</strong> Used on iOS / Android. Sends crash reports when a crash occurs (including native crash stack traces).</li>
+                <li><strong>Firebase Remote Config:</strong> Used on iOS / Android / Web. Used only for retrieving configuration values; no user-identifying information is sent.</li>
+                <li><strong>Google Analytics 4 Measurement Protocol (direct HTTP POST):</strong> Used on Desktop only. Enabled only when configured via environment variables.</li>
+            </ul>
+            <p>
+                <strong>Events sent:</strong> <code>app_start</code>, <code>session_created</code>, <code>peer_connected</code>, <code>transfer_started</code>, <code>transfer_completed</code>, <code>transfer_cancelled</code>, <code>transfer_failed</code>, <code>text_message_sent</code> / <code>text_message_received</code>, <code>app_end</code>, <code>error</code>
             </p>
             <p>
-                Because no communication payloads, file data, or personal identifiers are stored on any servers, we cannot provide user data even in response to legal requests or governmental inquiries—there is simply no data to disclose.
+                <strong>Parameters sent:</strong> Platform name, OS version, app version, language setting, number of transferred files, total bytes, transfer duration, transport type (direct P2P / relayed), message length bracket (digit count), error category.
+            </p>
+            <div class="info-grid">
+                <div class="info-card">
+                    <span class="badge-pill danger">Never Sent</span>
+                    <div class="info-card-header">
+                        <div class="info-card-title">What Telemetry Does Not Include</div>
+                    </div>
+                    <p>File names, file contents, message text, peer identifiers, and location data are never sent. Session keys, information related to invite URLs, and any personally identifiable information are never sent either. We also do not collect additional information derived from IP addresses on our own.</p>
+                </div>
+                <div class="info-card">
+                    <span class="badge-pill success">Crash Reports</span>
+                    <div class="info-card-header">
+                        <div class="info-card-title">What Crashlytics May Include</div>
+                    </div>
+                    <p>Stack traces, device model, OS version, and app version may be included.</p>
+                </div>
+                <div class="info-card">
+                    <span class="badge-pill success">How to Opt Out</span>
+                    <div class="info-card-header">
+                        <div class="info-card-title">Turning Telemetry Off</div>
+                    </div>
+                    <p>Turn off the "Send telemetry" toggle in the footer at the bottom of the app. On the Web client, the setting is stored in browser storage; on Desktop, it is persisted in the app settings. While telemetry is off, nothing is sent, including Analytics and Remote Config fetches. Crashlytics reports are also not sent for crashes that occur after you turn it off.</p>
+                </div>
+            </div>
+            <p>
+                When telemetry is enabled, the data described above is sent to Google LLC (Firebase / Google Analytics). See the <a href="https://policies.google.com/privacy" target="_blank" rel="noopener noreferrer" style="color: var(--accent);">Google Privacy Policy</a> for details.
+            </p>
+            <p>
+                Along with enabling telemetry, this policy may be updated together with the services involved (Firebase, etc.). Any significant changes will be announced on this page.
             </p>
         </section>
 
@@ -688,6 +727,21 @@
         <section id="section-5" class="policy-section">
             <div class="section-header">
                 <span class="section-num">05</span>
+                <h2 class="section-title">No Third-Party Sharing & Analytics</h2>
+                <span class="section-sub">Complete Data Isolation</span>
+            </div>
+            <p>
+                We do not sell, rent, trade, or share user data with advertising networks, data brokers, analytics providers, or any other commercial third parties. Except when telemetry is enabled, the App sends no user data to any third party (when telemetry is enabled, usage data is sent to Google LLC as described in the previous section).
+            </p>
+            <p>
+                Because no communication payloads, file data, or personal identifiers are stored on any servers, we cannot provide user data even in response to legal requests or governmental inquiries—there is simply no data to disclose.
+            </p>
+        </section>
+
+        <!-- Section 6 -->
+        <section id="section-6" class="policy-section">
+            <div class="section-header">
+                <span class="section-num">06</span>
                 <h2 class="section-title">Compliance & Children's Privacy</h2>
                 <span class="section-sub">Legal & Platform Standards</span>
             </div>
@@ -695,15 +749,15 @@
                 This policy conforms to Google Play Developer Program Policies, the Act on the Protection of Personal Information (APPI), and global privacy standards.
             </p>
             <ul>
-                <li><strong>Children's Privacy:</strong> The App does not collect personally identifiable information from any user, including children under the age of 13, fully complying with COPPA and similar regulations worldwide.</li>
+                <li><strong>Children's Privacy:</strong> The App does not collect personally identifiable information from any user, including children under the age of 13. Telemetry contains no personally identifiable information either. We fully comply with COPPA and similar regulations worldwide.</li>
                 <li><strong>Data Deletion & Access Requests:</strong> Because no personal data is retained on servers, formal account deletion or server-side data purging requests are unnecessary. You can remove all locally stored data at any time by deleting saved files or uninstalling the application.</li>
             </ul>
         </section>
 
-        <!-- Section 6 -->
-        <section id="section-6" class="policy-section">
+        <!-- Section 7 -->
+        <section id="section-7" class="policy-section">
             <div class="section-header">
-                <span class="section-num">06</span>
+                <span class="section-num">07</span>
                 <h2 class="section-title">App Info & Contact</h2>
                 <span class="section-sub">Project Information</span>
             </div>

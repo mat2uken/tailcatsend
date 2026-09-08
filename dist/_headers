@@ -3,7 +3,7 @@
   X-Frame-Options: DENY
   Referrer-Policy: no-referrer
   Permissions-Policy: camera=(), microphone=(), geolocation=()
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'; connect-src 'self' https://tailcat.dev wss://*.tailscale.com wss://*.derp.tailscale.com wss://* ws://*; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; frame-ancestors 'none';
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline' https://www.gstatic.com; connect-src 'self' https://tailcat.dev wss://*.tailscale.com wss://*.derp.tailscale.com wss://* ws://* https://*.googleapis.com https://*.google-analytics.com https://*.analytics.google.com https://firebaseinstallations.googleapis.com https://firebaseremoteconfig.googleapis.com https://firebaselogging-pa.googleapis.com; img-src 'self' data: https://*.google-analytics.com https://www.google-analytics.com; style-src 'self' 'unsafe-inline'; font-src 'self' data: https://www.gstatic.com; object-src 'none'; frame-ancestors 'none';
   Cache-Control: no-cache, no-store, must-revalidate
 
 /assets/*.wasm.gz
