@@ -28,5 +28,5 @@ console_error_panic_hook = "0.1"
 slint-build = { version = "1.17.1" }
 
 [package.metadata.wasm-pack.profile.release]
-wasm-opt = ["-Oz"]
+wasm-opt = ["-Oz", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
 

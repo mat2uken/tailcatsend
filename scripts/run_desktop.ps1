@@ -1,7 +1,7 @@
 # TailSend Cloudflare-backed Real Tailcat Desktop Launcher
 $ErrorActionPreference = "Stop"
 
-$cloudflareUrl = "https://mktailcatsend.pages.dev"
+$cloudflareUrl = "https://ponlet.mat2uken.app"
 
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "     TailSend (Tailcat + Slint) Cloudflare P2P Host       " -ForegroundColor Cyan
@@ -18,5 +18,5 @@ Write-Host "3. スマホのブラウザでWeb版がCloudflareから高速読み�
 Write-Host "4. テキスト送信やファイル送信をお試しください。" -ForegroundColor White
 Write-Host ""
 
-# 起動引数なしでも暗黙的に mktailcatsend.pages.dev が使用されます
+# 起動引数なしでも暗黙的に ponlet.mat2uken.app が使用されます
 & ".\target\release\tailsend.exe"

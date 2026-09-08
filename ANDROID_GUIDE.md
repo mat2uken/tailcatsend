@@ -76,7 +76,7 @@ Google Play Console の本人確認が完了次第、以下の手順を順番に
 
 ### Step 3: ストア掲載情報の必須項目入力（初期セットアップ）
 Google Play ダッシュボードの「アプリのセットアップ」に表示される以下の必須項目を入力します：
-- **プライバシーポリシー**: `https://mktailcatsend.pages.dev/privacy.html` を入力（リポジトリの `dist/privacy.html` にて公開）
+- **プライバシーポリシー**: `https://ponlet.mat2uken.app/privacy.html` を入力（リポジトリの `dist/privacy.html` にて公開）
 - **アプリのアクセス権**: 「特別なアクセス権なしで利用可能」
 - **広告**: 「アプリに広告は含まれていません」
 - **コンテンツのレーティング**: アンケートに回答してレーティングを取得

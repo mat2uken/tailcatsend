@@ -28,5 +28,5 @@ npx wrangler pages deploy dist --project-name mktailcatsend --commit-dirty=true
 
 echo ""
 echo "✅ Cloudflare Pages Deployment Complete!"
-echo "Live URL: https://mktailcatsend.pages.dev"
+echo "Live URL: https://ponlet.mat2uken.app"
 echo "========================================================"

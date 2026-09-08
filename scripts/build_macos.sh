@@ -105,5 +105,5 @@ echo "  ✅ Build Complete! Launching Ponlet on macOS...       "
 echo "========================================================"
 echo ""
 
-# Run the app (uses https://mktailcatsend.pages.dev by default)
+# Run the app (uses https://ponlet.mat2uken.app by default)
 ./target/release/tailsend ${1:-}
