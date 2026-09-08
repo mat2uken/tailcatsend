@@ -70,7 +70,11 @@ jobs:
         run: |
           $dir = "tailsend-windows-x86_64"
           New-Item -ItemType Directory -Force -Path $dir | Out-Null
-          Copy-Item target/release/tailsend-desktop.exe $dir/
+          if (Test-Path target/release/tailsend.exe) {
+            Copy-Item target/release/tailsend.exe $dir/
+          } elseif (Test-Path target/release/tailsend-desktop.exe) {
+            Copy-Item target/release/tailsend-desktop.exe $dir/
+          }
           Copy-Item target/release/tailcat_daemon.exe $dir/
           Compress-Archive -Path $dir/* -DestinationPath "$dir.zip"
 
