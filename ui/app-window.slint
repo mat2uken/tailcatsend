@@ -1479,7 +1479,9 @@ export component AppWindow inherits Window {
                             border-radius: 3px;
                             privacy_touch := TouchArea {
                                 mouse-cursor: pointer;
-                                clicked => { root.open_url("https://mktailcatsend.pages.dev/privacy.html"); }
+                                clicked => {
+                                    root.open_url(root.is_ja ? "https://mktailcatsend.pages.dev/privacy_ja.html" : "https://mktailcatsend.pages.dev/privacy_en.html");
+                                }
                             }
                             footer_privacy_text := Text {
                                 text: root.is_ja ? "プライバシーポリシー" : "Privacy Policy";

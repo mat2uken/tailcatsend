@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Privacy Policy — Ponlet</title>
+    <meta name="description" content="Privacy Policy for Ponlet. Secure file and text transfers with peer-to-peer connections, DERP relay routing, End-to-End Encryption (E2EE), and a strict Zero Data Retention policy.">
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+    <style>
+        :root {
+            --bg-color: #07151e;
+            --bg-surface: #0c1d29;
+            --bg-card: #0f2434;
+            --bg-card-hover: #142f44;
+            --border-color: rgba(255, 255, 255, 0.08);
+            --border-highlight: rgba(249, 115, 22, 0.35);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent: #f97316;
+            --accent-hover: #ea580c;
+            --accent-soft: rgba(249, 115, 22, 0.12);
+            --success: #10b981;
+            --success-soft: rgba(16, 185, 129, 0.12);
+            --info: #38bdf8;
+            --info-soft: rgba(56, 189, 248, 0.12);
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        html {
+            scroll-behavior: smooth;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            line-height: 1.7;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        body {
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            background-color: var(--bg-color);
+        }
+
+        /* Header Navigation */
+        header {
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            background: rgba(7, 21, 30, 0.88);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .header-inner {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 14px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        .brand-link {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+            color: var(--text-primary);
+        }
+
+        .brand-logo {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            object-fit: cover;
+            border: 1px solid var(--border-color);
+        }
+
+        .brand-title {
+            font-size: 1.15rem;
+            font-weight: 700;
+            letter-spacing: -0.01em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .brand-badge {
+            font-size: 0.72rem;
+            font-weight: 600;
+            color: var(--accent);
+            background: var(--accent-soft);
+            padding: 2px 8px;
+            border-radius: 999px;
+            border: 1px solid rgba(249, 115, 22, 0.25);
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        nav.header-nav {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .nav-link {
+            font-size: 0.88rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: color 0.15s ease;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .nav-link:hover {
+            color: var(--text-primary);
+        }
+
+        /* Language Switcher */
+        .lang-switch {
+            display: inline-flex;
+            align-items: center;
+            background: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: 999px;
+            padding: 3px;
+            gap: 2px;
+        }
+
+        .lang-btn {
+            display: inline-block;
+            font-size: 0.78rem;
+            font-weight: 600;
+            padding: 3px 10px;
+            border-radius: 999px;
+            text-decoration: none;
+            color: var(--text-secondary);
+            transition: all 0.15s ease;
+        }
+
+        .lang-btn:hover {
+            color: var(--text-primary);
+        }
+
+        .lang-btn.active {
+            background: var(--accent);
+            color: #ffffff;
+            pointer-events: none;
+        }
+
+        /* Main Container */
+        main {
+            flex: 1;
+            max-width: 960px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 36px 20px 72px;
+        }
+
+        /* Hero Banner */
+        .hero {
+            margin-bottom: 32px;
+            padding-bottom: 24px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .hero-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--accent);
+            background: var(--accent-soft);
+            border: 1px solid rgba(249, 115, 22, 0.3);
+            padding: 4px 10px;
+            border-radius: 999px;
+            margin-bottom: 14px;
+        }
+
+        .hero h1 {
+            font-size: 2.1rem;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            line-height: 1.25;
+            margin-bottom: 12px;
+            color: var(--text-primary);
+        }
+
+        .hero-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .hero-meta-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        /* Core Promise Card */
+        .promise-card {
+            background: linear-gradient(135deg, rgba(15, 36, 52, 0.95), rgba(12, 29, 41, 0.85));
+            border: 1px solid var(--border-highlight);
+            border-radius: var(--radius-lg);
+            padding: 24px 28px;
+            margin-bottom: 36px;
+            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 20px;
+            align-items: start;
+        }
+
+        .promise-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            background: var(--accent-soft);
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        .promise-content h2 {
+            font-size: 1.18rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+
+        .promise-content p {
+            color: var(--text-secondary);
+            font-size: 0.93rem;
+            line-height: 1.7;
+        }
+
+        /* Table of Contents */
+        .toc-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 18px 22px;
+            margin-bottom: 40px;
+        }
+
+        .toc-title {
+            font-size: 0.92rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .toc-list {
+            list-style: none;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 8px 16px;
+        }
+
+        .toc-list li a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.88rem;
+            transition: color 0.15s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .toc-list li a:hover {
+            color: var(--accent);
+        }
+
+        /* Policy Sections */
+        .policy-section {
+            margin-bottom: 42px;
+            scroll-margin-top: 80px;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: baseline;
+            gap: 12px;
+            margin-bottom: 14px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 8px;
+        }
+
+        .section-num {
+            font-size: 1.2rem;
+            font-weight: 800;
+            color: var(--accent);
+            font-family: var(--font-mono);
+        }
+
+        .section-title {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: -0.01em;
+        }
+
+        .section-sub {
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        .policy-section p {
+            color: var(--text-secondary);
+            font-size: 0.94rem;
+            line-height: 1.75;
+            margin-bottom: 14px;
+        }
+
+        .policy-section ul {
+            list-style: none;
+            margin-bottom: 16px;
+            padding-left: 2px;
+        }
+
+        .policy-section ul li {
+            position: relative;
+            padding-left: 22px;
+            margin-bottom: 10px;
+            color: var(--text-secondary);
+            font-size: 0.92rem;
+            line-height: 1.65;
+        }
+
+        .policy-section ul li::before {
+            content: "•";
+            position: absolute;
+            left: 6px;
+            color: var(--accent);
+            font-weight: bold;
+        }
+
+        /* Cards & Grids */
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 16px;
+            margin: 18px 0;
+        }
+
+        .info-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 18px;
+            transition: border-color 0.2s ease;
+        }
+
+        .info-card:hover {
+            border-color: rgba(255, 255, 255, 0.15);
+        }
+
+        .info-card-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .info-card-title {
+            font-size: 0.96rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .info-card p {
+            font-size: 0.88rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            margin-bottom: 0;
+        }
+
+        .badge-pill {
+            display: inline-block;
+            font-size: 0.72rem;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 4px;
+            margin-bottom: 6px;
+        }
+
+        .badge-pill.danger {
+            background: rgba(239, 68, 68, 0.15);
+            color: #ef4444;
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        .badge-pill.success {
+            background: var(--success-soft);
+            color: var(--success);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        code {
+            font-family: var(--font-mono);
+            font-size: 0.86em;
+            background: rgba(255, 255, 255, 0.07);
+            padding: 2px 6px;
+            border-radius: 4px;
+            color: #f1f5f9;
+        }
+
+        /* Footer */
+        footer {
+            border-top: 1px solid var(--border-color);
+            background: var(--bg-surface);
+            padding: 36px 20px;
+            margin-top: auto;
+        }
+
+        .footer-inner {
+            max-width: 960px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            gap: 16px;
+        }
+
+        .footer-links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 18px;
+            justify-content: center;
+        }
+
+        .footer-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.85rem;
+            transition: color 0.15s ease;
+        }
+
+        .footer-links a:hover {
+            color: var(--accent);
+        }
+
+        .footer-copy {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        @media (max-width: 640px) {
+            .hero h1 {
+                font-size: 1.65rem;
+            }
+
+            .promise-card {
+                grid-template-columns: 1fr;
+                gap: 14px;
+            }
+
+            .header-inner {
+                flex-wrap: wrap;
+            }
+
+            .header-actions {
+                width: 100%;
+                justify-content: space-between;
+            }
+
+            main {
+                padding-top: 24px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <header>
+        <div class="header-inner">
+            <a href="/" class="brand-link" title="Ponlet Home">
+                <img src="favicon.png" alt="Ponlet Logo" class="brand-logo" onerror="this.style.display='none'">
+                <div class="brand-title">
+                    Ponlet
+                    <span class="brand-badge">Privacy</span>
+                </div>
+            </a>
+            <div class="header-actions">
+                <nav class="header-nav">
+                    <a href="/" class="nav-link">Web App</a>
+                    <a href="/licenses.html" class="nav-link">OSS Licenses</a>
+                </nav>
+                <div class="lang-switch" role="navigation" aria-label="Language Switcher">
+                    <a href="privacy_ja.html" class="lang-btn" lang="ja">日本語</a>
+                    <span class="lang-btn active" lang="en">English</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main>
+        <!-- Hero -->
+        <div class="hero">
+            <div class="hero-tag">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                Privacy Policy
+            </div>
+            <h1>Ponlet Privacy Policy</h1>
+            <div class="hero-meta">
+                <div class="hero-meta-item">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    Last Updated: September 8, 2026
+                </div>
+                <div class="hero-meta-item">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                    Platforms: Android (jp.yasagure.ponlet), Web, iOS, Desktop
+                </div>
+            </div>
+        </div>
+
+        <!-- Core Promise Card -->
+        <div class="promise-card">
+            <div class="promise-icon">
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                </svg>
+            </div>
+            <div class="promise-content">
+                <h2>Zero Data Retention Policy</h2>
+                <p>
+                    Connections are established directly via peer-to-peer (WireGuard / WebRTC DataChannel) whenever possible. In environments where NAT traversal or firewall restrictions make direct connection difficult, packets are relayed through DERP relay servers. Even when passing through relays, all communications remain end-to-end encrypted (E2EE) with WireGuard, making it technically impossible for the server to inspect or store any transferred content (file data or text), ensuring Zero Data Retention.
+                </p>
+            </div>
+        </div>
+
+        <!-- Table of Contents -->
+        <div class="toc-card">
+            <div class="toc-title">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                Table of Contents
+            </div>
+            <ul class="toc-list">
+                <li><a href="#section-1">1. Overview & Zero Data Retention</a></li>
+                <li><a href="#section-2">2. Communication Architecture & Relays</a></li>
+                <li><a href="#section-3">3. Local Data Storage</a></li>
+                <li><a href="#section-4">4. No Third-Party Sharing & Analytics</a></li>
+                <li><a href="#section-5">5. Compliance & Children's Privacy</a></li>
+                <li><a href="#section-6">6. App Info & Contact</a></li>
+            </ul>
+        </div>
+
+        <!-- Section 1 -->
+        <section id="section-1" class="policy-section">
+            <div class="section-header">
+                <span class="section-num">01</span>
+                <h2 class="section-title">Overview & Zero Data Retention</h2>
+                <span class="section-sub">Core Principles</span>
+            </div>
+            <p>
+                This Privacy Policy outlines how Ponlet ("the App") handles data. The App encompasses the Android client (package name: <code>jp.yasagure.ponlet</code>), the Web client, iOS client, and desktop versions (macOS/Windows/Linux).
+            </p>
+            <p>
+                The App is architected with privacy by design as its foundational principle. We do not operate centralized file storage servers, and we enforce a strict Zero Data Retention policy—neither developers nor servers ever collect, view, or retain your transferred data or personal information.
+            </p>
+            <div class="info-grid">
+                <div class="info-card">
+                    <span class="badge-pill danger">Never Collected</span>
+                    <div class="info-card-header">
+                        <div class="info-card-title">Accounts & Identity</div>
+                    </div>
+                    <p>No user account or login is ever required. We never collect or request names, email addresses, phone numbers, or passwords.</p>
+                </div>
+                <div class="info-card">
+                    <span class="badge-pill danger">Never Stored</span>
+                    <div class="info-card-header">
+                        <div class="info-card-title">Files & Messages</div>
+                    </div>
+                    <p>Transferred photos, documents, and clipboard text exist only on participating peer devices and are never stored on any server.</p>
+                </div>
+                <div class="info-card">
+                    <span class="badge-pill danger">Zero Trackers</span>
+                    <div class="info-card-header">
+                        <div class="info-card-title">Tracking & Analytics</div>
+                    </div>
+                    <p>No advertising SDKs, third-party analytics (Google Analytics, Firebase, Sentry), or behavioral tracking cookies are included.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 2 -->
+        <section id="section-2" class="policy-section">
+            <div class="section-header">
+                <span class="section-num">02</span>
+                <h2 class="section-title">Communication Architecture & DERP Relays</h2>
+                <span class="section-sub">P2P & Encrypted Relay</span>
+            </div>
+            <p>
+                Communications are established directly between devices via peer-to-peer (WireGuard / WebRTC DataChannel) whenever possible. In restrictive environments—such as symmetric NAT or strict corporate firewalls—packets are relayed through public DERP (Designated Encrypted Relay for Packets) relay servers.
+            </p>
+            <ul>
+                <li><strong>End-to-End Encryption (E2EE):</strong> All packets are encrypted end-to-end between peer devices using the WireGuard protocol. DERP relay servers merely route opaque, encrypted packets without possessing decryption keys. It is cryptographically impossible for relays to inspect or modify the content of your transmissions.</li>
+                <li><strong>Volatile In-Memory Processing:</strong> Transient network metadata (SDP, ICE candidates) used during peer discovery is handled purely in volatile memory and discarded immediately upon session establishment or disconnection. No data is written to disk or recorded in access logs.</li>
+                <li><strong>Confidential Invite Links:</strong> The 32-byte shared cryptographic key is embedded exclusively in the URL hash fragment (<code>#i=...</code>). Under the HTTP standard, hash fragments are handled entirely by the browser client and are never sent across the network to hosting servers (such as Cloudflare Pages) or logged in server logs.</li>
+            </ul>
+        </section>
+
+        <!-- Section 3 -->
+        <section id="section-3" class="policy-section">
+            <div class="section-header">
+                <span class="section-num">03</span>
+                <h2 class="section-title">Local Data Storage</h2>
+                <span class="section-sub">Device-Level Management</span>
+            </div>
+            <p>
+                All received files and messages are strictly stored and managed locally on your own devices:
+            </p>
+            <div class="info-grid">
+                <div class="info-card">
+                    <span class="badge-pill success">Web Client</span>
+                    <div class="info-card-header">
+                        <div class="info-card-title">Volatile Browser Memory</div>
+                    </div>
+                    <p>Transferred files are temporarily held in browser memory (Blob) and written to your Downloads folder only when you choose to save them. Closing the browser tab immediately purges the memory.</p>
+                </div>
+                <div class="info-card">
+                    <span class="badge-pill success">Native Apps</span>
+                    <div class="info-card-header">
+                        <div class="info-card-title">Local Storage Directory</div>
+                    </div>
+                    <p>On Android, iOS, and desktop platforms, files are saved directly into your authorized local folders (e.g., standard Downloads). The app never uploads local files without explicit instruction.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 4 -->
+        <section id="section-4" class="policy-section">
+            <div class="section-header">
+                <span class="section-num">04</span>
+                <h2 class="section-title">No Third-Party Sharing & Analytics</h2>
+                <span class="section-sub">Complete Data Isolation</span>
+            </div>
+            <p>
+                We do not sell, rent, trade, or share user data with advertising networks, data brokers, analytics providers, or any other commercial third parties.
+            </p>
+            <p>
+                Because no communication payloads, file data, or personal identifiers are stored on any servers, we cannot provide user data even in response to legal requests or governmental inquiries—there is simply no data to disclose.
+            </p>
+        </section>
+
+        <!-- Section 5 -->
+        <section id="section-5" class="policy-section">
+            <div class="section-header">
+                <span class="section-num">05</span>
+                <h2 class="section-title">Compliance & Children's Privacy</h2>
+                <span class="section-sub">Legal & Platform Standards</span>
+            </div>
+            <p>
+                This policy conforms to Google Play Developer Program Policies, the Act on the Protection of Personal Information (APPI), and global privacy standards.
+            </p>
+            <ul>
+                <li><strong>Children's Privacy:</strong> The App does not collect personally identifiable information from any user, including children under the age of 13, fully complying with COPPA and similar regulations worldwide.</li>
+                <li><strong>Data Deletion & Access Requests:</strong> Because no personal data is retained on servers, formal account deletion or server-side data purging requests are unnecessary. You can remove all locally stored data at any time by deleting saved files or uninstalling the application.</li>
+            </ul>
+        </section>
+
+        <!-- Section 6 -->
+        <section id="section-6" class="policy-section">
+            <div class="section-header">
+                <span class="section-num">06</span>
+                <h2 class="section-title">App Info & Contact</h2>
+                <span class="section-sub">Project Information</span>
+            </div>
+            <p>
+                This Privacy Policy may be updated periodically to reflect software enhancements or regulatory updates. Any revisions will be published on this page.
+            </p>
+            <div class="info-card">
+                <div class="info-card-header">
+                    <div class="info-card-title">Application Details & Inquiries</div>
+                </div>
+                <ul style="margin-bottom: 0;">
+                    <li><strong>Application Name:</strong> Ponlet</li>
+                    <li><strong>Android Package Name:</strong> <code>jp.yasagure.ponlet</code></li>
+                    <li><strong>Repository:</strong> <a href="https://github.com/mat2uken/tailcatsend" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none;">GitHub Repository</a></li>
+                    <li><strong>Issue Tracker & Feedback:</strong> <a href="https://github.com/mat2uken/tailcatsend/issues" target="_blank" rel="noopener noreferrer" style="color: var(--accent); text-decoration: none;">GitHub Issues</a></li>
+                </ul>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-inner">
+            <div class="lang-switch" role="navigation" aria-label="Language Switcher">
+                <a href="privacy_ja.html" class="lang-btn" lang="ja">日本語</a>
+                <span class="lang-btn active" lang="en">English</span>
+            </div>
+            <div class="footer-links">
+                <a href="/">Web App</a>
+                <a href="/licenses.html">OSS Licenses</a>
+                <a href="https://github.com/mat2uken/tailcatsend" target="_blank" rel="noopener noreferrer">GitHub</a>
+            </div>
+            <div class="footer-copy">
+                &copy; 2026 Ponlet Project. All rights reserved.
+            </div>
+        </div>
+    </footer>
+
+</body>
+</html>
