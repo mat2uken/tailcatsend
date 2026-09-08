@@ -1455,57 +1455,64 @@ export component AppWindow inherits Window {
                 // ============================================================
                 // Footer: Attribution, Privacy Policy & OSS License Links
                 // ============================================================
-                HorizontalLayout {
+                VerticalLayout {
                     alignment: center;
-                    height: 14px;
-                    spacing: 4px;
+                    height: 26px;
+                    spacing: 1px;
 
                     Text {
-                        text: "Powered by Tailcat (BSD-3) & Slint UI · © 2026 Ponlet · ";
+                        text: "Powered by Tailcat (BSD-3) & Slint UI · © 2026 Ponlet";
                         font-size: 10px;
                         color: Theme.text-muted;
                         horizontal-alignment: center;
                         vertical-alignment: center;
+                        height: 12px;
                     }
 
-                    Rectangle {
-                        width: footer_privacy_text.preferred-width + 6px;
-                        border-radius: 3px;
-                        privacy_touch := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => { root.open_url("https://mktailcatsend.pages.dev/privacy.html"); }
+                    HorizontalLayout {
+                        alignment: center;
+                        height: 13px;
+                        spacing: 4px;
+
+                        Rectangle {
+                            width: footer_privacy_text.preferred-width + 6px;
+                            border-radius: 3px;
+                            privacy_touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.open_url("https://mktailcatsend.pages.dev/privacy.html"); }
+                            }
+                            footer_privacy_text := Text {
+                                text: root.is_ja ? "プライバシーポリシー" : "Privacy Policy";
+                                font-size: 10px;
+                                vertical-alignment: center;
+                                horizontal-alignment: center;
+                                color: privacy_touch.has-hover ? Theme.accent-cyan : Theme.text-muted;
+                                animate color { duration: 120ms; }
+                            }
                         }
-                        footer_privacy_text := Text {
-                            text: root.is_ja ? "プライバシーポリシー" : "Privacy Policy";
+
+                        Text {
+                            text: "·";
                             font-size: 10px;
+                            color: Theme.text-muted;
                             vertical-alignment: center;
-                            horizontal-alignment: center;
-                            color: privacy_touch.has-hover ? Theme.accent-cyan : Theme.text-muted;
-                            animate color { duration: 120ms; }
                         }
-                    }
 
-                    Text {
-                        text: "·";
-                        font-size: 10px;
-                        color: Theme.text-muted;
-                        vertical-alignment: center;
-                    }
-
-                    Rectangle {
-                        width: footer_license_text.preferred-width + 6px;
-                        border-radius: 3px;
-                        license_touch := TouchArea {
-                            mouse-cursor: pointer;
-                            clicked => { root.open_url("https://mktailcatsend.pages.dev/licenses.html"); }
-                        }
-                        footer_license_text := Text {
-                            text: root.is_ja ? "OSSライセンス" : "OSS Licenses";
-                            font-size: 10px;
-                            vertical-alignment: center;
-                            horizontal-alignment: center;
-                            color: license_touch.has-hover ? Theme.accent-cyan : Theme.text-muted;
-                            animate color { duration: 120ms; }
+                        Rectangle {
+                            width: footer_license_text.preferred-width + 6px;
+                            border-radius: 3px;
+                            license_touch := TouchArea {
+                                mouse-cursor: pointer;
+                                clicked => { root.open_url("https://mktailcatsend.pages.dev/licenses.html"); }
+                            }
+                            footer_license_text := Text {
+                                text: root.is_ja ? "OSSライセンス" : "OSS Licenses";
+                                font-size: 10px;
+                                vertical-alignment: center;
+                                horizontal-alignment: center;
+                                color: license_touch.has-hover ? Theme.accent-cyan : Theme.text-muted;
+                                animate color { duration: 120ms; }
+                            }
                         }
                     }
                 }
