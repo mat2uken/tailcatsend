@@ -43,7 +43,6 @@ tailcatsend/
 │       ├── web/main.go            # Go WASM bridge exporting window.tailSendTailcat
 │       └── native/bridge.go       # C-ABI export bridge implementation
 ├── cloudflare/
-│   ├── wrangler.jsonc             # Cloudflare Static Assets configuration
 │   └── _headers                   # HTTP response headers (CSP, wasm/gzip content types)
 └── dist/                          # Static web distribution bundle
     ├── index.html                 # Responsive HTML5 loader with streaming gzip decompressor
