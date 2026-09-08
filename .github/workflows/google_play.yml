@@ -42,6 +42,9 @@ jobs:
           if [ -f tailcat/patches/0001-android-selinux-netmon-fallback.patch ]; then
             git -C tailcat/pkg/tailcat apply ../../patches/0001-android-selinux-netmon-fallback.patch
           fi
+          if [ -f tailcat/patches/0002-tailscale-webrtc-transport.patch ]; then
+            git -C tailcat/pkg/tailscale.com apply ../../patches/0002-tailscale-webrtc-transport.patch
+          fi
 
       - name: Setup Java 17
         uses: actions/setup-java@v5

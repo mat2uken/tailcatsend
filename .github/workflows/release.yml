@@ -34,6 +34,9 @@ jobs:
           if (Test-Path tailcat/patches/0001-android-selinux-netmon-fallback.patch) {
             git -C tailcat/pkg/tailcat apply ../../patches/0001-android-selinux-netmon-fallback.patch
           }
+          if (Test-Path tailcat/patches/0002-tailscale-webrtc-transport.patch) {
+            git -C tailcat/pkg/tailscale.com apply ../../patches/0002-tailscale-webrtc-transport.patch
+          }
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -94,6 +97,9 @@ jobs:
         run: |
           if [ -f tailcat/patches/0001-android-selinux-netmon-fallback.patch ]; then
             git -C tailcat/pkg/tailcat apply ../../patches/0001-android-selinux-netmon-fallback.patch
+          fi
+          if [ -f tailcat/patches/0002-tailscale-webrtc-transport.patch ]; then
+            git -C tailcat/pkg/tailscale.com apply ../../patches/0002-tailscale-webrtc-transport.patch
           fi
 
       - name: Setup Go
@@ -160,6 +166,9 @@ jobs:
         run: |
           if [ -f tailcat/patches/0001-android-selinux-netmon-fallback.patch ]; then
             git -C tailcat/pkg/tailcat apply ../../patches/0001-android-selinux-netmon-fallback.patch
+          fi
+          if [ -f tailcat/patches/0002-tailscale-webrtc-transport.patch ]; then
+            git -C tailcat/pkg/tailscale.com apply ../../patches/0002-tailscale-webrtc-transport.patch
           fi
 
       - name: Setup Java
@@ -241,6 +250,9 @@ jobs:
         run: |
           if [ -f tailcat/patches/0001-android-selinux-netmon-fallback.patch ]; then
             git -C tailcat/pkg/tailcat apply ../../patches/0001-android-selinux-netmon-fallback.patch
+          fi
+          if [ -f tailcat/patches/0002-tailscale-webrtc-transport.patch ]; then
+            git -C tailcat/pkg/tailscale.com apply ../../patches/0002-tailscale-webrtc-transport.patch
           fi
 
       - name: Select Xcode 16

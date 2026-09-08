@@ -2,3 +2,7 @@
 	path = tailcat/pkg/tailcat
 	url = https://github.com/tailscale/tailcat.git
 	ignore = dirty
+[submodule "tailcat/pkg/tailscale.com"]
+	path = tailcat/pkg/tailscale.com
+	url = https://github.com/tailscale/tailscale.git
+	ignore = dirty

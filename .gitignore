@@ -12,7 +12,6 @@ libtailcat*.a
 libtailcat*.h
 *.wasm
 !*.wasm.gz
-tailcat/pkg/tailscale.com/
 scratch/
 
 # Node / JS
