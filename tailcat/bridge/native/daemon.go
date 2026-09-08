@@ -73,6 +73,7 @@ type Daemon struct {
 	address    string
 	streams    map[uint64]net.Conn
 	clients    map[string]*tailcat.Client
+	textConns  map[string]net.Conn
 	nextHandle uint64
 	ipcClients map[net.Conn]bool
 }
@@ -92,6 +93,7 @@ func main() {
 		streams:    make(map[uint64]net.Conn),
 		nextHandle: 1,
 		ipcClients: make(map[net.Conn]bool),
+		textConns:  make(map[string]net.Conn),
 	}
 
 	// 1. Initialize Ephemeral Key & Expand Server
@@ -138,20 +140,31 @@ func main() {
 			// Handle Port 101 (Text message) and Port 102 (File transfer)
 			if port == 101 {
 				go func(conn net.Conn, h uint64) {
-					defer conn.Close()
-					buf := make([]byte, 65536)
-					n, err := conn.Read(buf)
-					if n > 0 {
-						msgText := strings.TrimSpace(string(buf[:n]))
-						d.broadcast(DaemonMessage{
-							Event:  "incoming_text",
-							Port:   101,
-							Handle: h,
-							Text:   msgText,
-						})
-					}
-					if err != nil && err != io.EOF {
-						fmt.Fprintf(os.Stderr, "[tailcat-daemon] port 101 read error: %v\n", err)
+					defer func() {
+						conn.Close()
+						d.mu.Lock()
+						delete(d.streams, h)
+						d.mu.Unlock()
+					}()
+
+					reader := bufio.NewReader(conn)
+					for {
+						line, err := reader.ReadString('\n')
+						msgText := strings.TrimSpace(line)
+						if msgText != "" {
+							d.broadcast(DaemonMessage{
+								Event:  "incoming_text",
+								Port:   101,
+								Handle: h,
+								Text:   msgText,
+							})
+						}
+						if err != nil {
+							if err != io.EOF && !strings.Contains(err.Error(), "use of closed network connection") {
+								fmt.Fprintf(os.Stderr, "[tailcat-daemon] port 101 stream read: %v\n", err)
+							}
+							break
+						}
 					}
 				}(c, handle)
 			} else if port == 102 {
@@ -341,6 +354,11 @@ func (d *Daemon) handleIPCClient(conn net.Conn) {
 
 		case "send_file":
 			go d.handleSendFile(conn, cmd)
+
+		case "disconnect":
+			d.closeAllTextConns()
+			res, _ := json.Marshal(DaemonMessage{Event: "disconnected"})
+			conn.Write(append(res, '\n'))
 		}
 	}
 }
@@ -381,30 +399,84 @@ func pingUntil(ctx context.Context, cl *tailcat.Client) error {
 	}
 }
 
-func (d *Daemon) handleSendText(ipcConn net.Conn, cmd CommandMessage) {
-	cl := d.getOrCreateClient(cmd.Address)
-	ctx, cancel := context.WithTimeout(context.Background(), 35*time.Second)
+func (d *Daemon) getOrCreateTextConn(ctx context.Context, addr string) (net.Conn, error) {
+	d.mu.Lock()
+	if d.textConns == nil {
+		d.textConns = make(map[string]net.Conn)
+	}
+	if conn, ok := d.textConns[addr]; ok {
+		d.mu.Unlock()
+		return conn, nil
+	}
+	d.mu.Unlock()
+
+	cl := d.getOrCreateClient(addr)
+	dialCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
 
-	if err := pingUntil(ctx, cl); err != nil {
-		res, _ := json.Marshal(DaemonMessage{Event: "error", Error: fmt.Sprintf("Ping to peer failed: %v", err)})
-		ipcConn.Write(append(res, '\n'))
-		return
-	}
-
-	conn, err := cl.DialTCPPort(ctx, 101)
+	conn, err := cl.DialTCPPort(dialCtx, 101)
 	if err != nil {
-		res, _ := json.Marshal(DaemonMessage{Event: "error", Error: err.Error()})
+		return nil, err
+	}
+
+	d.mu.Lock()
+	d.textConns[addr] = conn
+	d.mu.Unlock()
+	return conn, nil
+}
+
+func (d *Daemon) closeTextConn(addr string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if conn, ok := d.textConns[addr]; ok {
+		_ = conn.Close()
+		delete(d.textConns, addr)
+	}
+}
+
+func (d *Daemon) closeAllTextConns() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for addr, conn := range d.textConns {
+		_ = conn.Close()
+		delete(d.textConns, addr)
+	}
+}
+
+func (d *Daemon) handleSendText(ipcConn net.Conn, cmd CommandMessage) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	msgBytes := []byte(cmd.Text + "\n")
+
+	// 1. Try sending over existing persistent text stream (ultra-low latency, 0 extra round-trips)
+	conn, err := d.getOrCreateTextConn(ctx, cmd.Address)
+	if err == nil {
+		_, writeErr := conn.Write(msgBytes)
+		if writeErr == nil {
+			res, _ := json.Marshal(DaemonMessage{Event: "send_text_success", Text: cmd.Text})
+			ipcConn.Write(append(res, '\n'))
+			return
+		}
+		// Connection failed/broken, clean it up and retry with a new connection
+		d.closeTextConn(cmd.Address)
+	}
+
+	// 2. Fresh dial retry
+	conn, err = d.getOrCreateTextConn(ctx, cmd.Address)
+	if err != nil {
+		res, _ := json.Marshal(DaemonMessage{Event: "error", Error: fmt.Sprintf("Dial peer text port 101 failed: %v", err)})
 		ipcConn.Write(append(res, '\n'))
 		return
 	}
-	defer conn.Close()
 
-	_, _ = conn.Write([]byte(cmd.Text))
-	if cw, ok := conn.(interface{ CloseWrite() error }); ok {
-		_ = cw.CloseWrite()
+	_, writeErr := conn.Write(msgBytes)
+	if writeErr != nil {
+		d.closeTextConn(cmd.Address)
+		res, _ := json.Marshal(DaemonMessage{Event: "error", Error: fmt.Sprintf("Write text to peer failed: %v", writeErr)})
+		ipcConn.Write(append(res, '\n'))
+		return
 	}
-	time.Sleep(100 * time.Millisecond)
 
 	res, _ := json.Marshal(DaemonMessage{Event: "send_text_success", Text: cmd.Text})
 	ipcConn.Write(append(res, '\n'))

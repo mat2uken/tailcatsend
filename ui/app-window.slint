@@ -1,4 +1,4 @@
-import { Button, VerticalBox, HorizontalBox, LineEdit, ProgressIndicator, ScrollView } from "std-widgets.slint";
+import { Button, VerticalBox, HorizontalBox, LineEdit, TextEdit, ProgressIndicator, ScrollView } from "std-widgets.slint";
 import "./fonts/NotoSansJP.ttf";
 
 // ============================================================================
@@ -469,6 +469,106 @@ component TransferProgressCard inherits Rectangle {
     }
 }
 
+// 6.5 Modern Realtime Chat Input Box (Clean, Focused & Performant)
+component ChatInputBox inherits ModernCard {
+    in-out property <string> text <=> msg_field.text;
+    in property <bool> is-ja: true;
+    in property <bool> can-send: true;
+
+    callback send(string);
+    callback paste-send();
+
+    public function focus-input() {
+        msg_field.focus();
+    }
+
+    init => {
+        msg_field.focus();
+    }
+
+    border-radius-custom: 12px;
+    card-border: msg_field.has-focus ? Theme.accent-cyan : Theme.border-subtle;
+    animate card-border { duration: 150ms; }
+
+    VerticalLayout {
+        padding: 10px;
+        spacing: 8px;
+
+        // Input row with action button
+        HorizontalLayout {
+            spacing: 8px;
+
+            msg_field := LineEdit {
+                horizontal-stretch: 1;
+                placeholder-text: root.is-ja ? "メッセージを入力… (Enterで即時送信)" : "Type a message… (Enter to send)";
+                accessible-label: root.is-ja ? "メッセージ入力欄" : "Message input field";
+
+                accepted => {
+                    if (self.text != "") {
+                        root.send(self.text);
+                        self.text = "";
+                        self.focus();
+                    }
+                }
+            }
+
+            AppButton {
+                text: root.is-ja ? "送信" : "Send";
+                icon-text: "→";
+                primary: msg_field.text != "";
+                enabled: msg_field.text != "" && root.can-send;
+                custom-height: 38px;
+                clicked => {
+                    if (msg_field.text != "") {
+                        root.send(msg_field.text);
+                        msg_field.text = "";
+                        msg_field.focus();
+                    }
+                }
+            }
+        }
+
+        // Bottom helper bar: char count, clear button, paste & send
+        HorizontalLayout {
+            alignment: space-between;
+
+            HorizontalLayout {
+                spacing: 8px;
+                AppButton {
+                    text: root.is-ja ? "📋 貼付して送信" : "📋 Paste & Send";
+                    secondary: true;
+                    custom-height: 28px;
+                    font-size: 11px;
+                    clicked => {
+                        root.paste-send();
+                        msg_field.focus();
+                    }
+                }
+
+                if msg_field.text != "" : AppButton {
+                    text: root.is-ja ? "クリア" : "Clear";
+                    secondary: true;
+                    custom-height: 28px;
+                    font-size: 11px;
+                    clicked => {
+                        msg_field.text = "";
+                        msg_field.focus();
+                    }
+                }
+            }
+
+            if msg_field.text != "" : Text {
+                text: root.is-ja
+                    ? (msg_field.text.character-count + " 文字")
+                    : (msg_field.text.character-count + " chars");
+                font-size: 11px;
+                color: Theme.text-muted;
+                vertical-alignment: center;
+            }
+        }
+    }
+}
+
 // 7. Activity History Log Card Component with Copy Feedback
 component ActivityStreamCard inherits ModernCard {
     in property <string> log-text: "";
@@ -478,6 +578,7 @@ component ActivityStreamCard inherits ModernCard {
     callback copy-clicked();
     callback save-clicked();
     callback share-clicked();
+    callback clear-clicked();
 
     VerticalLayout {
         padding: 10px;
@@ -485,11 +586,43 @@ component ActivityStreamCard inherits ModernCard {
 
         HorizontalLayout {
             alignment: space-between;
-            Text {
-                text: root.is-ja ? "送受信ログ" : "Activity Stream";
-                font-size: 12px;
-                font-weight: 700;
-                color: Theme.text-secondary;
+            HorizontalLayout {
+                spacing: 6px;
+                alignment: start;
+                Text {
+                    text: root.is-ja ? "チャット & 送受信ログ" : "Chat & Activity Stream";
+                    font-size: 12px;
+                    font-weight: 700;
+                    color: Theme.text-secondary;
+                    vertical-alignment: center;
+                }
+                Rectangle {
+                    height: 18px;
+                    background: #082f49;
+                    border-radius: 9px;
+                    border-width: 1px;
+                    border-color: Theme.accent-cyan;
+                    y: (parent.height - self.height) / 2;
+                    HorizontalLayout {
+                        padding-left: 6px;
+                        padding-right: 6px;
+                        spacing: 4px;
+                        Rectangle {
+                            width: 5px;
+                            height: 5px;
+                            border-radius: 2.5px;
+                            background: Theme.accent-cyan;
+                            y: (parent.height - self.height) / 2;
+                        }
+                        Text {
+                            text: "P2P 101";
+                            font-size: 9px;
+                            font-weight: 700;
+                            color: Theme.accent-cyan;
+                            vertical-alignment: center;
+                        }
+                    }
+                }
             }
             HorizontalLayout {
                 spacing: 4px;
@@ -501,6 +634,13 @@ component ActivityStreamCard inherits ModernCard {
                     custom-height: 28px;
                     font-size: 11px;
                     clicked => { root.copy-clicked(); }
+                }
+                AppButton {
+                    text: root.is-ja ? "クリア" : "Clear";
+                    secondary: true;
+                    custom-height: 28px;
+                    font-size: 11px;
+                    clicked => { root.clear-clicked(); }
                 }
                 AppButton {
                     text: root.is-ja ? "保存" : "Save";
@@ -642,6 +782,7 @@ export component AppWindow inherits Window {
     callback paste_and_join();
     callback disconnect();
     callback compose_text(string);
+    callback clear_chat_log();
     callback open_text_composer();
     callback paste_and_send();
     callback pick_files();
@@ -1237,52 +1378,13 @@ export component AppWindow inherits Window {
                                 }
                             }
 
-                            // Tab B: Text Send Area
-                            if root.send_mode_tab == 1 : ModernCard {
-                                VerticalLayout {
-                                    padding: 12px;
-                                    spacing: 8px;
-                                    HorizontalLayout {
-                                        spacing: 6px;
-                                        msg_field := LineEdit {
-                                            horizontal-stretch: 1;
-                                            text <=> root.message_input;
-                                            placeholder-text: root.is_ja ? "メッセージを入力…" : "Type a message…";
-                                            accessible-label: root.is_ja ? "メッセージ入力欄" : "Message input field";
-                                            accepted => {
-                                                root.compose_text(self.text);
-                                                self.text = "";
-                                            }
-                                        }
-                                        AppButton {
-                                            text: root.is_ja ? "送信" : "Send";
-                                            icon-text: "→";
-                                            primary: true;
-                                            custom-height: 38px;
-                                            clicked => {
-                                                root.compose_text(root.message_input);
-                                                root.message_input = "";
-                                            }
-                                        }
-                                    }
-                                    HorizontalLayout {
-                                        spacing: 6px;
-                                        AppButton {
-                                            horizontal-stretch: 1;
-                                            text: root.is_ja ? "クリップボードから送信" : "Paste & Send";
-                                            secondary: true;
-                                            custom-height: 32px;
-                                            clicked => { root.paste_and_send(); }
-                                        }
-                                        AppButton {
-                                            horizontal-stretch: 1;
-                                            text: root.is_ja ? "複数行入力" : "Multiline Composer";
-                                            secondary: true;
-                                            custom-height: 32px;
-                                            clicked => { root.open_text_composer(); }
-                                        }
-                                    }
-                                }
+                            // Tab B: Modern Ultra-Fast Chat & Text Send Area
+                            if root.send_mode_tab == 1 : ChatInputBox {
+                                text <=> root.message_input;
+                                is-ja: root.is_ja;
+                                can-send: root.can_send;
+                                send(msg) => { root.compose_text(msg); }
+                                paste-send => { root.paste_and_send(); }
                             }
 
                             // ------------------------------------------------
@@ -1320,6 +1422,7 @@ export component AppWindow inherits Window {
                                 is-ja: root.is_ja;
                                 text-copied: root.text_copied_feedback;
                                 copy-clicked => { root.copy_received_text(); }
+                                clear-clicked => { root.clear_chat_log(); }
                                 save-clicked => { root.save_received_text(); }
                                 share-clicked => { root.share_received_text(); }
                             }

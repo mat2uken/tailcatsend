@@ -486,61 +486,75 @@
         async function handleIncomingP2PConnection(conn) {
             try {
                 if (conn.port === 101) {
-                    let text = "";
+                    let buffer = "";
                     const decoder = new TextDecoder();
                     try {
                         while (true) {
                             const chunk = await conn.read();
                             if (!chunk || chunk.length === 0) break;
-                            text += decoder.decode(chunk, { stream: true });
-                        }
-                        text += decoder.decode();
-                    } finally {
-                        try { conn.close(); } catch (_) {}
-                    }
-                    console.log("⚡ [Ponlet Web] Received text on Port 101:", text);
-
-                    let isHandshake = false;
-                    // Check for JOIN:<address> handshake
-                    if (text.includes("JOIN:")) {
-                        isHandshake = true;
-                        const parts = text.split("JOIN:");
-                        if (parts.length > 1) {
-                            const peerAddr = parts[1].trim().split(/\s+/)[0];
-                            if (peerAddr && peerAddr.length > 5) {
-                                window.targetPeerAddress = peerAddr;
-                                console.log("🔗 [Ponlet Web] Automatically paired with remote peer:", peerAddr);
+                            buffer += decoder.decode(chunk, { stream: true });
+                            let newlineIdx;
+                            while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
+                                const line = buffer.slice(0, newlineIdx);
+                                buffer = buffer.slice(newlineIdx + 1);
+                                if (line.trim().length > 0) {
+                                    dispatchIncomingTextMessage(line.trim());
+                                }
                             }
                         }
-                    }
-                    if (text.startsWith("🤝")) {
-                        isHandshake = true;
-                    }
-
-                    if (isHandshake) {
-                        if (window.onPeerConnectedSlint) {
-                            window.onPeerConnectedSlint("接続された相手端末");
+                        buffer += decoder.decode();
+                        if (buffer.trim().length > 0) {
+                            dispatchIncomingTextMessage(buffer.trim());
                         }
-                        if (window.updateSlintStatusText) {
-                            window.updateSlintStatusText("直接暗号化P2Pで接続しました！");
-                        }
-                    } else if (text.trim().length > 0) {
-                        if (window.onPeerConnectedSlint) {
-                            window.onPeerConnectedSlint("接続された相手端末");
-                        }
-                        window.lastReceivedMessage = text;
-                        if (window.onIncomingTextMessageSlint) {
-                            window.onIncomingTextMessageSlint(text);
-                        }
-                        if (window.updateSlintStatusText) {
-                            window.updateSlintStatusText("メッセージを受信しました！");
-                        }
+                    } finally {
+                        try { conn.close(); } catch (_) {}
                     }
                 } else if (conn.port === 102) {
                     await handleIncomingFileStream(conn);
                 }
             } catch (err) {
                 console.error("[Ponlet Web] Incoming connection error:", err);
+            }
+        }
+
+        function dispatchIncomingTextMessage(text) {
+            console.log("⚡ [Ponlet Web] Received text on Port 101:", text);
+
+            let isHandshake = false;
+            // Check for JOIN:<address> handshake
+            if (text.includes("JOIN:")) {
+                isHandshake = true;
+                const parts = text.split("JOIN:");
+                if (parts.length > 1) {
+                    const peerAddr = parts[1].trim().split(/\s+/)[0];
+                    if (peerAddr && peerAddr.length > 5) {
+                        window.targetPeerAddress = peerAddr;
+                        console.log("🔗 [Ponlet Web] Automatically paired with remote peer:", peerAddr);
+                    }
+                }
+            }
+            if (text.startsWith("🤝")) {
+                isHandshake = true;
+            }
+
+            if (isHandshake) {
+                if (window.onPeerConnectedSlint) {
+                    window.onPeerConnectedSlint("接続された相手端末");
+                }
+                if (window.updateSlintStatusText) {
+                    window.updateSlintStatusText("直接暗号化P2Pで接続しました！");
+                }
+            } else if (text.trim().length > 0) {
+                if (window.onPeerConnectedSlint) {
+                    window.onPeerConnectedSlint("接続された相手端末");
+                }
+                window.lastReceivedMessage = text;
+                if (window.onIncomingTextMessageSlint) {
+                    window.onIncomingTextMessageSlint(text);
+                }
+                if (window.updateSlintStatusText) {
+                    window.updateSlintStatusText("メッセージを受信しました！");
+                }
             }
         }
 
@@ -712,7 +726,8 @@
                     derpMapURL: "https://tailcat.dev/derpmap.json"
                 });
                 const encoder = new TextEncoder();
-                await conn.write(encoder.encode(text));
+                const outText = text.endsWith("\n") ? text : (text + "\n");
+                await conn.write(encoder.encode(outText));
                 await conn.closeWrite();
                 conn.close();
                 console.log("✅ [Ponlet Web] Text delivered directly to peer via Tailcat P2P!");

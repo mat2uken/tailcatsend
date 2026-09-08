@@ -580,7 +580,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let _ = slint::invoke_from_event_loop(move || {
                             if let Some(app) = w.upgrade() {
                                 let is_ja = app.get_current_language() == "ja";
-                                app.set_status_text(if is_ja { "テキストメッセージを送信しました" } else { "Text message sent successfully!" }.into());
+                                app.set_status_text(if is_ja { "送信完了 ✓" } else { "Message sent ✓" }.into());
                             }
                         });
                     }
@@ -812,8 +812,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let target_addr_text = target_peer_addr.clone();
     app.on_compose_text(move |msg| {
         if let Some(app) = app_weak_text.upgrade() {
-            let msg_str = msg.to_string();
-            if msg_str.trim().is_empty() {
+            let sanitized_str = sanitize_ime_input(&msg.to_string());
+            let trimmed = sanitized_str.trim();
+            if trimmed.is_empty() {
                 return;
             }
 
@@ -829,25 +830,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return;
             }
 
+            // Zero-latency Optimistic UI update
             let me_label = I18n::label_me(is_ja);
-            let log_text = format!("{}: {}\n{}", me_label, msg_str, app.get_received_message_log());
+            let log_text = format!("{}: {}\n{}", me_label, trimmed, app.get_received_message_log());
             app.set_received_message_log(log_text.into());
             app.set_message_input("".into());
+            app.set_status_text(if is_ja { "送信中…" } else { "Sending…" }.into());
 
             if let Ok(guard) = target_addr_text.lock() {
                 if let Some(target) = guard.as_ref() {
-                    info!("Sending Tailcat P2P message to {}: {}", target, msg_str);
+                    info!("Sending Tailcat P2P message to {}: {}", target, trimmed);
                     let _ = ipc_tx_text.send(DaemonCommand {
                         action: "send_text".to_string(),
                         address: Some(target.clone()),
                         port: Some(101),
                         handle: None,
-                        text: Some(msg_str),
+                        text: Some(trimmed.to_string()),
                         filename: None,
                         path: None,
                     });
                 }
             }
+        }
+    });
+
+    // Clear Chat Log Callback
+    let app_weak_clear_log = app_weak.clone();
+    app.on_clear_chat_log(move || {
+        if let Some(app) = app_weak_clear_log.upgrade() {
+            let is_ja = app.get_current_language() == "ja";
+            app.set_received_message_log("".into());
+            app.set_status_text(if is_ja { "チャットログをクリアしました" } else { "Chat log cleared" }.into());
         }
     });
 
@@ -860,7 +873,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(app) = app_weak_paste_send.upgrade() {
             if let Ok(mut clipboard) = Clipboard::new() {
                 if let Ok(text) = clipboard.get_text() {
-                    app.set_message_input(text.into());
+                    let sanitized = sanitize_ime_input(&text);
+                    app.set_message_input(sanitized.into());
                 }
             }
         }
@@ -1057,5 +1071,69 @@ fn parse_tailcat_address(input: &str) -> String {
         token.to_string()
     } else {
         trimmed.to_string()
+    }
+}
+
+/// Sanitizes text to remove premature IME commitment glitches (e.g., "aあ" -> "あ", "kこんにちは" -> "こんにちは").
+pub fn sanitize_ime_input(input: &str) -> String {
+    let trimmed = input.trim_start();
+    let chars: Vec<char> = trimmed.chars().collect();
+    let is_kana = |c: char| matches!(c, '\u{3040}'..='\u{309F}' | '\u{30A0}'..='\u{30FF}');
+
+    // 1-letter premature leak before Japanese kana (e.g. "aあ", "kか")
+    if chars.len() >= 2 && chars[0].is_ascii_alphabetic() && is_kana(chars[1]) {
+        let is_vowel = matches!(
+            (chars[0].to_ascii_lowercase(), chars[1]),
+            ('a', 'あ' | 'ア')
+                | ('i', 'い' | 'イ')
+                | ('u', 'う' | 'ウ')
+                | ('e', 'え' | 'エ')
+                | ('o', 'お' | 'オ')
+        );
+        if is_vowel || chars[0].is_ascii_lowercase() {
+            let leading_ws: String = input.chars().take_while(|c| c.is_whitespace()).collect();
+            let sanitized: String = chars[1..].iter().collect();
+            return format!("{}{}", leading_ws, sanitized);
+        }
+    }
+
+    // 2-letter premature leak before Japanese kana (e.g. "kaか")
+    if chars.len() >= 3 && chars[0].is_ascii_lowercase() && chars[1].is_ascii_lowercase() && is_kana(chars[2]) {
+        let leading_ws: String = input.chars().take_while(|c| c.is_whitespace()).collect();
+        let sanitized: String = chars[2..].iter().collect();
+        return format!("{}{}", leading_ws, sanitized);
+    }
+
+    input.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sanitize_ime_glitches() {
+        assert_eq!(sanitize_ime_input("aあ"), "あ");
+        assert_eq!(sanitize_ime_input("aありがとう"), "ありがとう");
+        assert_eq!(sanitize_ime_input("aア"), "ア");
+        assert_eq!(sanitize_ime_input("iい"), "い");
+        assert_eq!(sanitize_ime_input("uう"), "う");
+        assert_eq!(sanitize_ime_input("eえ"), "え");
+        assert_eq!(sanitize_ime_input("oお"), "お");
+        assert_eq!(sanitize_ime_input("kこんにちは"), "こんにちは");
+        assert_eq!(sanitize_ime_input("sすごい"), "すごい");
+        assert_eq!(sanitize_ime_input("tテスト"), "テスト");
+        assert_eq!(sanitize_ime_input("kaかんしゃ"), "かんしゃ");
+    }
+
+    #[test]
+    fn test_sanitize_ime_preserves_valid_english_and_names() {
+        assert_eq!(sanitize_ime_input("iPhone"), "iPhone");
+        assert_eq!(sanitize_ime_input("AI技術"), "AI技術");
+        assert_eq!(sanitize_ime_input("PCで作業"), "PCで作業");
+        assert_eq!(sanitize_ime_input("Hello World"), "Hello World");
+        assert_eq!(sanitize_ime_input("こんにちは"), "こんにちは");
+        assert_eq!(sanitize_ime_input("123"), "123");
+        assert_eq!(sanitize_ime_input(""), "");
     }
 }

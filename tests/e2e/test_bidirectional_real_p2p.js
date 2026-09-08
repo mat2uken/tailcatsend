@@ -4,11 +4,12 @@ const http = require("http");
 const fs = require("fs");
 const path = require("path");
 const net = require("net");
+const crypto = require("crypto");
 const { spawn, execSync } = require("child_process");
 
 const DIST_DIR = path.resolve(__dirname, "../../dist");
-const HTTP_PORT = 8792;
-const DAEMON_IPC_PORT = 49170;
+const HTTP_PORT = 8795;
+const DAEMON_IPC_PORT = 49185;
 
 const MIME_TYPES = {
     ".html": "text/html; charset=utf-8",
@@ -67,7 +68,9 @@ async function runBidirectionalP2PTest() {
         server = await startStaticServer();
 
         // 1. Spawn Host tailcat_daemon
-        const daemonPath = path.resolve(__dirname, "../../target/release/tailcat_daemon.exe");
+        const daemonPath = fs.existsSync(path.resolve(__dirname, "../../tailcat_daemon"))
+            ? path.resolve(__dirname, "../../tailcat_daemon")
+            : path.resolve(__dirname, "../../target/release/tailcat_daemon.exe");
         console.log(`[Host Daemon] Spawning: ${daemonPath}`);
         daemon = spawn(daemonPath, [
             "-derp=https://tailcat.dev/derpmap.json",
@@ -151,7 +154,9 @@ async function runBidirectionalP2PTest() {
         console.log(`📱 [Mobile Web URL] Target: ${mobileUrl}`);
 
         // 4. Launch Chrome Headless simulating Mobile Smartphone
-        const chromePath = fs.existsSync("C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe")
+        const chromePath = fs.existsSync("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+            ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+            : fs.existsSync("C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe")
             ? "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
             : "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 
@@ -159,7 +164,7 @@ async function runBidirectionalP2PTest() {
         chrome = spawn(chromePath, [
             "--headless=new",
             `--remote-debugging-port=${debugPort}`,
-            "--disable-gpu",
+            "--enable-webgl",
             "--no-sandbox",
             mobileUrl,
         ]);
@@ -208,11 +213,17 @@ async function runBidirectionalP2PTest() {
                 const origCreateObjectURL = URL.createObjectURL;
                 URL.createObjectURL = function(blob) {
                     const url = origCreateObjectURL.call(URL, blob);
-                    window.interceptedDownloads.push({
-                        size: blob.size,
-                        type: blob.type
+                    blob.arrayBuffer().then(buf => {
+                        crypto.subtle.digest("SHA-256", buf).then(hash => {
+                            const hex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+                            window.interceptedDownloads.push({
+                                size: blob.size,
+                                type: blob.type,
+                                sha256: hex
+                            });
+                            console.log("[Browser Download Intercepted] Size: " + blob.size + " bytes, SHA-256: " + hex);
+                        });
                     });
-                    console.log("[Browser Download Intercepted] Size: " + blob.size + " bytes");
                     return url;
                 };
             `
@@ -273,7 +284,9 @@ async function runBidirectionalP2PTest() {
             testFileContent[i] = (i % 256);
         }
         fs.writeFileSync(testFilePath, testFileContent);
+        const expectedSha256 = crypto.createHash("sha256").update(testFileContent).digest("hex");
         console.log(`[Host] Created test file: ${testFilePath} (${testFileContent.length} bytes)`);
+        console.log(`[Host] Expected SHA-256: ${expectedSha256}`);
 
         const sendFileCmd = JSON.stringify({
             action: "send_file",
@@ -287,6 +300,7 @@ async function runBidirectionalP2PTest() {
         console.log("[Host -> Joiner] File command sent over IPC, waiting for stream delivery & download...");
         let downloadSuccess = false;
         let downloadedSize = 0;
+        let downloadedSha256 = "";
 
         for (let i = 0; i < 35; i++) {
             await new Promise((r) => setTimeout(r, 500));
@@ -296,8 +310,9 @@ async function runBidirectionalP2PTest() {
             });
             if (checkDlRes.result && checkDlRes.result.value) {
                 const downloads = JSON.parse(checkDlRes.result.value);
-                if (downloads.length > 0) {
+                if (downloads.length > 0 && downloads[0].sha256) {
                     downloadedSize = downloads[0].size;
+                    downloadedSha256 = downloads[0].sha256;
                     if (downloadedSize === testFileContent.length) {
                         downloadSuccess = true;
                         break;
@@ -307,10 +322,14 @@ async function runBidirectionalP2PTest() {
         }
 
         console.log(`[Mobile Web] Intercepted download size: ${downloadedSize} bytes (Expected: ${testFileContent.length})`);
+        console.log(`[Mobile Web] Intercepted download SHA-256: ${downloadedSha256}`);
         if (!downloadSuccess || downloadedSize !== testFileContent.length) {
             throw new Error(`File was not received or size mismatch! Received: ${downloadedSize}, Expected: ${testFileContent.length}`);
         }
-        console.log("✓ Verification 3 PASSED: Mobile Web successfully received and downloaded file sent from Host PC!");
+        if (downloadedSha256 !== expectedSha256) {
+            throw new Error(`SHA-256 mismatch! Received: ${downloadedSha256}, Expected: ${expectedSha256}`);
+        }
+        console.log("✓ Verification 3 PASSED: Mobile Web successfully received and downloaded file sent from Host PC with 100% SHA-256 integrity!");
 
         // 8. Test Joiner (Mobile Web) -> Host Text Message Transmission (Reverse path)!
         console.log("\n--- Verification Phase 4: Joiner -> Host Text Reply ---");
