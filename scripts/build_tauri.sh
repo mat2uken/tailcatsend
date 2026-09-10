@@ -35,6 +35,7 @@ export PONLET_TAILCAT_LIB_DIR="${out_dir}"
 export PONLET_TAILCAT_LIB_NAME=tailcat
 
 "${repo_dir}/scripts/build_web_ui.sh"
-(cd "${repo_dir}" && cargo build -p tailsend-tauri)
+(cd "${repo_dir}" && cargo build -p tailsend-tauri --release)
+(cd "${repo_dir}" && cargo build -p tailsend-desktop --release)
 
-echo "Tauri shell built with Go bridge from ${go_output}"
+echo "Tauri desktop shell built with Go bridge from ${go_output}"

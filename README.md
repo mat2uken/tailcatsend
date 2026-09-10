@@ -1,7 +1,7 @@
 # TailSend 🚀
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Native UI](https://img.shields.io/badge/Native_UI-Slint-purple.svg)](https://slint.dev/)
+[![Native UI](https://img.shields.io/badge/Native_UI-Tauri%20WebView-purple.svg)](https://tauri.app/)
 [![Web Client](https://img.shields.io/badge/Web_Client-Cloudflare_Pages-orange.svg)](https://ponlet.mat2uken.app)
 
 > **TailSend** is a modern, secure, cross-platform peer-to-peer (P2P) file transfer application built with **Rust**, **VanJS WebView UI**, and **Tailcat** (WireGuard mesh networking).
@@ -22,7 +22,7 @@ Transfer files, photos, videos, and clipboard text directly between devices with
   - **Mobile**: iOS (UIKit / Metal), Android (arm64-v8a NativeActivity)
   - **Web**: WebAssembly (WASM) client hosted on Cloudflare Pages
 - 🎨 **Lightweight Shared Web UI**
-  The browser and Tauri shells share a small VanJS + TypeScript + standard HTML/CSS UI. Native mobile and desktop shells remain on Slint during the staged migration.
+  The browser and Tauri desktop shell share a small VanJS + TypeScript + standard HTML/CSS UI. Native mobile shells remain on Slint during the staged migration.
 - 📦 **High-Throughput Chunked Streaming**  
   Transfers large files reliably using 64 KiB chunks with real-time transfer progress, live throughput calculation, and SHA-256 integrity verification.
 - 📋 **Integrated Clipboard & File Sharing**  
@@ -89,13 +89,11 @@ cd tailcatsend
 
 ### 2. Run Native Desktop App
 ```bash
-# Build the Go Tailcat daemon
-cd tailcat
-go build -tags tailcat_daemon -o ../tailcat_daemon ./bridge/native
-cd ..
+# Build the Go C archive, Web UI, and Tauri desktop shell
+./scripts/build_tauri.sh
 
-# Run the Rust desktop application
-cargo run -p tailsend-desktop
+# Run the Tauri desktop application
+./target/debug/tailsend
 ```
 
 ### 3. Build WebAssembly Web App

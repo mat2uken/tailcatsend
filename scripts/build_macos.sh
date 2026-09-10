@@ -39,22 +39,13 @@ if [ -f "$ROOT_DIR/tailcat/patches/0001-android-selinux-netmon-fallback.patch" ]
     git -C "$ROOT_DIR/tailcat/pkg/tailcat" apply "$ROOT_DIR/tailcat/patches/0001-android-selinux-netmon-fallback.patch" || true
 fi
 
-# 2. Build Go Tailcat Native Engine
+# 2. Build the Go C archive, VanJS UI, and Tauri shell
 echo ""
-echo "[1/2] Building Go Tailcat WireGuard Daemon..."
-cd "$ROOT_DIR/tailcat"
-go build -tags tailcat_daemon -o "$ROOT_DIR/tailcat_daemon" ./bridge/native
-cd "$ROOT_DIR"
-chmod +x "$ROOT_DIR/tailcat_daemon"
-echo "✓ Tailcat daemon built successfully at ./tailcat_daemon"
-
-# 3. Build Rust Slint Native Desktop App
-echo ""
-echo "[2/2] Building Rust Slint Desktop Application..."
-cargo build -p tailsend-desktop --release
+echo "[1/1] Building Tauri desktop application..."
+scripts/build_tauri.sh
 echo "✓ Ponlet binary built successfully at ./target/release/tailsend"
 
-# 4. Package macOS App Bundle (.app) with AppIcon
+# 2. Package macOS App Bundle (.app) with AppIcon
 echo ""
 echo "📦 Packaging Ponlet.app with custom icon..."
 APP_BUNDLE="$ROOT_DIR/build/macos/Ponlet.app"

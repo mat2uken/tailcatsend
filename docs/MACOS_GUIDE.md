@@ -1,6 +1,6 @@
 # 🍎 TailSend macOS 実機動作確認ガイド
 
-TailSend は Rust (Slint UI) と Go (Tailcat P2P WireGuard エンジン) で構築されており、**macOS（Apple Silicon M1/M2/M3/M4 および Intel Mac）で完全ネイティブ（Cocoa / Metal）に動作**します。
+TailSend は Rust (Tauri WebView UI) と Go (Tailcat P2P WireGuard エンジン) で構築されており、macOSでは共通VanJS UIをローカルWebViewへ表示します。
 
 ---
 
@@ -24,7 +24,7 @@ Mac のターミナルを開き、以下のツールがインストールされ�
 
 ## 2. ビルド ＆ 起動手順 (ワンコマンド)
 
-リポジトリ直下で付属のスクリプトを実行するだけで、Go デーモンと Rust デスクトップアプリが自動ビルドされ、ネイティブウィンドウが起動します：
+リポジトリ直下で付属のスクリプトを実行すると、Go C archive、VanJS UI、Tauriデスクトップアプリがビルドされます：
 
 ```bash
 # 実行権限を付与して起動
@@ -37,33 +37,31 @@ chmod +x scripts/build_macos.sh
 ## 3. 手動で個別にビルド・実行する場合
 
 ```bash
-# 1. Tailcat デーモンのビルド
-cd tailcat
-go build -tags tailcat_daemon -o ../tailcat_daemon ./bridge/native
-cd ..
+# 1. Go C archive、VanJS UI、Tauri desktop shellのビルド
+./scripts/build_tauri.sh
 
-# 2. Rust デスクトップアプリのビルド＆起動
-cargo run -p tailsend-desktop
+# 2. Tauriデスクトップアプリの起動
+./target/debug/tailsend
 ```
 
 ---
 
 ## 4. macOS で確認できるネイティブ機能
 
-1. **Retina Display 高精細 Metal / Cocoa レンダリング**:
-   - Slint が macOS の Metal グラフィックスバックエンドを自動認識し、滑らかな 60fps で美しい QR コードおよび UI を描画します。
+1. **WebView UI**:
+   - VanJS UIをTauriのローカルWebViewで表示し、RustサービスとGo C archiveへ接続します。
 2. **Mac クリップボード連携 (`Paste & Send`)**:
    - Mac で `Cmd + C` でコピーしたテキストを、画面上の「**Paste & Send**」ボタンからワンタップで相手端末（iPhone や Windows）へ即時送信。
 3. **Finder 連携 (`Share to App`)**:
    - 受信ログ欄の「**Share to App**」を押すと、macOS の `open` コマンドが発火し、Mac の `Downloads/TailSend/` フォルダが Finder で自動で開きます。
 4. **大容量ファイル双方向 P2P 転送**:
-   - 「**Pick File**」を押すと macOS 標準のファイルピッカーダイアログが開き、動画や画像を選択して iPhone や他端末へ高速チャンク送信できます。
+   - Tauriのファイル選択から共通Rust転送エンジンへファイル参照を渡します。実機転送は別の検証項目です。
 
 ---
 
 ## 5. macOS 実機検証結果 (2026-09-02)
 
-以下は当時の旧Slint構成での結果。現在の未コミット変更やWebView構成の検証結果ではない。
+以下は2026-09-02時点の旧Slint構成の記録であり、現在のTauri WebView構成の成功証拠ではない。
 
 | 検証項目 | 検証内容 | 結果 | 備考 |
 |---|---|---|---|
