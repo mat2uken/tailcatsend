@@ -29,7 +29,7 @@
 
 ## 経路別試験の起動設定
 
-ネイティブ bridge は起動時だけ `PONLET_TRANSPORT` を読み、試験用にTailcatの経路選択を固定できる。未設定または `auto` は通常の自動選択、`direct-udp` は WireGuard UDP、`webrtc` は WebRTC DataChannel、`derp` は DERP relay を指定する。設定は `tc_init` の前に適用され、接続中には変更しない。
+ネイティブ bridge は起動時だけ `PONLET_TRANSPORT` を読み、試験用にTailcatの経路選択を固定できる。未設定または `auto` は通常の自動選択、`direct-udp` は WebRTC を抑止して WireGuard UDP を優先、`webrtc` は直接UDPを抑止して WebRTC DataChannel を優先、`derp` は DERP relay を強制する。Tailcatが指定方式を利用できない相手では下位の経路へフォールバックする。設定は `tc_init` の前に適用され、接続中には変更しない。
 
 ```sh
 PONLET_TRANSPORT=direct-udp ./target/release/tailsend
@@ -38,6 +38,8 @@ PONLET_TRANSPORT=derp ./target/release/tailsend
 ```
 
 これは経路を指定した再現試験の入口であり、各端末・各通信方式の転送成功を自動的に保証するものではない。受入時は表示された経路、送受信 byte 数、SHA-256、保存物を同じ実行で記録する。
+
+macOS bundleとSony XQ-DQ44の実行では、`PONLET_TRANSPORT=derp` で双方向テキストが `derp` のまま完了した。`direct-udp` は接続直後の直接UDP選択を確認できたが、データ転送後にDERPへフォールバックしたため、直接UDPの完了証拠にはしていない。
 
 ## 確認済み
 

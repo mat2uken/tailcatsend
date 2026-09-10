@@ -20,7 +20,7 @@
 - `d1c3473` で受信保存の衝突候補をディレクトリ全走査から上限付き存在確認へ変更し、宣言サイズを受け取った後に遅延する half-close を待たず保存を確定する。iCloud／Files provider での待機と、100%表示後に止まる受信を避ける。
 - `adb7b65` で取消時に native／Web の stream を実際に閉じる callback を共通 service へ登録した。callback は状態 mutex の外で一度だけ呼び出し、Go の read/write 待ちも close で解除する。
 - 最新の native adapter では、multi-thread Tokio の read/write を `block_in_place` で実行し、Go C ABIへRustのチャンクバッファを呼出し中だけ借用する。チャンクごとの `spawn_blocking` と一時 `Vec` を使わず、current-thread runtimeでは同期呼出しへ切り替える。
-- ネイティブ bridge は起動時の `PONLET_TRANSPORT=auto|direct-udp|webrtc|derp` を試験用に受け付け、Tailcatの経路固定を `tc_init` 前に一度だけ適用する。通常起動では未設定のまま自動選択を使う。
+- ネイティブ bridge は起動時の `PONLET_TRANSPORT=auto|direct-udp|webrtc|derp` を試験用に受け付け、Tailcatの経路優先／DERP強制を `tc_init` 前に一度だけ適用する。通常起動では未設定のまま自動選択を使う。
 
 ## ローカルで通過させる確認
 
@@ -45,6 +45,8 @@ Chrome 2 タブの実通信では、日本語テキスト、131,089 byte ファ�
 
 正式な macOS Tauri bundle (`target/release/bundle/macos/Ponlet.app`) と Sony XQ-DQ44 (Android 15) を同じ実行で接続した。招待直後の状態取得は `transport=direct-udp`、データ送受信後は両端の表示が `derp` へ更新された。macOS Tauri から Android へ `tauri-to-android-日本語.bin` (131,071 bytes) を送信し、Android の `received/` に保存されたファイルの SHA-256 `db7a7ca4ee279909ee4b75b9286e3ad86491667a7a43697a23dec03bf79118a0` が送信元と一致した。テキストは `macOS Tauri→Android 実通信 ✅` と `Android→macOS Tauri 実通信 ↔ 日本語` の双方向を確認した。これは Tauri 2端末の実通信と、同一接続での直接経路からDERPへの経路表示更新を確認する証拠である。
 
+`f27d9ad` の後、`PONLET_TRANSPORT=derp` で起動したmacOS bundleとSony XQ-DQ44を接続し、両端の表示が `derp` のまま双方向テキストを受信できることを確認した。`PONLET_TRANSPORT=direct-udp` では接続直後に両端が `direct-udp` となり、同じLANでのデータ転送後にTailcatが `derp` へ切り替えた。後者は直接UDPの初期選択とフォールバック動作の確認であり、データ転送全体を直接UDPで完了した証明にはしない。
+
 Web 2タブの実通信E2Eには `npm run test:e2e:real:derp` を追加した。ローカル試験ページだけ WebRTC API を無効にして DERPへフォールバックさせ、両端の `derp` 表示、双方向テキスト、131,089／98,321 byte のファイル、SHA-256一致を確認する。受信開始時に未確定だった経路は、最初のデータ後に再取得して接続後の表示へ反映する。
 
 Worker化後も `npm run test:e2e:real` と `npm run test:e2e:real:derp` が同じ入力とSHA-256で通過した。Sony XQ-DQ44 (Android 15) とWorker化した Chromiumの実機E2Eも `npm run test:e2e:android` (WebRTC) と `npm run test:e2e:android:derp` (DERP) で通過し、131,071 byteのファイル保存と端末上のSHA-256を確認した。
@@ -56,6 +58,8 @@ Worker化後も `npm run test:e2e:real` と `npm run test:e2e:real:derp` が同�
 `ffb753c` 後に `./scripts/build_tauri_mobile.sh ios-sim debug` を実行して iOS 18.5 の iPhone 16 simulator 用 `apps/tauri/gen/apple/build/arm64-sim/Ponlet.app` を再生成し、`xcrun simctl install`／`launch` で起動待機画面を確認した。これは iOS WebView shell の起動確認であり、iOS 実機の署名・通信確認ではない。
 
 `3597588` では、招待待機中に「招待を作成」を連続実行した際、取消された古いaccept処理の終端エラーが新しい招待の状態を上書きしないようにした。更新済みmacOS WebViewで再生成直後と待機処理の終了後に「相手を待機中」が維持されることを確認した。
+
+`3dbdc6f` では、接続中に別の招待または切断が始まった場合、古いjoin処理の成功・失敗が現在の接続状態を上書きしないようにした。古いセッションだけを閉じ、現在のセッションを維持する。
 
 正式な macOS bundle を `adb7b65` で再ビルドし、Sony XQ-DQ44 と接続した。64 MiB のファイルを使い、Android→macOS の送信側取消、macOS→Android の受信側取消を DERP relay 上でそれぞれ実行した。取消後は両端が接続待機へ戻り、受信先に確定ファイルも `.part` も残らないことを確認した。通常転送では Android から macOS へ 4,096 byte の `small.bin`（SHA-256 `2dba0b4d9372f74682a66cb4eb7edfb620d6b4b151ea25b68f115ff82979a3f0`）と 98,321 byte の日本語名ファイル（SHA-256 `2e1b363da4361f817a79751077a6930d34e0d7e4766e98b82522ab74900e8937`）を保存し、既存名との衝突時は `(1)` を付けることを確認した。
 
