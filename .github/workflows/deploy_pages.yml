@@ -67,9 +67,17 @@ jobs:
             .
 
       - name: Install wasm-bindgen-cli
+        # Cargo.lock is not committed, so resolve the CLI version from the
+        # dependency graph to keep the binary and crate schema in sync.
+        run: |
+          VERSION=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version' | sort -u | head -n 1)
+          echo "Installing wasm-bindgen-cli $VERSION"
+          echo "WASM_BINDGEN_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Install wasm-bindgen-cli binary
         uses: taiki-e/install-action@v2
         with:
-          tool: wasm-bindgen-cli@0.2.127
+          tool: wasm-bindgen-cli@${{ env.WASM_BINDGEN_VERSION }}
 
       - name: Build Go Tailcat WASM Bridge
         run: |
