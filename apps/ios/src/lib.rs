@@ -1,11 +1,15 @@
+use std::collections::HashSet;
 use std::ffi::CStr;
+use std::io::Write;
 use std::os::raw::c_char;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use log::{error, info};
 use rand::RngCore;
 use slint::{Image, SharedPixelBuffer};
+use tailsend_protocol::filename::{generate_unique_filename, sanitize_filename};
 use tailsend_protocol::invitation::InvitationV1;
 use tailsend_qr::generate_qr_rgba;
 use tokio::sync::mpsc;
@@ -118,6 +122,327 @@ fn parse_tailcat_address(input: &str) -> String {
         token.to_string()
     } else {
         trimmed.to_string()
+    }
+}
+
+// parse_file_header parses the wire header sent by the web sender:
+// `NAME:<filename>:<size>\n`. The filename may contain colons, so the
+// size is split off at the last colon.
+fn parse_file_header(line: &str) -> Option<(String, u64)> {
+    let rest = line.strip_prefix("NAME:")?;
+    let (name, size_str) = rest.rsplit_once(':')?;
+    let size = size_str.trim().parse::<u64>().ok()?;
+    let name = sanitize_filename(name).ok()?;
+    Some((name, size))
+}
+
+fn documents_dir() -> PathBuf {
+    std::env::var("HOME")
+        .map(|h| PathBuf::from(h).join("Documents"))
+        .unwrap_or_else(|_| std::env::temp_dir())
+}
+
+fn unique_download_path(dir: &PathBuf, name: &str) -> PathBuf {
+    let existing: HashSet<String> = std::fs::read_dir(dir)
+        .map(|rd| {
+            rd.filter_map(|e| e.ok())
+                .filter_map(|e| e.file_name().into_string().ok())
+                .collect()
+        })
+        .unwrap_or_default();
+    let unique_name = generate_unique_filename(&existing, name);
+    dir.join(unique_name)
+}
+
+// receive_text_stream handles an incoming Port 101 text stream: it
+// reads until EOF or idle timeout, delivering newline-terminated lines
+// immediately (desktop sends them on a persistent connection) and
+// flushing any trailing unterminated message at the end.
+fn receive_text_stream(
+    stream: TcHandle,
+    app_weak: slint::Weak<AppWindow>,
+    target_peer_addr: Arc<Mutex<Option<String>>>,
+) {
+    const MAX_TEXT_BYTES: usize = 1024 * 1024;
+
+    let handle_message = |text: String,
+                          app_weak: &slint::Weak<AppWindow>,
+                          target_peer_addr: &Arc<Mutex<Option<String>>>| {
+        info!("✉️ [Tailcat iOS] Text Received: {}", text);
+
+        let mut is_handshake = false;
+        if let Some(idx) = text.find("JOIN:") {
+            is_handshake = true;
+            let peer_addr = text[idx + 5..].split_whitespace().next().unwrap_or("").trim();
+            if !peer_addr.is_empty() {
+                if let Ok(mut guard) = target_peer_addr.lock() {
+                    *guard = Some(peer_addr.to_string());
+                    info!("🔗 [Tailcat iOS] Automatically paired with remote peer: {}", peer_addr);
+                }
+            }
+        }
+        if text.starts_with("🤝") {
+            is_handshake = true;
+        }
+
+        if !is_handshake {
+            tailsend_telemetry::events::text_message_received(
+                tailsend_telemetry::length_bucket(text.chars().count()),
+            );
+        }
+
+        let w = app_weak.clone();
+        let t = text;
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(app) = w.upgrade() {
+                app.set_screen_index(3);
+                app.set_peer_name("Connected Peer (P2P)".into());
+                if is_handshake {
+                    app.set_status_text("Direct Encrypted P2P Connected!".into());
+                } else {
+                    let new_log = format!("[Peer]: {}\n{}", t, app.get_received_message_log());
+                    app.set_received_message_log(new_log.into());
+                    app.set_last_received_text(t.into());
+                    app.set_status_text("Received text message via Tailcat P2P!".into());
+                }
+            }
+        });
+    };
+
+    let mut acc: Vec<u8> = Vec::new();
+    let mut buf = vec![0u8; 65536];
+    loop {
+        let mut read_bytes: usize = 0;
+        let res = unsafe {
+            tc_stream_read(stream, buf.as_mut_ptr(), buf.len(), &mut read_bytes, 30000)
+        };
+        if res != 0 || read_bytes == 0 {
+            // EOF, idle timeout, or error: flush whatever arrived
+            if !acc.is_empty() {
+                let text = String::from_utf8_lossy(&acc).to_string();
+                if !text.trim().is_empty() {
+                    handle_message(text, &app_weak, &target_peer_addr);
+                }
+            }
+            break;
+        }
+        acc.extend_from_slice(&buf[..read_bytes]);
+        while let Some(pos) = acc.iter().position(|&b| b == b'\n') {
+            let line_bytes: Vec<u8> = acc.drain(..=pos).collect();
+            let line = String::from_utf8_lossy(&line_bytes[..line_bytes.len() - 1]).to_string();
+            if !line.trim().is_empty() {
+                handle_message(line, &app_weak, &target_peer_addr);
+            }
+        }
+        if acc.len() > MAX_TEXT_BYTES {
+            error!("✉️ [Tailcat iOS] Incoming text exceeds limit, discarding stream");
+            break;
+        }
+    }
+}
+
+// receive_file_stream handles an incoming Port 102 file transfer from
+// the web sender: it reads the `NAME:<filename>:<size>\n` header,
+// streams the body to the app's Documents directory, and reports
+// progress / completion through the Slint UI.
+fn receive_file_stream(stream: TcHandle, app_weak: slint::Weak<AppWindow>) {
+    let start = Instant::now();
+    let dir = documents_dir();
+    let _ = std::fs::create_dir_all(&dir);
+
+    let mut header: Option<(String, u64)> = None;
+    let mut file: Option<std::fs::File> = None;
+    let mut path = PathBuf::new();
+    let mut pending: Vec<u8> = Vec::new();
+    let mut received: u64 = 0;
+    let mut total: u64 = 0;
+    let mut last_ui_update = Instant::now();
+    let mut failed: Option<String> = None;
+    let mut buf = vec![0u8; 65536];
+
+    let set_ui = |app_weak: slint::Weak<AppWindow>, transfer_status: &str, bytes_text: String, progress: f32, speed: String, status_text: String| {
+        let status = transfer_status.to_string();
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(app) = app_weak.upgrade() {
+                app.set_is_transferring(true);
+                app.set_transfer_completed(false);
+                app.set_is_sender_transfer(false);
+                app.set_transfer_status(status.into());
+                app.set_transfer_bytes_text(bytes_text.into());
+                app.set_transfer_progress(progress);
+                app.set_transfer_speed(speed.into());
+                app.set_status_text(status_text.into());
+            }
+        });
+    };
+
+    loop {
+        let mut read_bytes: usize = 0;
+        let res = unsafe {
+            tc_stream_read(stream, buf.as_mut_ptr(), buf.len(), &mut read_bytes, 30000)
+        };
+        if res == 1 {
+            break; // EOF: sender finished
+        }
+        if res == 2 {
+            failed = Some("Receive timed out".to_string());
+            break;
+        }
+        if res != 0 {
+            failed = Some(format!("Stream read error (status {})", res));
+            break;
+        }
+        if read_bytes == 0 {
+            continue;
+        }
+        pending.extend_from_slice(&buf[..read_bytes]);
+
+        if header.is_none() {
+            match pending.iter().position(|&b| b == b'\n') {
+                Some(pos) => {
+                    let header_str = String::from_utf8_lossy(&pending[..pos]).to_string();
+                    pending.drain(..=pos);
+                    match parse_file_header(&header_str) {
+                        Some((name, size)) => {
+                            total = size;
+                            path = unique_download_path(&dir, &name);
+                            match std::fs::File::create(&path) {
+                                Ok(f) => {
+                                    file = Some(f);
+                                    header = Some((name.clone(), size));
+                                    info!(
+                                        "📁 [Tailcat iOS] Incoming file: {} ({} bytes) -> {}",
+                                        name,
+                                        size,
+                                        path.display()
+                                    );
+                                    tailsend_telemetry::events::transfer_started(1, "direct", "receive");
+                                    set_ui(
+                                        app_weak.clone(),
+                                        "Receiving file…",
+                                        format!("0.0 MB / {:.1} MB", size as f64 / 1048576.0),
+                                        0.0,
+                                        "Receiving…".to_string(),
+                                        format!("Receiving {}…", name),
+                                    );
+                                }
+                                Err(e) => {
+                                    failed = Some(format!("Failed to create file: {}", e));
+                                    break;
+                                }
+                            }
+                        }
+                        None => {
+                            failed = Some(format!("Invalid file header: {}", header_str));
+                            break;
+                        }
+                    }
+                }
+                None if pending.len() > 8192 => {
+                    failed = Some("File header too large".to_string());
+                    break;
+                }
+                None => continue,
+            }
+        }
+
+        let f = match file.as_mut() {
+            Some(f) => f,
+            None => continue,
+        };
+        let chunk = std::mem::take(&mut pending);
+        received += chunk.len() as u64;
+        if let Err(e) = f.write_all(&chunk) {
+            failed = Some(format!("Failed to write file: {}", e));
+            break;
+        }
+        if total > 0 && received > total {
+            failed = Some("Received more bytes than expected".to_string());
+            break;
+        }
+
+        let now = Instant::now();
+        if now.duration_since(last_ui_update).as_millis() >= 200 {
+            last_ui_update = now;
+            let elapsed = now.duration_since(start).as_secs_f64();
+            let speed = if elapsed > 0.0 {
+                format!("{:.1} MB/s", (received as f64 / 1048576.0) / elapsed)
+            } else {
+                "Calculating…".to_string()
+            };
+            set_ui(
+                app_weak.clone(),
+                "Receiving file…",
+                format!(
+                    "{:.1} MB / {:.1} MB",
+                    received as f64 / 1048576.0,
+                    total as f64 / 1048576.0
+                ),
+                if total > 0 { received as f32 / total as f32 } else { 0.0 },
+                speed,
+                "Receiving file…".to_string(),
+            );
+        }
+    }
+
+    let app_weak_done = app_weak.clone();
+    match failed {
+        None => {
+            let complete = header.is_some() && (total == 0 || received == total);
+            if let Some(mut f) = file {
+                let _ = f.flush();
+            }
+            let (name, size) = header.clone().unwrap_or_default();
+            if complete {
+                let mb = size as f64 / 1048576.0;
+                let saved_path = path.display().to_string();
+                info!(
+                    "✅ [Tailcat iOS] File received: {} ({:.1} MB) saved to {}",
+                    name, mb, saved_path
+                );
+                tailsend_telemetry::events::transfer_completed(
+                    1,
+                    size,
+                    start.elapsed().as_millis(),
+                    "direct",
+                    "receive",
+                );
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(app) = app_weak_done.upgrade() {
+                        app.set_is_transferring(false);
+                        app.set_transfer_completed(true);
+                        app.set_is_sender_transfer(false);
+                        app.set_transfer_status("File Received!".into());
+                        app.set_transfer_filename(name.clone().into());
+                        app.set_transfer_bytes_text(format!("{:.1} MB", mb).into());
+                        app.set_transfer_progress(1.0);
+                        app.set_status_text(format!("Received {} ({:.1} MB)!", name, mb).into());
+                        app.set_saved_file_path(saved_path.into());
+                    }
+                });
+            } else {
+                let _ = std::fs::remove_file(&path);
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(app) = app_weak_done.upgrade() {
+                        app.set_is_transferring(false);
+                        app.set_transfer_status("Receive failed: transfer interrupted".into());
+                        app.set_status_text("File transfer was interrupted".into());
+                    }
+                });
+            }
+        }
+        Some(msg) => {
+            let _ = std::fs::remove_file(&path);
+            error!("❌ [Tailcat iOS] File receive failed: {}", msg);
+            tailsend_telemetry::events::error("transport");
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(app) = app_weak_done.upgrade() {
+                    app.set_is_transferring(false);
+                    app.set_transfer_status(format!("Receive failed: {}", msg).into());
+                    app.set_status_text("File receive failed".into());
+                }
+            });
+        }
     }
 }
 
@@ -276,55 +601,16 @@ fn run_ios_app(telemetry_initial: bool, started_at: Instant) -> Result<(), Box<d
                             });
 
                             if port == 101 {
-                                // Read incoming text
-                                let mut buf = vec![0u8; 65536];
-                                let mut read_bytes: usize = 0;
-                                let r_res = unsafe {
-                                    tc_stream_read(stream, buf.as_mut_ptr(), buf.len(), &mut read_bytes, 30000)
-                                };
-                                if r_res == 0 && read_bytes > 0 {
-                                    buf.truncate(read_bytes);
-                                    let text = String::from_utf8_lossy(&buf).to_string();
-                                    info!("✉️ [Tailcat iOS] Text Received: {}", text);
-
-                                    let mut is_handshake = false;
-                                    if let Some(idx) = text.find("JOIN:") {
-                                        is_handshake = true;
-                                        let peer_addr = text[idx + 5..].split_whitespace().next().unwrap_or("").trim();
-                                        if !peer_addr.is_empty() {
-                                            if let Ok(mut guard) = target_peer_addr_listener.lock() {
-                                                *guard = Some(peer_addr.to_string());
-                                                info!("🔗 [Tailcat iOS] Automatically paired with remote peer: {}", peer_addr);
-                                            }
-                                        }
-                                    }
-                                    if text.starts_with("🤝") {
-                                        is_handshake = true;
-                                    }
-
-                                    if !is_handshake {
-                                        tailsend_telemetry::events::text_message_received(
-                                            tailsend_telemetry::length_bucket(text.chars().count()),
-                                        );
-                                    }
-
-                                    let w = app_weak_listener.clone();
-                                    let t = text.clone();
-                                    let _ = slint::invoke_from_event_loop(move || {
-                                        if let Some(app) = w.upgrade() {
-                                            app.set_screen_index(3);
-                                            app.set_peer_name("Connected Peer (P2P)".into());
-                                            if is_handshake {
-                                                app.set_status_text("Direct Encrypted P2P Connected!".into());
-                                            } else {
-                                                let new_log = format!("[Peer]: {}\n{}", t, app.get_received_message_log());
-                                                app.set_received_message_log(new_log.into());
-                                                app.set_last_received_text(t.into());
-                                                app.set_status_text("Received text message via Tailcat P2P!".into());
-                                            }
-                                        }
-                                    });
-                                }
+                                // Read incoming text (line-buffered, EOF flush)
+                                receive_text_stream(
+                                    stream,
+                                    app_weak_listener.clone(),
+                                    target_peer_addr_listener.clone(),
+                                );
+                                unsafe { tc_stream_close(stream); }
+                            } else if port == 102 {
+                                // Incoming file transfer from the web sender
+                                receive_file_stream(stream, app_weak_listener.clone());
                                 unsafe { tc_stream_close(stream); }
                             }
                         }
