@@ -1,10 +1,10 @@
-# 未コミット移行コードのレビュー記録
+# WebView移行レビュー記録
 
-対象は`feature/common-rust-transfer-engine`、基点HEADは`a05b25bf0a9abddb1cff5faeb96bbfcd7316dfc1`。以下はこのHEADにレビュー後の未コミット変更を加えた状態での確認であり、HEAD単体や配布済みアプリの結果ではない。commit・push・配布は行っていない。
+対象は`feature/common-rust-transfer-engine`。共通Rust転送基盤、Web UIツールチェーン、Tauri native adapterはそれぞれ`3d6400a`、`0cc621c`、`90e2c91`以降へコミット済みである。以下の実機・配布・性能項目は現在のコミットで再確認していない。
 
 ## レビュー判断
 
-共通転送、状態管理、C ABI、保存、署名検証は移行の部品として利用できる形へ改善した。ただし、WebView版への置換が完了した状態ではない。旧アプリの削除やPagesの配信先切替より先に、Tauri/Workerとの接続と機能一致の確認が必要である。
+共通転送、状態管理、C ABI、保存、署名検証は移行の部品として利用できる形へ改善した。TauriデスクトップではVanJS UIから共通Rust転送・Go C ABIへ接続するadapterを追加した。WebView版全体への置換、Browser Worker接続、旧アプリの削除、Pagesの配信先切替は未完了である。
 
 優先して修正した不具合は次の通り。
 
@@ -33,6 +33,7 @@ WASM時刻処理の選択には[web-timeの仕様](https://docs.rs/web-time/late
 | Go daemon build | 成功 | macOSで`tailcat_daemon` tagの生成 |
 | Web UI tests | 16件成功、import解決警告なし | bridge、イベント順序、OPFS、popover位置 |
 | TypeScript / Vite | 成功 | 型検査、web/tauri両mode |
+| Tauri native build | 成功 | macOSでGo c-archive生成後に`apps/tauri`をリンク。UI bundle、commands、event DTOを含む |
 | ローカルWeb UI表示 | 成功 | backend未接続表示、送信・ファイル選択・接続ボタンの無効化 |
 | 旧Web appのwasm32 check | 成功 | 既存Slintアプリとのコンパイル互換 |
 | 旧desktop appのcheck | 成功 | 共通crateとSlintアプリのコンパイル互換。警告なし |
@@ -45,7 +46,7 @@ WASM時刻処理の選択には[web-timeの仕様](https://docs.rs/web-time/late
 
 WASM実行smokeの一時ソースと生成物は`/tmp/tailsend-wasm-smoke`、C ABI smokeは`/tmp/tailcat-c-abi-smoke`に置いた。WASM側の出力は`state_seq=1,progress_seq=2,flush_seq=3,snapshot_seq=3,done=3`、C側の版取得は`tailcat-bridge/abi2/dev`だった。一時生成物はGitへ追加していない。
 
-これらはWebView製品版の実転送・実機・速度・省メモリ性を証明するものではない。
+Tauri native buildの成功はリンク確認であり、Go bridgeを使った2端末間の実転送や、DERP・WebRTC DataChannel・WireGuard UDPの経路選択を証明するものではない。これらはWebView製品版の実機・速度・省メモリ性と同じく未検証である。
 
 ## 置換前に残る比較
 
@@ -58,7 +59,7 @@ WASM実行smokeの一時ソースと生成物は`/tmp/tailsend-wasm-smoke`、C A
 | ファイル送受信・取消 | UIと共通engineが別々に存在 | transport/file adapter、保存完了、取消、ディスク不足、0-byte/大容量 |
 | 保存先表示・パスcopy・受信ファイルshare | 未移植 | 同じ保存先とOSの共有・開く操作 |
 | 言語切替・telemetry設定・接続経路・速度表示 | OS言語判定と簡易画面のみ | 現行設定の保持と全表示項目 |
-| Tauriからのtailcat利用 | Tauri shellとcommandsがない | 起動、native ABIまたはdaemon選択、終了、再起動 |
+| Tauriからのtailcat利用 | `apps/tauri`のcommands、Go C ABI、共通Rust転送へ接続。`scripts/build_tauri.sh`でGo archiveを先に生成 | 実機での起動、再起動、終了、各OSリンク、実転送 |
 | ブラウザWASM/Worker | 型とOPFSのみ。Worker本体がない | WASM起動、メッセージ処理、バッファ再利用、送信量の制御 |
 | Pagesから新しいUI/WASMを取得 | 検証関数のみ | manifest作成、取得、完全性確認、一括切替、内蔵版への復元 |
 
