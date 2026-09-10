@@ -11,7 +11,6 @@ on:
     paths:
       - 'crates/**'
       - 'apps/web/**'
-      - 'ui/**'
       - 'tailcat/**'
       - 'vendor/**'
       - 'dist/**'
@@ -127,8 +126,8 @@ jobs:
 
       - name: Install VanJS UI into the Pages root
         run: |
-          # Keep legal/static files already in dist while replacing the old
-          # Slint entry point with the Vite output.
+          # Keep legal/static files already in dist while installing the
+          # Vite WebView entry point.
           cp -R web-ui/dist/web/. dist/
 
       - name: Verify WASM Sizes (Cloudflare 25 MiB limit)

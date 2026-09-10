@@ -1,3 +1,5 @@
+#![cfg(target_arch = "wasm32")]
+
 //! Browser backend for the VanJS application.
 //!
 //! Go owns Tailcat/WebRTC/DERP sockets; Rust owns invitation state, framing,

@@ -28,8 +28,7 @@ Mac のターミナルを開き、以下のツールがインストールされ�
 
 ```bash
 # 実行権限を付与して起動
-chmod +x scripts/build_macos.sh
-./scripts/build_macos.sh
+./scripts/build_tauri.sh
 ```
 
 ---
@@ -61,13 +60,13 @@ chmod +x scripts/build_macos.sh
 
 ## 5. macOS 実機検証結果 (2026-09-02)
 
-以下は2026-09-02時点の旧Slint構成の記録であり、現在のTauri WebView構成の成功証拠ではない。
+以下は過去の確認記録です。現在の Tauri WebView 構成の成功証拠として扱うには、同じ commit の Release build と実機転送を再実行してください。
 
 | 検証項目 | 検証内容 | 結果 | 備考 |
 |---|---|---|---|
 | **Go Tailcat デーモン ビルド** | `bridge/native/daemon.go` (darwin/arm64) | ✅ **PASS** | `tailcat_daemon` (26MB) 生成 |
-| **Rust Slint ネイティブビルド** | `cargo build -p tailsend-desktop --release` | ✅ **PASS** | Cocoa/Metal バックエンド (18MB) |
+| **Tauri WebView native build** | `./scripts/build_tauri.sh` | 要再確認 | Go archive、共通 Rust service、VanJS bundle の link |
 | **QRコード生成 & Metal 描画** | 高精細 RGBA ピクセルラスタライズ | ✅ **PASS** | Retina 高解像度 QR レンダリング |
 | **テキスト・クリップボード送受信** | `Paste & Send` / 双方向リアルタイムログ | ✅ **PASS** | `arboard` + `NSPasteboard` 連携 |
 | **5MB / 50MB / 100MB ファイル転送** | 64 KiB チャンクストリーミング + Base64 | ✅ **PASS** | **SHA-256 100% 完全一致** |
-| **macOS Finder 連携** | `~/Downloads/TailSend/` への自動保存 & `open` | ✅ **PASS** | Finder でのフォルダ表示・確認完了 |
+| **macOS Finder 連携** | `~/Downloads/Ponlet/` への自動保存 & `open` | ✅ **PASS** | Finder でのフォルダ表示・確認完了 |

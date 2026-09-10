@@ -19,7 +19,7 @@ if (-not (Test-Path "tailcat\pkg\tailcat\go.mod")) {
 }
 
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host "     TailSend (Tailcat + Slint) Automated Verification     " -ForegroundColor Cyan
+Write-Host "     Ponlet (Tailcat + Tauri WebView) Automated Verification" -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 
 $results = [System.Collections.Generic.List[PSCustomObject]]::new()
@@ -55,8 +55,8 @@ function Measure-Step {
 }
 
 # Step 1: Rust Workspace Tests
-Measure-Step "1. Rust Unit & Integration Tests (cargo test --workspace --exclude tailsend-android --exclude tailsend-ios)" {
-    cargo test --workspace --exclude tailsend-android --exclude tailsend-ios
+Measure-Step "1. Rust Unit & Integration Tests (cargo test --workspace)" {
+    cargo test --workspace
     if ($LASTEXITCODE -ne 0) { throw "cargo test failed with exit code $LASTEXITCODE" }
 }
 
@@ -81,16 +81,16 @@ Measure-Step "3. Tailcat WireGuard & DERP Relay Integration (go test)" {
 # Step 4: Web Static Assets Gzip Size & Cloudflare Limits
 Measure-Step "4. Cloudflare 25MB Limit & Static Assets Verification" {
     $tailcatGz = Get-Item "dist\assets\tailcat.wasm.gz"
-    $slintGz = Get-Item "dist\pkg\tailsend_web_bg.wasm.gz"
+    $rustGz = Get-Item "dist\wasm\tailsend_web_bg.wasm.gz"
 
     $tailcatMB = [math]::Round($tailcatGz.Length / 1MB, 2)
-    $slintMB = [math]::Round($slintGz.Length / 1MB, 2)
+    $rustMB = [math]::Round($rustGz.Length / 1MB, 2)
 
     Write-Host "   - tailcat.wasm.gz: $tailcatMB MB (Max allowed: 25 MB)" -ForegroundColor Gray
-    Write-Host "   - tailsend_web_bg.wasm.gz: $slintMB MB (Max allowed: 25 MB)" -ForegroundColor Gray
+    Write-Host "   - tailsend_web_bg.wasm.gz: $rustMB MB (Max allowed: 25 MB)" -ForegroundColor Gray
 
     if ($tailcatGz.Length -gt 25MB) { throw "tailcat.wasm.gz exceeds 25MB limit" }
-    if ($slintGz.Length -gt 25MB) { throw "tailsend_web_bg.wasm.gz exceeds 25MB limit" }
+    if ($rustGz.Length -gt 25MB) { throw "tailsend_web_bg.wasm.gz exceeds 25MB limit" }
 }
 
 # Step 5: Headless Browser E2E Runner

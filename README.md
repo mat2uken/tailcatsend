@@ -4,144 +4,75 @@
 [![Native UI](https://img.shields.io/badge/Native_UI-Tauri%20WebView-purple.svg)](https://tauri.app/)
 [![Web Client](https://img.shields.io/badge/Web_Client-Cloudflare_Pages-orange.svg)](https://ponlet.mat2uken.app)
 
-> **TailSend** is a modern, secure, cross-platform peer-to-peer (P2P) file transfer application built with **Rust**, **VanJS WebView UI**, and **Tailcat** (WireGuard mesh networking).
+TailSend（製品名 Ponlet）は、Rust の共通転送エンジン、VanJS WebView UI、Go Tailcat を組み合わせた P2P ファイル・テキスト転送アプリです。Tailcat が WireGuard UDP、WebRTC DataChannel、DERP relay の接続を選び、Rust がプロトコル、進捗、取消、保存完了を一つの流れで処理します。
 
-Transfer files, photos, videos, and clipboard text directly between devices without cloud intermediaries, file size limits, or complicated network setups.
+## 対応範囲
 
----
+- Windows、macOS、Linux: Tauri WebView
+- iOS、Android: Tauri mobile WebView
+- Web: Rust WASM service と Go Tailcat WASM
+- 招待 URL（`#i=...`）、QR、テキスト、複数ファイル、取消、進捗、受信結果表示
 
-## ✨ Key Features
+WebView の画面は [`web-ui/`](web-ui/) に集約しています。VanJS Core、標準 HTML/CSS、TypeScript、Vite 8、Rolldown、Vitest、Oxc/Oxlint/Oxfmt を使い、UI のランタイム依存を増やしません。
 
-- ⚡ **Zero-Configuration P2P Direct Transfer**  
-  Establish direct, encrypted connections simply by scanning a QR code or opening a one-time invitation link.
-- 🔒 **End-to-End Security & Mutual Authentication**  
-  - Mutual proof of identity via **HMAC-SHA-256**.
-  - Invitation tokens reside exclusively in the URL hash fragment (`#i=...`), ensuring keys never hit web servers or access logs.
-- 🌐 **True Multi-Platform Support**  
-  - **Desktop**: Windows (x86_64), macOS (Apple Silicon & Intel Universal), Linux
-  - **Mobile**: iOS (UIKit / Metal), Android (arm64-v8a NativeActivity)
-  - **Web**: WebAssembly (WASM) client hosted on Cloudflare Pages
-- 🎨 **Lightweight Shared Web UI**
-  The browser and Tauri desktop shell share a small VanJS + TypeScript + standard HTML/CSS UI. Native mobile shells remain on Slint during the staged migration.
-- 📦 **High-Throughput Chunked Streaming**  
-  Transfers large files reliably using 64 KiB chunks with real-time transfer progress, live throughput calculation, and SHA-256 integrity verification.
-- 📋 **Integrated Clipboard & File Sharing**  
-  Send clipboard snippets (`Paste & Send`) or browse files (`Pick File`) seamlessly across platforms.
-
----
-
-## 🌐 Live Web Client
-
-Access the web client directly from any modern browser (desktop or mobile) without installation:
-
-👉 **[https://ponlet.mat2uken.app](https://ponlet.mat2uken.app)**
-
-*(Powered by WebAssembly + Cloudflare Pages static streaming decompression)*
-
----
-
-## 🏗️ Architecture & Repository Structure
-
-TailSend is organized as a Cargo workspace with a submoduled Go Tailcat engine:
+## 構成
 
 ```text
 tailcatsend/
 ├── apps/
-│   ├── desktop/              # Native Windows / macOS / Linux desktop application
-│   ├── tauri/                # Tauri shell using the shared Rust service and Go C ABI
-│   ├── web/                  # Rust WebAssembly transfer service
-│   ├── ios/                  # iOS native target (UIKit / Metal)
-│   └── android/              # Android native target (NativeActivity / JNI)
+│   ├── desktop/              # 既存の製品コマンド名を保つ薄い Tauri 起動入口
+│   ├── tauri/                # Tauri desktop/mobile shell と native adapter
+│   └── web/                  # Rust WASM service
 ├── crates/
-│   ├── tailsend-core/        # Central session state machine & actor runtime
-│   ├── tailsend-protocol/    # Pure Rust protocol framing (CBOR, HMAC auth, sanitizers)
-│   ├── tailsend-transfer/    # 64 KiB chunk stream engine with progress tracking
-│   ├── tailsend-qr/          # Pure Rust RGBA pixel matrix QR generator
-│   ├── tailsend-platform-api/# Platform abstraction layer (storage, clipboard, sinks)
-│   ├── tailsend-transport-api# Transport abstractions (DuplexStream, Listener)
-│   ├── tailsend-ui-controller# Slint UI adapter bridging core events to UI
-│   └── tailsend-native-bridge# Shared Tailcat C ABI declarations and status types
-├── tailcat/                  # Go Tailcat submodule (WireGuard / DERP mesh engine)
-│   ├── pkg/tailcat           # Git submodule pointing to upstream tailscale/tailcat
-│   └── bridge/               # C-ABI and WebAssembly bridge adapters
-├── ui/
-│   └── app-window.slint      # Shared declarative Slint UI definitions
-├── web-ui/                   # VanJS + TypeScript WebView UI (Vite/Oxlint/Vitest)
-├── docs/                     # Internal developer and platform guides
-├── scripts/                  # Build, test, packaging, and deployment scripts
-└── cloudflare/               # Cloudflare Pages configuration & headers
+│   ├── tailsend-core/        # セッション状態、操作受付、イベント履歴
+│   ├── tailsend-protocol/    # 招待、認証、現行データ形式、名前検証
+│   ├── tailsend-transfer/    # 部分 read/write、進捗、取消、完了判定
+│   ├── tailsend-platform-api/# ファイル source/sink と保存確定の型
+│   ├── tailsend-transport-api# stream/listener と経路表示
+│   ├── tailsend-qr/          # 軽量な RGBA QR 生成
+│   ├── tailsend-updates/     # 署名付き更新の検証関数
+│   └── tailsend-native-bridge# Go C ABI の宣言
+├── tailcat/                  # Go Tailcat submodule と native/WASM bridge
+├── web-ui/                   # 共通 VanJS UI と Vite/Oxlint/Vitest 構成
+├── docs/                     # platform、移行、検証記録
+└── scripts/                  # build、mobile、Pages、検証用スクリプト
 ```
 
----
+## 開発
 
-## 🚀 Getting Started
+必要なものは Rust stable、Go 1.27 系、Node.js です。Tailcat submodule を含めて取得します。
 
-### Prerequisites
-- **Rust** (stable, 1.80+): `rustup update`
-- **Go** (1.22+ or 1.24+): required for building the Tailcat engine
-- **Node.js** (optional, for local web serving and E2E testing)
-
-### 1. Clone the Repository (with Submodules)
 ```bash
 git clone --recurse-submodules https://github.com/mat2uken/tailcatsend.git
 cd tailcatsend
-```
 
-### 2. Run Native Desktop App
-```bash
-# Build the Go C archive, Web UI, and Tauri desktop shell
+# UI の型検査、unit test、web/tauri の bundle
+./scripts/build_web_ui.sh
+
+# Go archive と Tauri desktop
 ./scripts/build_tauri.sh
-
-# Run the Tauri desktop application
 ./target/debug/tailsend
+
+# Rust workspace の unit test
+cargo test --workspace
 ```
 
-### 3. Build WebAssembly Web App
-```bash
-# Build Go Tailcat WASM
-cd tailcat/bridge/web
-GOOS=js GOARCH=wasm go build -ldflags "-s -w" -o ../../../dist/assets/tailcat.wasm main.go
-gzip -9 -c ../../../dist/assets/tailcat.wasm > ../../../dist/assets/tailcat.wasm.gz
-cd ../../..
+Web 配布物は `scripts/build_web_ui.sh` で生成した `web-ui/dist/web` に、Go Tailcat WASM と Rust service WASM を加えて作ります。Cloudflare Pages workflow はリリースごとに WASM を生成し、サイズと配布構成を検査してから Pages へ送ります。
 
-# Build the Rust WebAssembly transfer service
-cargo build -p tailsend-web --target wasm32-unknown-unknown --release
-wasm-bindgen --target web --out-dir dist/wasm target/wasm32-unknown-unknown/release/tailsend_web.wasm
-gzip -9 -c dist/wasm/tailsend_web_bg.wasm > dist/wasm/tailsend_web_bg.wasm.gz
-
-# Build the lightweight UI in both shell modes
-./scripts/build_web_ui.sh
-cp -R web-ui/dist/web/. dist/
-
-# Serve locally
-npx serve dist -l 8788
-```
-
-### 4. WebView UI
-
-VanJS UIの移行用ソースは [`web-ui/`](web-ui/) にある。ブラウザ用とTauri用を同じTypeScriptから生成する。
+## モバイル
 
 ```bash
-./scripts/build_web_ui.sh
+./scripts/build_tauri_mobile.sh android debug
+./scripts/build_tauri_mobile.sh ios-sim debug
+./scripts/build_tauri_mobile.sh ios release
 ```
 
-Browser mode loads the Go Tailcat bridge followed by the Rust transfer service. Tauri mode uses the same UI through commands and events. Dedicated Worker isolation, mobile shells, and physical device/transport validation remain staged work; see [`docs/WEBVIEW_MIGRATION.md`](docs/WEBVIEW_MIGRATION.md).
+Android の AAB は `PONLET_ANDROID_ARTIFACT=aab ./scripts/build_tauri_mobile.sh android release` で生成します。iOS の XcodeGen 入力は `apps/tauri/gen/apple`、Android の Gradle 入力は `apps/tauri/gen/android` です。詳しくは [`docs/ANDROID_GUIDE.md`](docs/ANDROID_GUIDE.md) と [`docs/IOS_GUIDE.md`](docs/IOS_GUIDE.md) を参照してください。
 
----
+## 検証状態
 
-## 📖 Developer & Platform Documentation
+共通 Rust unit test、Web UI unit test、Tauri desktop check、Rust WASM check、Android/iOS bundle 生成、Chrome 2 タブの WebRTC DataChannel テキスト送受信を確認済みです。実機の双方向ファイル転送・保存、iOS のロック解除後起動、WireGuard UDP と DERP を指定した経路試験、全 OS 組み合わせ、Pages の実配布と自動更新は継続検証中です。確認結果は [`docs/WEBVIEW_MIGRATION.md`](docs/WEBVIEW_MIGRATION.md) に更新します。
 
-Detailed guides and implementation specifications are maintained under [`docs/`](docs/):
+## ライセンス
 
-- 🤖 [**Android Build & Release Guide**](docs/ANDROID_GUIDE.md): Keystore management, Gradle build, and Google Play Console automated deployment.
-- 📱 [**iOS Build & Release Guide**](docs/IOS_GUIDE.md): XcodeGen setup, certificates, provisioning profiles, and TestFlight CI.
-- 🍎 [**macOS Platform Guide**](docs/MACOS_GUIDE.md): Native Metal / Cocoa integration, clipboard integration, and verification notes.
-- 📋 [**Implementation Status & Specification**](docs/IMPLEMENTATION_STATUS.md): Protocol framing details, HMAC verification specs, and performance metrics.
-
----
-
-## ⚖️ License
-
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
-
-Third-party dependencies and their respective licenses (including [Tailcat / Tailscale BSD-3-Clause](https://github.com/tailscale/tailcat) and [Slint GPLv3 / Commercial](https://slint.dev/)) are documented in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+本プロジェクトは MIT License です。Tailcat、Tailscale、Go modules、Rust crates などの表示は [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) にまとめています。

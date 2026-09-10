@@ -4,7 +4,7 @@ import AppKit
 import CoreGraphics
 
 let repoRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-let defaultSrcPath = repoRoot.appendingPathComponent("ui/icon.png").path
+let defaultSrcPath = repoRoot.appendingPathComponent("apps/tauri/icons/icon.png").path
 let srcPath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : defaultSrcPath
 
 guard let srcImage = NSImage(contentsOfFile: srcPath) else {
@@ -234,8 +234,8 @@ func generateRoundIcon(from src: CGImage, targetSize: Int) -> CGImage? {
 // ==============================================================================
 print("\n📱 [1/5] Generating iOS AppIcon (1024x1024 opaque square)...")
 if let iosPngData = generateIOSAppIcon(from: srcCgImage, targetSize: 1024) {
-    let dest1 = repoRoot.appendingPathComponent("apps/ios/TailSend/Assets.xcassets/AppIcon.appiconset/icon_1024.png")
-    let dest2 = repoRoot.appendingPathComponent("apps/ios/TailSend/AppIcon_1024.png")
+let dest1 = repoRoot.appendingPathComponent("apps/tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png")
+let dest2 = repoRoot.appendingPathComponent("apps/tauri/gen/apple/AppIcon_1024.png")
     try FileManager.default.createDirectory(at: dest1.deletingLastPathComponent(), withIntermediateDirectories: true)
     try (iosPngData as Data).write(to: dest1)
     try (iosPngData as Data).write(to: dest2)
@@ -258,7 +258,7 @@ let androidDensities: [(name: String, size: Int)] = [
     ("mipmap-xxxhdpi", 192),
 ]
 
-let androidResDir = repoRoot.appendingPathComponent("apps/android/app/src/main/res")
+let androidResDir = repoRoot.appendingPathComponent("apps/tauri/gen/android/app/src/main/res")
 for density in androidDensities {
     let folder = androidResDir.appendingPathComponent(density.name)
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
@@ -281,11 +281,11 @@ for density in androidDensities {
 // ==============================================================================
 print("\n💻 [3/5] Generating macOS / Desktop Icons...")
 let desktopIconDir = repoRoot.appendingPathComponent("apps/desktop")
-let uiDir = repoRoot.appendingPathComponent("ui")
+let tauriIconDir = repoRoot.appendingPathComponent("apps/tauri/icons")
 
-// ui/icon.png (for Slint Window icon)
+// apps/tauri/icons/icon.png (for the Tauri WebView shell)
 if let icon512 = resizeCGImage(srcCgImage, width: 512, height: 512) {
-    try savePNG(icon512, to: uiDir.appendingPathComponent("icon.png"))
+    try savePNG(icon512, to: tauriIconDir.appendingPathComponent("icon.png"))
     try savePNG(icon512, to: desktopIconDir.appendingPathComponent("icon.png"))
 }
 

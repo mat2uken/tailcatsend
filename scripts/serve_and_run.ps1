@@ -16,7 +16,7 @@ $port = 8787
 $baseUrl = "http://${lanIP}:${port}"
 
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host "     TailSend (Tailcat + Slint) Mobile Verification       " -ForegroundColor Cyan
+Write-Host "     Ponlet (Tailcat + Tauri WebView) Verification        " -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "Detected PC LAN IP: $lanIP" -ForegroundColor Green
 Write-Host "Web Base URL:       $baseUrl" -ForegroundColor Green

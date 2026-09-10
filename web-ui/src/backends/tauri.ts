@@ -1,6 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { BackendEvent, BackendSnapshot, PonletBackend, QrBitmap } from "../api/application-api";
+import type {
+  BackendEvent,
+  BackendSnapshot,
+  PonletBackend,
+  QrBitmap,
+} from "../api/application-api";
 import { validateSnapshot } from "../api/validation";
 
 type TauriFile = File & { path?: string };

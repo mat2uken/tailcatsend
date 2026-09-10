@@ -9,6 +9,7 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd -- "${script_dir}/.." && pwd)"
 platform="${1:-}"
 mode="${2:-debug}"
+android_artifact="${PONLET_ANDROID_ARTIFACT:-apk}"
 
 if [[ "${platform}" != "ios" && "${platform}" != "ios-sim" && "${platform}" != "android" ]]; then
   echo "usage: $0 ios|ios-sim|android [debug|release]" >&2
@@ -16,6 +17,10 @@ if [[ "${platform}" != "ios" && "${platform}" != "ios-sim" && "${platform}" != "
 fi
 if [[ "${mode}" != "debug" && "${mode}" != "release" ]]; then
   echo "mode must be debug or release" >&2
+  exit 2
+fi
+if [[ "${android_artifact}" != "apk" && "${android_artifact}" != "aab" ]]; then
+  echo "PONLET_ANDROID_ARTIFACT must be apk or aab" >&2
   exit 2
 fi
 
@@ -82,7 +87,7 @@ if [[ "${mode}" == "debug" ]]; then
 fi
 
 if [[ "${platform}" == "android" ]]; then
-  (cd "${repo_dir}/apps/tauri" && cargo tauri android build "${tauri_args[@]}" --target aarch64 --apk)
+  (cd "${repo_dir}/apps/tauri" && cargo tauri android build "${tauri_args[@]}" --target aarch64 "--${android_artifact}")
 else
   if ! command -v xcodegen >/dev/null 2>&1; then
     echo "xcodegen is required to regenerate the Tauri iOS project" >&2

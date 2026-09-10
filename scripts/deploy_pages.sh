@@ -15,11 +15,11 @@ fi
 
 echo "Deploying dist/ directory to project 'mktailcatsend'..."
 mkdir -p target
-mv -f dist/pkg/tailsend_web_bg.wasm target/tailsend_web_bg.wasm 2>/dev/null || true
+mv -f dist/wasm/tailsend_web_bg.wasm target/tailsend_web_bg.wasm 2>/dev/null || true
 mv -f dist/assets/tailcat.wasm target/tailcat.wasm 2>/dev/null || true
 
 cleanup() {
-    mv -f target/tailsend_web_bg.wasm dist/pkg/tailsend_web_bg.wasm 2>/dev/null || true
+    mv -f target/tailsend_web_bg.wasm dist/wasm/tailsend_web_bg.wasm 2>/dev/null || true
     mv -f target/tailcat.wasm dist/assets/tailcat.wasm 2>/dev/null || true
 }
 trap cleanup EXIT

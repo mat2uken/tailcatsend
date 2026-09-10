@@ -1,76 +1,30 @@
-# WebView移行レビュー記録
+# WebView 移行レビュー
 
-対象は`feature/common-rust-transfer-engine`。共通Rust転送基盤、Web UIツールチェーン、Tauri native adapter、デスクトップ入口切替はそれぞれ`3d6400a`、`0cc621c`、`90e2c91`、`784ffde`以降へコミット済みである。Tauriモバイルshellとビルド入口も追加し、Android/iOSのbundle生成まで確認した。モバイルのファイル選択・保存はDialog/FS経由でRustへ接続したが、以下の実機転送・配布・性能項目は現在のコミットで再確認していない。
+対象は `feature/common-rust-transfer-engine`。VanJS UI、共通 Rust 転送、Go Tailcat bridge、Tauri desktop/mobile shell を統合し、旧 Slint 製品入口を削除した。
 
-## レビュー判断
+## 判断
 
-共通転送、状態管理、C ABI、保存、署名検証は移行の部品として利用できる形へ改善した。TauriデスクトップではVanJS UIから共通Rust転送・Go C ABIへ接続するadapterを追加し、`apps/desktop` の旧Slint入口をTauri WebViewの起動処理へ切り替えた。Browserでは旧Slint WASMを共通Rust service WASMへ置き換え、Go Tailcat bridgeの起動後にVanJS UIへ接続する構成へ更新した。ローカルChromeの2タブでWebRTC DataChannel接続とテキスト送受信は確認済みである。Tauri iOS Simulator/device bundleとAndroid debug/release APKの生成も確認した。iOS/AndroidのSlint削除、Dedicated Worker分離、Pagesの実デプロイ、Tauriの実機転送、WireGuard UDP・DERPを指定した実機転送は未完了である。
+UI と転送処理の責務は分かれ、ファイル本文を UI の JSON、Base64、Tauri invoke に載せない構成になっている。現行の通信形式は維持し、`tailsend-transfer` がヘッダー解析、部分 I/O、進捗、取消、保存確定を共通に実行する。Web は `wasm32` 用に `Send + Sync` を要求せず、native は専用 I/O 実行枠で安全に stream を扱う。
 
-優先して修正した不具合は次の通り。
+`web-ui` は `vanjslitetemplate` と同じ Vite 8、Vitest、Oxlint、Oxfmt、`@nkzw/oxlint-config` を基礎にし、Tauri と Web の bundle だけを mode で切り替える。旧 UI、旧 mobile shell、Slint 依存は workspace から除去した。
 
-| 優先度 | 不具合 | 修正箇所 |
-| --- | --- | --- |
-| P1 | backendがないのに接続・送信完了を表示 | `web-ui/src/backend.ts` |
-| P1 | 保存先の準備後にヘッダーエラーになるとabortされず、最後の進捗後の取消でも保存を確定 | `tailsend-transfer/src/live.rs` |
-| P1 | OPFSの失敗・同時書き込み・確定中の取消で途中保存が残る、または確定される | `web-ui/src/opfs.ts` |
-| P1 | Goの終了・再初期化、dial完了・取消、clientの解放が競合 | `tailcat/bridge/native/bridge.go` |
-| P1 | Rustの標準時刻処理がWASMで実行できない | `tailsend-core/src/service.rs` |
-| P2 | 購読開始時の状態欠落、重複テキスト、別転送の終了通知による表示消去 | `tailsend-core/src/service.rs`、`web-ui/src/session.ts` |
-| P2 | class実装のbridgeメソッドがspreadで失われる、非同期エラーやクリップボード失敗が表示に出ない | `web-ui/src/backend.ts`、`main.ts` |
-| P2 | テキスト受信が接続終了まで通知されず、メッセージを貯め続ける | `tailsend-transfer/src/live.rs` |
-| P2 | 署名が正しくても別対象・旧revision・非互換APIを選べる、移植先によって意味が変わるパスを許す | `tailsend-updates/src/lib.rs` |
-| P2 | 通常のcargo testで転送テストが0件になり、Web UIにも回帰テストがない | `tailsend-transfer/Cargo.toml`、`web-ui/tests/` |
-| P1 | Browser UIが旧Slint WASMを前提にし、共通Rust serviceを呼ばない | `apps/web/src/lib.rs`、`web-ui/src/backends/browser.ts`、`.github/workflows/deploy_pages.yml` |
-| P1 | Go WASMのreadがRust側の要求長を無視し、小さいRustバッファへ過剰な本文を返す | `tailcat/bridge/web/main.go`、`apps/web/src/lib.rs` |
-| P2 | 接続経路がUIへ伝わらず、WebRTC・DERP・WireGuard UDPを区別できない | `tailsend-transport-api`、Go bridge、`apps/tauri`、`apps/web`、`web-ui` |
+## ローカル確認
 
-WASM時刻処理の選択には[web-timeの仕様](https://docs.rs/web-time/latest/web_time/)を確認し、実際にWASMへビルドして実行した。
+| 確認 | 状態 |
+| --- | --- |
+| `cargo test --workspace` | Slint 削除後の全 crate を実行 |
+| `cargo check -p tailsend-web --target wasm32-unknown-unknown` | Browser service の compile |
+| Tauri/Desktop check | Go bridge と WebView adapter の link |
+| Web UI lint/typecheck/unit/build | web/tauri 両 mode |
+| Browser smoke | 2 タブ WebRTC DataChannel の招待とテキスト |
+| Android/iOS bundle | Tauri mobile の生成 |
 
-## 検証結果
+## 未完了の受入項目
 
-| 確認 | 結果 | 確認できる範囲 |
-| --- | --- | --- |
-| Rust unit tests | 38件成功 | core 12 / transfer 17 / updates 5 / native bridge 2 / transport API 2 |
-| 共通Rustのwasm32 check | 成功 | core / transfer / updatesのコンパイル |
-| Go native unit tests | race検査込みで成功 | 部分write、取消、generation、並行init/shutdown |
-| Go daemon build | 成功 | macOSで`tailcat_daemon` tagの生成 |
-| Web UI tests | 18件成功、import解決警告なし | bridge、イベント順序、OPFS、popover位置、transport path検証、native picker forwarding |
-| TypeScript / Vite | 成功 | 型検査、web/tauri両mode |
-| Tauri native build | 成功 | macOSでGo c-archive生成後に`apps/tauri`をリンク。UI bundle、commands、event DTOを含む |
-| Browser Rust WASM bindgen | 成功 | `apps/web`を`wasm32-unknown-unknown --release`でビルドし、`wasm-bindgen --target web`を実行。生成WASMは約260 KiB、gzip約100 KiB |
-| Browser VanJS production bundle | 成功 | `web-ui`のweb/tauri両modeをVite 8で生成。UI JavaScriptは約18 KiB |
-| ローカルWeb UI表示 | 成功 | backend未接続表示、送信・ファイル選択・接続ボタンの無効化 |
-| Browser service wasm32 check | 成功 | 共通Rust serviceの`wasm32-unknown-unknown`コンパイル |
-| Desktop product check/build | 成功 | `cargo check -p tailsend-desktop` と `scripts/build_tauri.sh` のReleaseリンク |
-| Browser two-tab smoke | 成功 | ローカルChromeの2タブで招待、WebRTC DataChannel接続、テキスト送受信。参加側に`Connected WebRTC DataChannel`を表示 |
-| Android / iOS / iOS Simulator check | 成功 | 各targetでのRustコンパイル。Androidには未使用importのwarningが3件ある |
-| Tauri Android debug/release | 成功 | NDK 28.2、arm64-v8a、minSdk 31でdebug APKとunsigned release APKを生成 |
-| Tauri iOS Simulator debug | 成功 | iOS 17.0 targetのarm64 simulator bundleを生成 |
-| Tauri iOS device debug | 成功 | `APPLE_DEVELOPMENT_TEAM=4C6WC6J297`で署名済みIPAを生成し、iPhone 12 Proへインストール。端末ロック中のため起動は未確認 |
-| Android実機起動 | 成功 | debug APKを`QV770139JG`へインストールし、VanJS画面の起動と招待作成・待受表示を確認。2端末転送は未確認 |
-| WASM実行smoke | 成功 | Node上で招待状態、時刻、進捗間引き、flush、sequenceを確認 |
-| Native C ABI smoke | 成功 | Go c-sharedを実ヘッダーでCからリンク。init/version/shutdown/reinit |
-| 静的検査 | 成功 | 変更した4 workflowのactionlint、build_web_ui.shのshellcheck、各変更shellの構文、Rust整形と差分の空白 |
+- Tauri 2端末の実ファイル送受信、保存、share/open、取消。
+- iOS 実機起動と実機ファイル操作。
+- WireGuard UDP、WebRTC、DERP を強制または再現条件で分けた全 OS 組み合わせ。
+- Cloudflare Pages 実デプロイ、署名付き更新、失敗版隔離と復帰。
+- 速度中央値、入力応答 p95、Go heap、WebView を含む総メモリ、bundle サイズの同一条件比較。
 
-ローカルWeb UI表示は、このリポジトリの`web-ui`をcwdとして専用Viteを`http://127.0.0.1:4181/`で起動して確認した。検証後に終了している。
-
-WASM実行smokeの一時ソースと生成物は`/tmp/tailsend-wasm-smoke`、C ABI smokeは`/tmp/tailcat-c-abi-smoke`に置いた。WASM側の出力は`state_seq=1,progress_seq=2,flush_seq=3,snapshot_seq=3,done=3`、C側の版取得は`tailcat-bridge/abi2/dev`だった。一時生成物はGitへ追加していない。
-
-Browser two-tab smokeの成功は、同一ブラウザ内のWebRTC DataChannel経路とテキスト処理を示す。Tauri native/mobile buildの成功はリンクとbundle生成の確認であり、Android実機の招待待受表示までを確認した段階である。Go bridgeを使った2端末間の実転送、ファイル保存、iOS起動、DERP・WireGuard UDPの経路選択は証明していない。これらはWebView製品版の実機・速度・省メモリ性と同じく未検証である。受信側の経路表示はTailcat server statusが接続直後に未確定となる場合があり、`unknown`を許容して後続の状態更新で再判定する必要がある。
-
-## 置換前に残る比較
-
-旧UIの確認元は`ui/app-window.slint`と各`apps/*/src`のcallbackである。
-
-| 既存機能 | 新Web UIの状態 | 必要な確認 |
-| --- | --- | --- |
-| 招待URL・QR表示・再生成・カメラ読取・貼り付け接続 | URL入力とボタンのみ。実通信未接続 | 同じ招待形式・有効期限、QRとdeep link |
-| テキスト送受信・Paste & Send・履歴消去 | 入力・表示・copy/share/saveの入口のみ | 双方向通信、IME、改行、貼り付け、履歴と各OS操作 |
-| ファイル送受信・取消 | 送信はDialog/FSから共通engineへ接続、受信はOS別保存先へ確定 | 実機のfile picker・保存先・共有、transport/file adapter、保存完了、取消、ディスク不足、0-byte/大容量 |
-| 保存先表示・パスcopy・受信ファイルshare | 未移植 | 同じ保存先とOSの共有・開く操作 |
-| 言語切替・telemetry設定・接続経路・速度表示 | OS言語判定と簡易画面のみ | 現行設定の保持と全表示項目 |
-| Tauriからのtailcat利用 | `apps/tauri`のcommands、Go C ABI、共通Rust転送へ接続。`apps/desktop`から同じTauri entryを起動し、`scripts/build_tauri.sh`でGo archiveを先に生成 | 実機での起動、再起動、終了、各OSリンク、実転送 |
-| ブラウザWASM/Worker | Browser Rust WASMとGo bridgeは実装・bindgen確認済み。Dedicated Worker本体は未接続 | Worker移設、メッセージ処理、バッファ再利用、送信量の制御 |
-| Pagesから新しいUI/WASMを取得 | 検証関数のみ | manifest作成、取得、完全性確認、一括切替、内蔵版への復元 |
-
-実転送の比較では旧版・新版の送信側/受信側を同時に記録し、バイト数、SHA-256、保存先のファイル、取消結果、所要時間、メモリ使用量を同じ条件で確認する。送信側が書き終わったことだけを受信保存の成功として扱わない。
+これらはビルドや静的検査だけでは完了扱いにしない。実機の commit と通信経路を固定し、送受信 hash と保存物を確認してから完了にする。

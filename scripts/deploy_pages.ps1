@@ -13,27 +13,17 @@ if (-not (Test-Path "$ProjectRoot\dist\index.html")) {
 }
 
 Write-Host "Deploying dist/ directory to project 'mktailcatsend'..." -ForegroundColor Yellow
-$rawSlintWasm = "$ProjectRoot\dist\pkg\tailsend_web_bg.wasm"
-$tempSlintWasm = "$ProjectRoot\target\tailsend_web_bg.wasm"
-$hasSlintWasm = Test-Path $rawSlintWasm
-
 $rawTailcatWasm = "$ProjectRoot\dist\assets\tailcat.wasm"
 $tempTailcatWasm = "$ProjectRoot\target\tailcat.wasm"
 $hasTailcatWasm = Test-Path $rawTailcatWasm
 
 try {
-    if ($hasSlintWasm) {
-        Move-Item -Path $rawSlintWasm -Destination $tempSlintWasm -Force
-    }
     if ($hasTailcatWasm) {
         Move-Item -Path $rawTailcatWasm -Destination $tempTailcatWasm -Force
     }
     npx wrangler pages deploy dist --project-name mktailcatsend --commit-dirty=true
 }
 finally {
-    if ($hasSlintWasm -and (Test-Path $tempSlintWasm)) {
-        Move-Item -Path $tempSlintWasm -Destination $rawSlintWasm -Force
-    }
     if ($hasTailcatWasm -and (Test-Path $tempTailcatWasm)) {
         Move-Item -Path $tempTailcatWasm -Destination $rawTailcatWasm -Force
     }

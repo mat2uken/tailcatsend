@@ -2,12 +2,11 @@
 
 This project incorporates or links to the following third-party software components.
 
----
-
 ## 1. Tailcat
-* **Repository**: [https://github.com/tailscale/tailcat](https://github.com/tailscale/tailcat)
-* **License**: BSD 3-Clause License
-* **Copyright**: Copyright (c) 2020 Tailscale Inc & contributors.
+
+- **Repository**: [tailscale/tailcat](https://github.com/tailscale/tailcat)
+- **License**: BSD 3-Clause License
+- **Copyright**: Copyright (c) 2020 Tailscale Inc & contributors.
 
 ```
 BSD 3-Clause License
@@ -40,30 +39,20 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
----
+## 2. Go standard library and modules
 
-## 2. Slint UI Toolkit
-* **Website**: [https://slint.dev](https://slint.dev)
-* **Repository**: [https://github.com/slint-ui/slint](https://github.com/slint-ui/slint)
-* **License**: Slint Royalty-Free License / GNU General Public License v3.0 / Commercial License
-* **Copyright**: Copyright (c) SixtyFPS GmbH <info@slint.dev>
+- `tailscale.com`: BSD 3-Clause License (Tailscale Inc.)
+- `github.com/tailscale/wireguard-go`: MIT License
+- `gvisor.dev/gvisor`: Apache License 2.0
 
-> **Attribution**:
-> This software is built with the Slint GUI toolkit under the Slint Royalty-Free License.
-> "Slint" is a registered trademark of SixtyFPS GmbH.
+## 3. Rust crates
 
----
+- `tokio`: MIT License
+- `serde` / `serde_json`: MIT / Apache-2.0
+- `ciborium`: Apache License 2.0
+- `sha2` / `hmac`: MIT / Apache-2.0
+- `qrcode`: MIT / Apache-2.0
+- `tauri`, `tauri-plugin-dialog`, `tauri-plugin-fs`: MIT / Apache-2.0
+- `vanjs-core`: MIT License
 
-## 3. Go standard library & modules
-* Tailscale networking stack (`tailscale.com`): BSD 3-Clause License (Copyright (c) Tailscale Inc)
-* WireGuard Go implementation (`github.com/tailscale/wireguard-go`): MIT License (Copyright (c) WireGuard LLC / Tailscale Inc)
-* gVisor netstack (`gvisor.dev/gvisor`): Apache License 2.0 (Copyright (c) Google LLC)
-
----
-
-## 4. Rust Crates
-* `tokio`: MIT License (Copyright (c) Tokio Contributors)
-* `serde` / `serde_json`: MIT / Apache-2.0 (Copyright (c) Erick Tryzelaar and David Tolnay)
-* `ciborium`: Apache License 2.0 (Copyright (c) Enarx Contributors)
-* `sha2` / `hmac`: MIT / Apache-2.0 (RustCrypto developers)
-* `qrcode` / `image`: MIT / Apache-2.0
+The complete notices shipped by each dependency remain available through the package manager lockfiles and the generated application notices.

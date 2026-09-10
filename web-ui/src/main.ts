@@ -1,4 +1,5 @@
 import van from "vanjs-core";
+import isPresent from "@nkzw/core/isPresent";
 import { createBackend, initializeBrowserBackend } from "@backend";
 import { initialSnapshot, type PonletBackend, type TransportPath } from "./api/application-api";
 import { Session, type Message } from "./session";
@@ -47,7 +48,8 @@ const uiText = isJapanese
       disconnect: "切断",
       settings: "設定",
       close: "閉じる",
-      settingsDescription: "通信経路と保存先は接続されたbackendが管理します。テレメトリ設定はこの端末に保存されます。",
+      settingsDescription:
+        "通信経路と保存先は接続されたbackendが管理します。テレメトリ設定はこの端末に保存されます。",
       message: "メッセージ",
       transfer: "転送",
       messages: "メッセージ",
@@ -77,7 +79,8 @@ const uiText = isJapanese
       disconnect: "Disconnect",
       settings: "Settings",
       close: "Close",
-      settingsDescription: "The backend controls transport and storage. Telemetry preference is stored on this device.",
+      settingsDescription:
+        "The backend controls transport and storage. Telemetry preference is stored on this device.",
       message: "Message",
       transfer: "Transfer",
       messages: "Messages",
@@ -181,7 +184,11 @@ settingsDialog.className = "settings-dialog";
 settingsDialog.append(
   h2(uiText.settings),
   p(uiText.settingsDescription),
-  label({ class: "settings-toggle" }, telemetryToggle, isJapanese ? "テレメトリを許可" : "Allow telemetry"),
+  label(
+    { class: "settings-toggle" },
+    telemetryToggle,
+    isJapanese ? "テレメトリを許可" : "Allow telemetry",
+  ),
   button({ type: "button", onclick: () => closeSettings() }, uiText.close),
 );
 
@@ -231,12 +238,16 @@ function closeScanner(): void {
 type BarcodeDetectorLike = {
   detect(video: HTMLVideoElement): Promise<Array<{ rawValue?: string }>>;
 };
-type BarcodeDetectorConstructorLike = new (options?: { formats?: Array<string> }) => BarcodeDetectorLike;
+type BarcodeDetectorConstructorLike = new (options?: {
+  formats?: Array<string>;
+}) => BarcodeDetectorLike;
 
 async function scanInvitation(): Promise<string | null> {
-  const Detector = (globalThis as typeof globalThis & {
-    BarcodeDetector?: BarcodeDetectorConstructorLike;
-  }).BarcodeDetector;
+  const Detector = (
+    globalThis as typeof globalThis & {
+      BarcodeDetector?: BarcodeDetectorConstructorLike;
+    }
+  ).BarcodeDetector;
   if (!Detector || !navigator.mediaDevices?.getUserMedia) {
     throw new Error(uiText.scanUnavailable);
   }
@@ -246,7 +257,9 @@ async function scanInvitation(): Promise<string | null> {
   } else {
     scannerDialog.setAttribute("open", "");
   }
-  scannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+  scannerStream = await navigator.mediaDevices.getUserMedia({
+    video: { facingMode: "environment" },
+  });
   scannerVideo.srcObject = scannerStream;
   await scannerVideo.play();
   const detector = new Detector({ formats: ["qr_code"] });
@@ -277,7 +290,7 @@ let qrRequest = 0;
 let qrUrl = "";
 async function renderInviteQr(url: string | null): Promise<void> {
   const request = ++qrRequest;
-  if (!url || !backend.qrCode) {
+  if (!isPresent(url) || url.length === 0 || !backend.qrCode) {
     qrCanvas.hidden = true;
     qrLabel.hidden = true;
     qrUrl = "";
@@ -335,7 +348,7 @@ van.derive(() => {
         ? uiText.connected
         : value.state === "awaiting-peer"
           ? uiText.waiting
-        : uiText.preparing);
+          : uiText.preparing);
   transport.textContent = transportLabel(value.transport);
   peer.textContent = value.peerName || uiText.app;
   invite.textContent = value.inviteUrl ? uiText.saved : "";
@@ -349,7 +362,8 @@ van.derive(() => {
   sendButton.disabled = busy || !value.canSend || !textDraft.val.trim();
   fileButton.disabled = busy || !value.canSend;
   scanButton.disabled = busy || !("BarcodeDetector" in globalThis);
-  scanButton.title = scanButton.disabled && !("BarcodeDetector" in globalThis) ? uiText.scanUnavailable : "";
+  scanButton.title =
+    scanButton.disabled && !("BarcodeDetector" in globalThis) ? uiText.scanUnavailable : "";
   cancelButton.hidden = !hasTransfer;
   copyTextButton.disabled =
     shareTextButton.disabled =
@@ -370,10 +384,17 @@ van.derive(() => {
   receivedList.replaceChildren(
     ...snapshot.val.received.map((item) => {
       const pathButton = button({ class: "secondary", type: "button" }, uiText.copyPath);
-      pathButton.addEventListener("click", () => void run(() => backend.copyText(item.localPathOrHandle)));
+      pathButton.addEventListener(
+        "click",
+        () => void run(() => backend.copyText(item.localPathOrHandle)),
+      );
       return li(
         { class: "received-item" },
-        div({ class: "received-item-meta" }, item.name, span({ class: "received-item-size" }, `${item.size.toLocaleString()} bytes`)),
+        div(
+          { class: "received-item-meta" },
+          item.name,
+          span({ class: "received-item-size" }, `${item.size.toLocaleString()} bytes`),
+        ),
         pathButton,
       );
     }),

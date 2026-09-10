@@ -1,34 +1,8 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-export ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
-export ANDROID_NDK_ROOT="${ANDROID_NDK_ROOT:-$ANDROID_HOME/ndk/28.2.13676358}"
-export NDK_HOME="$ANDROID_NDK_ROOT"
-export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
-
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
-# Ensure submodule is initialized
-if [ ! -f "$PROJECT_ROOT/tailcat/pkg/tailcat/go.mod" ]; then
-    echo "Initializing Tailcat submodule..."
-    git -C "$PROJECT_ROOT" submodule update --init --recursive --quiet
-fi
-
-# Submodule working tree may be reset by submodule operations; re-apply the
-# patch on every build (no-op when already applied).
-if [ -f "$PROJECT_ROOT/tailcat/patches/0001-android-selinux-netmon-fallback.patch" ]; then
-    git -C "$PROJECT_ROOT/tailcat/pkg/tailcat" apply "$PROJECT_ROOT/tailcat/patches/0001-android-selinux-netmon-fallback.patch" || true
-fi
-
-echo "=== 1. Building Tailcat Go C-ABI for Android arm64 ==="
-export CC=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android33-clang
-export CXX=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android33-clang++
-(cd tailcat && CGO_ENABLED=1 GOOS=android GOARCH=arm64 go build -ldflags="-checklinkname=0" -buildmode=c-shared -o ../target/libtailcat_android.so ./bridge/native)
-mkdir -p target/aarch64-linux-android/debug
-cp -f target/libtailcat_android.so target/aarch64-linux-android/debug/libtailcat_android.so
-
-echo "=== 2. Building Android APK via cargo-apk ==="
-touch apps/android/src/lib.rs
-cargo apk build -p tailsend-android --target aarch64-linux-android --lib
-
-echo "✅ Android Build Complete!"
+# Android product builds use the same Tauri WebView shell as desktop and iOS.
+# The optional mode is debug by default so a connected device can be used
+# without requiring a signing key.
+mode="${1:-debug}"
+exec "$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/build_tauri_mobile.sh" android "${mode}"

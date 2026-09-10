@@ -7,24 +7,14 @@ members = [
     "crates/tailsend-transfer",
     "crates/tailsend-core",
     "crates/tailsend-qr",
-    "crates/tailsend-ui-controller",
     "crates/tailsend-telemetry",
     "crates/tailsend-updates",
     "crates/tailsend-native-bridge",
     "crates/tailsend-native-transport",
     "apps/desktop",
     "apps/web",
-    "apps/ios",
-    "apps/android",
     "apps/tauri",
 ]
-
-# winit 0.30.13 only implements UIKeyInput on iOS, which silently drops
-# every keypress from multi-stage IMEs (Japanese kana / flick, pinyin,
-# hangul...). vendor/winit applies winit PR #4592, which adopts
-# UITextInput so CJK keyboards can type into Slint text inputs.
-[patch.crates-io]
-winit = { path = "vendor/winit" }
 
 [workspace.dependencies]
 # Internal crates
@@ -34,14 +24,10 @@ tailsend-platform-api = { path = "crates/tailsend-platform-api" }
 tailsend-transfer = { path = "crates/tailsend-transfer" }
 tailsend-core = { path = "crates/tailsend-core" }
 tailsend-qr = { path = "crates/tailsend-qr" }
-tailsend-ui-controller = { path = "crates/tailsend-ui-controller" }
 tailsend-telemetry = { path = "crates/tailsend-telemetry" }
 tailsend-updates = { path = "crates/tailsend-updates" }
 tailsend-native-bridge = { path = "crates/tailsend-native-bridge" }
 tailsend-native-transport = { path = "crates/tailsend-native-transport" }
-
-# Slint
-slint = { version = "1.17.1", default-features = false }
 
 # Async & Serialization
 ciborium = "0.2"
@@ -87,7 +73,6 @@ web-sys = { version = "0.3", features = [
 
 # QR code
 qrcode = { version = "0.14", default-features = false }
-image = { version = "0.25", default-features = false, features = ["png"] }
 [profile.release]
 opt-level = "z"
 lto = true

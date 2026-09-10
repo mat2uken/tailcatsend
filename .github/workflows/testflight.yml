@@ -2,231 +2,95 @@ name: iOS TestFlight Deployment
 
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'App Marketing Version (leave empty to use the latest v* tag)'
-        required: false
-        default: ''
-      build_number:
-        description: 'Build Number (leave empty for automatic github.run_number)'
-        required: false
-        default: ''
   push:
-    tags:
-      - 'v*'
+    tags: ["v*"]
 
 jobs:
   testflight:
-    name: Build & Upload to TestFlight
+    name: Build and upload Tauri iOS app
     runs-on: macos-15
-    timeout-minutes: 45
-
+    timeout-minutes: 60
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # Full history so `git describe --tags` can resolve the latest
-          # version tag on manual (non-tag) runs.
           fetch-depth: 0
           submodules: true
 
-      - name: Apply Tailcat Patches
+      - name: Apply Tailcat patches
         run: |
-          if [ -f tailcat/patches/0001-android-selinux-netmon-fallback.patch ]; then
-            git -C tailcat/pkg/tailcat apply ../../patches/0001-android-selinux-netmon-fallback.patch
-          fi
-          if [ -f tailcat/patches/0002-tailscale-webrtc-transport.patch ]; then
-            git -C tailcat/pkg/tailscale.com apply ../../patches/0002-tailscale-webrtc-transport.patch
-          fi
+          git -C tailcat/pkg/tailcat apply --ignore-space-change --ignore-whitespace ../../patches/0001-android-selinux-netmon-fallback.patch || true
+          git -C tailcat/pkg/tailscale.com apply --ignore-space-change --ignore-whitespace ../../patches/0002-tailscale-webrtc-transport.patch || true
 
-      - name: Select Latest Xcode
-        run: |
-          echo "Available Xcode installations:"
-          ls -d /Applications/Xcode*.app 2>/dev/null || true
-          LATEST_XCODE=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -n 1)
-          if [ -n "$LATEST_XCODE" ]; then
-            echo "Selecting $LATEST_XCODE"
-            sudo xcode-select -s "$LATEST_XCODE/Contents/Developer"
-          fi
-          xcodebuild -version
-
-      - name: Setup Go
+      - name: Setup Go and Rust
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: "1.27.x"
           cache-dependency-path: tailcat/go.sum
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-ios
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web-ui/package-lock.json
 
-      - name: Rust Cache
-        uses: Swatinem/rust-cache@v2
+      - name: Select Xcode and install XcodeGen
+        run: |
+          xcodebuild -version
+          brew install xcodegen
 
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Install Apple Certificate & Provisioning Profile
+      # Certificate/profile installation is kept in the CI secret store. The
+      # Tauri CLI consumes APPLE_* signing variables when creating the IPA.
+      - name: Install Apple signing material
         env:
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
           P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
           BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD || 'temporary-ci-keychain-pass' }}
         run: |
-          # 1. Create temporary keychain
-          KEYCHAIN_PATH=$HOME/Library/Keychains/build.keychain
+          test -n "$BUILD_CERTIFICATE_BASE64"
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
           security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-
-          # Add to keychain search list
-          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
-
-          # 2. Decode and import Distribution Certificate (.p12)
-          CERT_PATH=/tmp/certificate.p12
-          echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$CERT_PATH"
-          if ! security import "$CERT_PATH" -k "$KEYCHAIN_PATH" -P "$P12_PASSWORD" -T /usr/bin/codesign 2>/dev/null; then
-            echo "Attempting conversion to legacy PKCS#12 format..."
-            openssl pkcs12 -in "$CERT_PATH" -passin "pass:$P12_PASSWORD" -nodes -out /tmp/cert_nodes.pem
-            openssl pkcs12 -export -legacy -in /tmp/cert_nodes.pem -passout "pass:$P12_PASSWORD" -out /tmp/cert_legacy.p12
-            security import /tmp/cert_legacy.p12 -k "$KEYCHAIN_PATH" -P "$P12_PASSWORD" -T /usr/bin/codesign
-            rm -f /tmp/cert_nodes.pem /tmp/cert_legacy.p12
-          fi
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          rm -f "$CERT_PATH"
-
-          # 3. Decode Provisioning Profile (.mobileprovision)
+          echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$KEYCHAIN_PATH" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
           mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          PROFILE_RAW=/tmp/profile.mobileprovision
-          echo "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode > "$PROFILE_RAW"
+          echo "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/profile.mobileprovision"
+          UUID=$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" | plutil -extract UUID raw -)
+          TEAM_ID=$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" | plutil -extract TeamIdentifier.0 raw -)
+          cp "$RUNNER_TEMP/profile.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/${UUID}.mobileprovision"
+          echo "APPLE_DEVELOPMENT_TEAM=$TEAM_ID" >> "$GITHUB_ENV"
+          echo "APPLE_CERTIFICATE_PASSWORD=$P12_PASSWORD" >> "$GITHUB_ENV"
+          echo "APPLE_CERTIFICATE=$RUNNER_TEMP/certificate.p12" >> "$GITHUB_ENV"
 
-          # Extract UUID, Profile Name & Team ID from .mobileprovision
-          UUID=$(security cms -D -i "$PROFILE_RAW" | plutil -extract UUID raw -)
-          PROFILE_NAME=$(security cms -D -i "$PROFILE_RAW" | plutil -extract Name raw -)
-          TEAM_ID=$(security cms -D -i "$PROFILE_RAW" | plutil -extract TeamIdentifier.0 raw -)
-          echo "Discovered Provisioning Profile: $PROFILE_NAME (UUID: $UUID, TeamID: $TEAM_ID)"
-          echo "TEAM_ID=$TEAM_ID" >> $GITHUB_ENV
-          echo "PROFILE_NAME=$PROFILE_NAME" >> $GITHUB_ENV
+      - name: Build IPA with Tauri
+        run: ./scripts/build_tauri_mobile.sh ios release
 
-          # Copy to MobileDevice directory
-          cp "$PROFILE_RAW" "$HOME/Library/MobileDevice/Provisioning Profiles/${UUID}.mobileprovision"
-          rm -f "$PROFILE_RAW"
-
-          # 4. Inject Profile Name and Team ID into ExportOptions.plist
-          sed -i '' "s/PROVISIONING_PROFILE_NAME/$PROFILE_NAME/g" apps/ios/ExportOptions.plist
-          sed -i '' "s/TEAM_ID/$TEAM_ID/g" apps/ios/ExportOptions.plist
-          cat apps/ios/ExportOptions.plist
-
-      - name: Build Go Tailcat iOS Engine
+      - name: Locate IPA
         run: |
-          cd tailcat
-          CGO_ENABLED=1 CC="$(xcrun --sdk iphoneos --find clang) -isysroot $(xcrun --sdk iphoneos --show-sdk-path) -arch arm64 -miphoneos-version-min=17.0" \
-          GOOS=ios GOARCH=arm64 go build -buildmode=c-archive -o ../libtailcat_ios.a ./bridge/native
-          cd ..
+          IPA=$(find apps/tauri/gen/apple/build -type f -name '*.ipa' -print -quit)
+          test -n "$IPA"
+          cp "$IPA" ponlet.ipa
+          ls -lh ponlet.ipa
 
-      - name: Build Rust iOS Static Library
-        run: |
-          cargo build -p tailsend-ios --target aarch64-apple-ios --release
-
-      - name: Configure App Version & Build Number
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          # The marketing version is only established by a v* tag push.
-          # Manual runs reuse the latest tag's version instead of forcing
-          # a default like 1.0.0.
-          MARKETING_VERSION="${{ github.event.inputs.version }}"
-          if [ -z "$MARKETING_VERSION" ]; then
-            if [ -n "${{ github.ref_name }}" ] && [[ "${{ github.ref_name }}" =~ ^v ]]; then
-              MARKETING_VERSION="${GITHUB_REF_NAME#v}"
-            else
-              MARKETING_VERSION=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')
-            fi
-          fi
-          if [ -z "$MARKETING_VERSION" ]; then
-            MARKETING_VERSION="1.0.0"
-          fi
-
-          BUILD_NUMBER="${{ github.event.inputs.build_number }}"
-          if [ -z "$BUILD_NUMBER" ]; then
-            TODAY_YMD=$(TZ='Asia/Tokyo' date +'%Y%m%d')
-            NN=$(printf "%02d" "$(( GITHUB_RUN_NUMBER % 100 ))")
-            BUILD_NUMBER="${TODAY_YMD}${NN}"
-          fi
-
-          echo "Setting Version: $MARKETING_VERSION (Build: $BUILD_NUMBER)"
-          plutil -replace CFBundleShortVersionString -string "$MARKETING_VERSION" apps/ios/TailSend/Info.plist
-          plutil -replace CFBundleVersion -string "$BUILD_NUMBER" apps/ios/TailSend/Info.plist
-
-      - name: Generate Xcode Project
-        run: |
-          cd apps/ios
-          DEVELOPMENT_TEAM="$TEAM_ID" CODE_SIGN_STYLE="Manual" PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" xcodegen generate
-          cd ../..
-
-      - name: Archive iOS App
-        run: |
-          mkdir -p build
-          # PROVISIONING_PROFILE_SPECIFIER is set on the TailSend target at
-          # xcodegen generation time. Do NOT pass it as a global xcodebuild
-          # override: newer Xcode rejects the archive when it reaches the
-          # SPM package targets ("does not support provisioning profiles").
-          xcodebuild archive \
-            -project apps/ios/TailSend.xcodeproj \
-            -scheme TailSend \
-            -configuration Release \
-            -destination "generic/platform=iOS" \
-            -archivePath build/TailSend.xcarchive \
-            CODE_SIGN_STYLE=Manual \
-            DEVELOPMENT_TEAM="$TEAM_ID" \
-            CODE_SIGN_IDENTITY="Apple Distribution"
-
-      - name: Export IPA
-        run: |
-          xcodebuild -exportArchive \
-            -archivePath build/TailSend.xcarchive \
-            -exportOptionsPlist apps/ios/ExportOptions.plist \
-            -exportPath build/ipa
-
-          ls -lh build/ipa
-
-      - name: Upload to TestFlight (App Store Connect API)
+      - name: Upload to TestFlight
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
           APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
         run: |
-          set -e
           mkdir -p "$HOME/.appstoreconnect/private_keys"
           echo "$APP_STORE_CONNECT_PRIVATE_KEY" > "$HOME/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
+          xcrun altool --upload-app --type ios --file ponlet.ipa --apiKey "$APP_STORE_CONNECT_KEY_ID" --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
 
-          IPA_PATH=$(ls build/ipa/*.ipa 2>/dev/null | head -n 1)
-          if [ -z "$IPA_PATH" ] || [ ! -f "$IPA_PATH" ]; then
-            echo "Error: No .ipa file found in build/ipa/"
-            ls -la build/ipa || true
-            exit 1
-          fi
-
-          echo "🚀 Uploading $IPA_PATH to App Store Connect / TestFlight..."
-          xcrun altool --upload-app \
-            --type ios \
-            --file "$IPA_PATH" \
-            --apiKey "$APP_STORE_CONNECT_KEY_ID" \
-            --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID" \
-            --verbose
-
-          echo "✅ Upload to TestFlight successful!"
-
-      - name: Upload IPA Artifact to GitHub
+      - name: Upload IPA artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: TailSend-iOS-IPA
-          path: build/ipa/*.ipa
+          name: Ponlet-iOS-IPA
+          path: ponlet.ipa
           retention-days: 14
-
-      - name: Clean up temporary Keychain
-        if: always()
-        run: |
-          security delete-keychain "$HOME/Library/Keychains/build.keychain" 2>/dev/null || true

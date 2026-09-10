@@ -4,7 +4,7 @@ $ErrorActionPreference = "Stop"
 $cloudflareUrl = "https://ponlet.mat2uken.app"
 
 Write-Host "==========================================================" -ForegroundColor Cyan
-Write-Host "     TailSend (Tailcat + Slint) Cloudflare P2P Host       " -ForegroundColor Cyan
+Write-Host "     Ponlet (Tailcat + Tauri WebView) Cloudflare P2P Host " -ForegroundColor Cyan
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "Cloudflare Pages: $cloudflareUrl" -ForegroundColor Green
 Write-Host "Tailcat DERP:     https://tailcat.dev/derpmap.json" -ForegroundColor Green
