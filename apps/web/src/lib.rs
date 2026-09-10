@@ -1,672 +1,1216 @@
+//! Browser backend for the VanJS application.
+//!
+//! Go owns Tailcat/WebRTC/DERP sockets; Rust owns invitation state, framing,
+//! progress, cancellation and OPFS commit ordering.
+
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use async_trait::async_trait;
+use bytes::Bytes;
+use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
+use futures::StreamExt;
+use js_sys::{Function, Object, Promise, Reflect, Uint8Array};
+use serde::Serialize;
+use wasm_bindgen::closure::Closure;
 use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
+use wasm_bindgen_futures::{future_to_promise, JsFuture};
+
+use tailsend_core::{
+    run_host_handshake, run_joiner_handshake, AppEvent, BackendService, SessionState,
+};
+use tailsend_platform_api::{
+    FileMetadata, FileSource, IncomingFileSink, ReceivedItem, StorageError,
+};
+use tailsend_protocol::control::{BrowserFamily, Capabilities, PeerInfo, PlatformKind};
+use tailsend_protocol::filename::sanitize_filename;
 use tailsend_protocol::invitation::InvitationV1;
+use tailsend_protocol::limits::{FILE_PORT, TEXT_PORT};
+use tailsend_transfer::{
+    receive_live_text_stream, receive_named_file_stream_with_factory, send_live_text_stream,
+    send_named_file_stream, ProgressCallback, ProgressUpdate, TransferError,
+};
+use tailsend_transport_api::{
+    DuplexStream, IncomingStream, ListenOptions, Listener, TailcatTransport, TransportError,
+};
 
-mod telemetry;
+const DERP_MAP_URL: &str = "https://tailcat.dev/derpmap.json";
+const INVITE_BASE_URL: &str = "https://ponlet.mat2uken.app";
+const INVITE_LIFETIME_SECS: u64 = 600;
 
-slint::include_modules!();
-
-#[wasm_bindgen]
-extern "C" {
-    #[wasm_bindgen(js_name = sendTailcatTextMessage)]
-    fn send_tailcat_text_message(text: &str, from_slint: bool);
-
-    #[wasm_bindgen(js_name = triggerFilePicker)]
-    fn trigger_file_picker();
-
-    #[wasm_bindgen(js_name = triggerOpenComposer)]
-    fn trigger_open_composer(initial_text: &str);
-
-    #[wasm_bindgen(js_name = triggerPasteAndSend)]
-    fn trigger_paste_and_send();
-
-    #[wasm_bindgen(js_name = triggerShareText)]
-    fn trigger_share_text(text: &str);
-
-    #[wasm_bindgen(js_name = triggerSaveText)]
-    fn trigger_save_text(text: &str);
-
-    #[wasm_bindgen(js_name = triggerCopyText)]
-    fn trigger_copy_text(text: &str);
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UiSnapshot {
+    api_version: u16,
+    sequence: u64,
+    state: &'static str,
+    peer_name: String,
+    invite_url: Option<String>,
+    invite_expires_in_secs: u64,
+    can_send: bool,
+    can_disconnect: bool,
+    transfer: Option<UiTransfer>,
+    error: Option<String>,
 }
 
-struct I18nWeb;
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UiTransfer {
+    id: String,
+    name: String,
+    done: u64,
+    total: u64,
+    incoming: bool,
+    status: &'static str,
+}
 
-impl I18nWeb {
-    pub fn boot_status(is_ja: bool) -> &'static str {
-        if is_ja { "安全な通信の準備中…" } else { "Preparing secure P2P network…" }
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase", tag = "type")]
+enum UiEvent {
+    Snapshot {
+        sequence: u64,
+        snapshot: UiSnapshot,
+    },
+    Progress {
+        sequence: u64,
+        id: String,
+        done: u64,
+        total: u64,
+    },
+    Text {
+        sequence: u64,
+        text: String,
+        incoming: bool,
+    },
+    Terminal {
+        sequence: u64,
+        id: String,
+        status: &'static str,
+        message: Option<String>,
+    },
+}
+
+fn js_error(value: JsValue) -> TransportError {
+    TransportError::Io(value.as_string().unwrap_or_else(|| format!("{value:?}")))
+}
+
+fn property(target: &JsValue, name: &str) -> Result<JsValue, TransportError> {
+    Reflect::get(target, &JsValue::from_str(name)).map_err(js_error)
+}
+
+fn function(target: &JsValue, name: &str) -> Result<Function, TransportError> {
+    property(target, name)?
+        .dyn_into::<Function>()
+        .map_err(|_| TransportError::Internal(format!("Tailcat method {name} is unavailable")))
+}
+
+async fn promise(value: JsValue) -> Result<JsValue, TransportError> {
+    JsFuture::from(Promise::resolve(&value))
+        .await
+        .map_err(js_error)
+}
+
+fn tailcat_bridge() -> Result<JsValue, TransportError> {
+    let window = web_sys::window()
+        .ok_or_else(|| TransportError::Internal("window is unavailable".to_string()))?;
+    let value = Reflect::get(&window, &JsValue::from_str("tailSendTailcat")).map_err(js_error)?;
+    if value.is_undefined() || value.is_null() {
+        return Err(TransportError::Internal(
+            "Tailcat WebAssembly bridge is not ready".to_string(),
+        ));
     }
-    pub fn scan_qr_status(is_ja: bool) -> &'static str {
-        if is_ja { "QRコードをスキャンして接続" } else { "Scan QR Code to Connect" }
-    }
-    pub fn waiting_for_peer(is_ja: bool) -> &'static str {
-        if is_ja { "相手端末の接続待機中…" } else { "Waiting for Peer..." }
-    }
-    pub fn connected_peer(is_ja: bool) -> &'static str {
-        if is_ja { "接続された相手端末" } else { "Connected Peer" }
-    }
-    pub fn connecting_pc(is_ja: bool) -> &'static str {
-        if is_ja { "PCと安全なP2Pで接続中…" } else { "Connecting to PC via secure P2P..." }
-    }
-    pub fn connecting_peer(is_ja: bool) -> &'static str {
-        if is_ja { "相手端末に接続中…" } else { "Connecting to Peer Device..." }
-    }
-    pub fn direct_connected(is_ja: bool) -> &'static str {
-        if is_ja { "直接暗号化P2Pで接続しました！" } else { "Connected via Direct Encrypted P2P!" }
-    }
-    pub fn msg_received(is_ja: bool) -> &'static str {
-        if is_ja { "メッセージを受信しました！" } else { "Received text message!" }
-    }
-    pub fn file_download_done(is_ja: bool, fname: &str, size_mb: f64) -> String {
-        if is_ja { format!("{} ({:.1} MB) を保存しました", fname, size_mb) } else { format!("Downloaded {} ({:.1} MB) successfully!", fname, size_mb) }
-    }
-    pub fn download_completed_badge(is_ja: bool) -> &'static str {
-        if is_ja { "ファイル受信完了" } else { "Download Complete!" }
-    }
-    #[allow(dead_code)]
-    pub fn send_completed_badge(is_ja: bool) -> &'static str {
-        if is_ja { "ファイル送信完了" } else { "File Sent Successfully!" }
-    }
-    pub fn securely_connected(is_ja: bool) -> &'static str {
-        if is_ja { "相手端末と直接安全に接続されています" } else { "Securely connected to Peer" }
-    }
-    pub fn ready_for_transfer(is_ja: bool) -> &'static str {
-        if is_ja { "ファイル転送の準備完了" } else { "Ready for Transfer" }
-    }
-    pub fn qr_regenerated(is_ja: bool) -> &'static str {
-        if is_ja { "新しいQRコードを生成しました！" } else { "New QR Code generated! Scan to connect." }
-    }
-    pub fn disconnected(is_ja: bool) -> &'static str {
-        if is_ja { "切断しました。新しいQRコードをスキャンしてください。" } else { "Disconnected. Please scan new QR code." }
-    }
-    pub fn invite_copied(is_ja: bool) -> &'static str {
-        if is_ja { "招待リンクをコピーしました！" } else { "Invite link copied to clipboard!" }
-    }
-    pub fn text_copied(is_ja: bool) -> &'static str {
-        if is_ja { "テキストをクリップボードにコピーしました！" } else { "Text copied to clipboard!" }
-    }
-    pub fn path_copied(is_ja: bool) -> &'static str {
-        if is_ja { "ファイルパスをクリップボードにコピーしました！" } else { "File path copied to clipboard!" }
-    }
-    pub fn label_me(is_ja: bool) -> &'static str {
-        if is_ja { "[自分]" } else { "[Me]" }
-    }
-    pub fn label_peer(is_ja: bool) -> &'static str {
-        if is_ja { "[相手]" } else { "[Peer]" }
-    }
-    pub fn label_file_recv(is_ja: bool) -> &'static str {
-        if is_ja { "[ファイル受信]" } else { "[File Received]" }
-    }
-    pub fn transfer_cancelled(is_ja: bool) -> &'static str {
-        if is_ja { "転送をキャンセルしました" } else { "Transfer cancelled" }
-    }
-    pub fn invite_expired(is_ja: bool) -> &'static str {
-        if is_ja { "招待の有効期限が切れました。再生成してください。" } else { "Invite expired. Please click Regenerate." }
-    }
-    pub fn camera_unsupported(is_ja: bool) -> &'static str {
-        if is_ja {
-            "カメラスキャンはモバイルネイティブ版でご利用いただけます。「貼付して接続」をご利用ください。"
-        } else {
-            "Camera scanning is available in mobile native app. Please use 'Paste & Join' instead."
+    Ok(value)
+}
+
+#[derive(Clone)]
+struct WebTransport;
+
+struct WebStream {
+    connection: JsValue,
+    closed: bool,
+}
+
+#[async_trait(?Send)]
+impl DuplexStream for WebStream {
+    async fn read(&mut self, buffer: &mut [u8]) -> Result<usize, TransportError> {
+        if self.closed {
+            return Err(TransportError::Closed);
         }
+        let read = function(&self.connection, "read")?
+            .call0(&self.connection)
+            .map_err(js_error)?;
+        let value = promise(read).await?;
+        if value.is_null() || value.is_undefined() {
+            return Ok(0);
+        }
+        let bytes = Uint8Array::new(&value);
+        let count = bytes.length() as usize;
+        if count > buffer.len() {
+            return Err(TransportError::Internal(format!(
+                "Tailcat read overrun: {count} > {}",
+                buffer.len()
+            )));
+        }
+        bytes.copy_to(&mut buffer[..count]);
+        Ok(count)
+    }
+
+    async fn write_all(&mut self, buffer: &[u8]) -> Result<(), TransportError> {
+        let _ = self.write(buffer).await?;
+        Ok(())
+    }
+
+    async fn write(&mut self, buffer: &[u8]) -> Result<usize, TransportError> {
+        if self.closed {
+            return Err(TransportError::Closed);
+        }
+        let bytes = Uint8Array::new_with_length(buffer.len() as u32);
+        bytes.copy_from(buffer);
+        let write = function(&self.connection, "write")?
+            .call1(&self.connection, &bytes)
+            .map_err(js_error)?;
+        promise(write).await?;
+        Ok(buffer.len())
+    }
+
+    async fn close_write(&mut self) -> Result<(), TransportError> {
+        if self.closed {
+            return Ok(());
+        }
+        let close = function(&self.connection, "closeWrite")?
+            .call0(&self.connection)
+            .map_err(js_error)?;
+        promise(close).await?;
+        Ok(())
+    }
+
+    async fn close(&mut self) -> Result<(), TransportError> {
+        if self.closed {
+            return Ok(());
+        }
+        self.closed = true;
+        function(&self.connection, "close")?
+            .call0(&self.connection)
+            .map_err(js_error)?;
+        Ok(())
     }
 }
 
-// Appends a sent-by-me text entry to the shared message log.
-fn append_me_message_log(app: &AppWindow, text: &str) {
-    let is_ja = app.get_current_language() == "ja";
-    let log_text = format!(
-        "{}: {}\n{}",
-        I18nWeb::label_me(is_ja),
-        text,
-        app.get_received_message_log()
-    );
-    app.set_received_message_log(log_text.into());
+struct WebListener {
+    address: String,
+    close: JsValue,
+    incoming: RefCell<UnboundedReceiver<JsValue>>,
+    _callback: Closure<dyn FnMut(JsValue)>,
 }
 
-#[wasm_bindgen]
-pub fn run_app() -> Result<(), JsValue> {
-    console_error_panic_hook::set_once();
-
-    // Telemetry: install the platform backend (no-op unless the JS bridge
-    // is available and Firebase config placeholders have been replaced).
-    let telemetry_initial = telemetry::init();
-
-    let app = AppWindow::new().map_err(|e| JsValue::from_str(&e.to_string()))?;
-
-    let window = web_sys::window().ok_or_else(|| JsValue::from_str("No window object"))?;
-
-    // Auto-detect language from browser environment
-    let nav_lang = window.navigator().language().unwrap_or_default().to_lowercase();
-    let initial_lang = if nav_lang.starts_with("ja") { "ja" } else { "en" };
-    app.set_current_language(initial_lang.into());
-
-    // Telemetry startup event & user properties (no-op while disabled)
-    let os_version = telemetry::detect_os_version(
-        &window.navigator().user_agent().unwrap_or_default(),
-    );
-    tailsend_telemetry::events::app_start("web", os_version, env!("CARGO_PKG_VERSION"), initial_lang);
-    tailsend_telemetry::set_user_property("platform", "web");
-    tailsend_telemetry::set_user_property("app_version", env!("CARGO_PKG_VERSION"));
-    tailsend_telemetry::set_user_property("os_version", os_version);
-    tailsend_telemetry::set_user_property("language", initial_lang);
-
-    let hash = window.location().hash().unwrap_or_default();
-
-    if hash.starts_with("#i=") || hash.contains("i=") {
-        let now = (js_sys::Date::now() / 1000.0) as u64;
-        let url_to_parse = format!("https://tailsend.local/{}", hash);
-
-        match InvitationV1::from_url(&url_to_parse, now) {
-            Ok(inv) => {
-                let _ = js_sys::Reflect::set(
-                    &window,
-                    &JsValue::from_str("hostTailcatAddress"),
-                    &JsValue::from_str(&inv.host_address),
-                );
-
-                let token_str = inv.to_base64url().unwrap_or_default();
-                let short_tok = if token_str.len() >= 12 { format!("{}...", &token_str[..12]) } else { token_str };
-
-                let is_ja = app.get_current_language() == "ja";
-                app.set_screen_index(3); // Screen 3: Connected Home
-                app.set_peer_name(I18nWeb::connected_peer(is_ja).into());
-                app.set_derp_info(if is_ja { "暗号化メッシュ".into() } else { "Encrypted Mesh".into() });
-                app.set_edge_relay_info(if is_ja { "DERPリレー".into() } else { "DERP Relay".into() });
-                app.set_session_info(short_tok.into());
-                app.set_status_text(I18nWeb::connecting_pc(is_ja).into());
-                app.set_can_disconnect(true);
-                app.set_can_send(true);
-                app.set_is_derp_relay(true);
-                app.set_transport_type(2);
-            }
-            Err(e) => {
-                let is_ja = app.get_current_language() == "ja";
-                app.set_screen_index(2); // Screen 2: Error / Joining
-                app.set_status_text(if is_ja { format!("招待コードエラー: {}", e).into() } else { format!("Invitation error: {}", e).into() });
-            }
-        }
-    } else {
-        let is_ja = app.get_current_language() == "ja";
-        app.set_screen_index(1);
-        app.set_status_text(I18nWeb::boot_status(is_ja).into());
-        app.set_expires_secs(600);
-        app.set_can_disconnect(false);
+#[async_trait(?Send)]
+impl Listener for WebListener {
+    fn local_address(&self) -> &str {
+        &self.address
     }
 
-    // Callback when local browser Tailcat listener is ready with its WireGuard address
-    let app_weak_addr = app.as_weak();
-    let on_host_addr = Closure::wrap(Box::new(move |host_address: String| {
-        if let Some(app) = app_weak_addr.upgrade() {
-            let mut session_id = [0u8; 16];
-            let _ = getrandom::getrandom(&mut session_id);
-            let mut invite_secret = [0u8; 32];
-            let _ = getrandom::getrandom(&mut invite_secret);
-            let now = (js_sys::Date::now() / 1000.0) as u64;
+    async fn accept(&self) -> Result<IncomingStream, TransportError> {
+        let value = self
+            .incoming
+            .borrow_mut()
+            .next()
+            .await
+            .ok_or(TransportError::ListenerClosed)?;
+        let port = property(&value, "port")?
+            .as_f64()
+            .ok_or_else(|| TransportError::Protocol("incoming stream has no port".into()))?
+            as u16;
+        Ok(IncomingStream {
+            stream: Box::new(WebStream {
+                connection: value,
+                closed: false,
+            }),
+            port,
+        })
+    }
 
-            let invitation = InvitationV1::new(host_address, session_id, invite_secret, now, 600);
-            let base_url = "https://ponlet.mat2uken.app".to_string();
-            let invite_url = invitation.to_qr_url(&base_url).unwrap_or_default();
-            let session_token = invitation.to_base64url().unwrap_or_default();
+    async fn close(&self) -> Result<(), TransportError> {
+        if let Ok(close) = self.close.clone().dyn_into::<Function>() {
+            close.call0(&JsValue::UNDEFINED).map_err(js_error)?;
+        }
+        Ok(())
+    }
+}
 
-            if let Ok(qr) = tailsend_qr::generate_qr_rgba(&invite_url, 236) {
-                let pixel_buffer = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
-                    &qr.rgba_pixels,
-                    qr.width,
-                    qr.height,
-                );
-                app.set_qr_code_image(slint::Image::from_rgba8(pixel_buffer));
-                app.set_has_qr_image(true);
-                app.set_invite_url(invite_url.into());
-                let short_tok = if session_token.len() >= 12 { format!("{}...", &session_token[..12]) } else { session_token };
-                app.set_session_info(short_tok.into());
-                app.set_screen_index(1);
-                let is_ja = app.get_current_language() == "ja";
-                app.set_status_text(I18nWeb::scan_qr_status(is_ja).into());
-                tailsend_telemetry::events::session_created("unknown");
+#[async_trait(?Send)]
+impl TailcatTransport for WebTransport {
+    async fn listen(&self, options: ListenOptions) -> Result<Box<dyn Listener>, TransportError> {
+        let bridge = tailcat_bridge()?;
+        let (sender, receiver): (UnboundedSender<JsValue>, UnboundedReceiver<JsValue>) =
+            unbounded();
+        let callback = Closure::wrap(Box::new(move |connection: JsValue| {
+            let _ = sender.unbounded_send(connection);
+        }) as Box<dyn FnMut(JsValue)>);
+        let opts = Object::new();
+        Reflect::set(
+            &opts,
+            &JsValue::from_str("derpMapURL"),
+            &JsValue::from_str(&options.derp_map_url),
+        )
+        .map_err(js_error)?;
+        Reflect::set(
+            &opts,
+            &JsValue::from_str("verbose"),
+            &JsValue::from_bool(options.verbose),
+        )
+        .map_err(js_error)?;
+        Reflect::set(
+            &opts,
+            &JsValue::from_str("onConnection"),
+            callback.as_ref().unchecked_ref(),
+        )
+        .map_err(js_error)?;
+        let listen = function(&bridge, "listen")?
+            .call1(&bridge, &opts)
+            .map_err(js_error)?;
+        let listener = promise(listen).await?;
+        let address = property(&listener, "addr")?
+            .as_string()
+            .or_else(|| property(&listener, "address").ok()?.as_string())
+            .ok_or_else(|| TransportError::Protocol("Tailcat listener has no address".into()))?;
+        let close = property(&listener, "close")?;
+        Ok(Box::new(WebListener {
+            address,
+            close,
+            incoming: RefCell::new(receiver),
+            _callback: callback,
+        }))
+    }
+
+    async fn dial(
+        &self,
+        address: &str,
+        port: u16,
+        options: ListenOptions,
+    ) -> Result<Box<dyn DuplexStream>, TransportError> {
+        let bridge = tailcat_bridge()?;
+        let opts = Object::new();
+        for (key, value) in [
+            ("addr", JsValue::from_str(address)),
+            ("derpMapURL", JsValue::from_str(&options.derp_map_url)),
+            ("port", JsValue::from_f64(port as f64)),
+            ("verbose", JsValue::from_bool(options.verbose)),
+        ] {
+            Reflect::set(&opts, &JsValue::from_str(key), &value).map_err(js_error)?;
+        }
+        let dial = function(&bridge, "dial")?
+            .call1(&bridge, &opts)
+            .map_err(js_error)?;
+        let connection = promise(dial).await?;
+        Ok(Box::new(WebStream {
+            connection,
+            closed: false,
+        }))
+    }
+}
+
+struct WebFileSource {
+    file: JsValue,
+    metadata: FileMetadata,
+}
+
+#[async_trait(?Send)]
+impl FileSource for WebFileSource {
+    fn metadata(&self) -> FileMetadata {
+        self.metadata.clone()
+    }
+
+    async fn read_at(&mut self, offset: u64, max_len: usize) -> Result<Bytes, StorageError> {
+        let end = offset.saturating_add(max_len as u64);
+        let slice = function(&self.file, "slice")
+            .map_err(|error| StorageError::Io(error.to_string()))?
+            .call2(
+                &self.file,
+                &JsValue::from_f64(offset as f64),
+                &JsValue::from_f64(end as f64),
+            )
+            .map_err(|error| StorageError::Io(format!("{error:?}")))?;
+        let buffer = function(&slice, "arrayBuffer")
+            .map_err(|error| StorageError::Io(error.to_string()))?
+            .call0(&slice)
+            .map_err(|error| StorageError::Io(format!("{error:?}")))?;
+        let buffer = promise(buffer)
+            .await
+            .map_err(|error| StorageError::Io(error.to_string()))?;
+        let bytes = Uint8Array::new(&buffer);
+        Ok(Bytes::from(bytes.to_vec()))
+    }
+
+    async fn close(&mut self) {}
+}
+
+struct WebFileSink {
+    directory: JsValue,
+    file: JsValue,
+    writable: JsValue,
+    temporary_name: String,
+    final_name: String,
+    size: u64,
+}
+
+impl WebFileSink {
+    async fn prepare(name: &str) -> Result<Self, StorageError> {
+        let safe = sanitize_filename(name).map_err(|error| StorageError::Io(error.to_string()))?;
+        let window = web_sys::window()
+            .ok_or_else(|| StorageError::Unsupported("window is unavailable".into()))?;
+        let navigator = window.navigator();
+        let storage = Reflect::get(&navigator, &JsValue::from_str("storage"))
+            .map_err(|error| StorageError::Io(format!("{error:?}")))?;
+        let root = promise(
+            function(&storage, "getDirectory")
+                .map_err(|error| StorageError::Io(error.to_string()))?
+                .call0(&storage)
+                .map_err(|error| StorageError::Io(format!("{error:?}")))?,
+        )
+        .await
+        .map_err(|error| StorageError::Io(error.to_string()))?;
+        let options = Object::new();
+        Reflect::set(&options, &JsValue::from_str("create"), &JsValue::TRUE)
+            .map_err(|error| StorageError::Io(format!("{error:?}")))?;
+        let directory = promise(
+            function(&root, "getDirectoryHandle")
+                .map_err(|error| StorageError::Io(error.to_string()))?
+                .call2(&root, &JsValue::from_str("Ponlet"), &options)
+                .map_err(|error| StorageError::Io(format!("{error:?}")))?,
+        )
+        .await
+        .map_err(|error| StorageError::Io(error.to_string()))?;
+        let temporary_name = format!(".{safe}.{}.part", id_string(new_id()));
+        let file = promise(
+            function(&directory, "getFileHandle")
+                .map_err(|error| StorageError::Io(error.to_string()))?
+                .call2(&directory, &JsValue::from_str(&temporary_name), &options)
+                .map_err(|error| StorageError::Io(format!("{error:?}")))?,
+        )
+        .await
+        .map_err(|error| StorageError::Io(error.to_string()))?;
+        let writable = promise(
+            function(&file, "createWritable")
+                .map_err(|error| StorageError::Io(error.to_string()))?
+                .call0(&file)
+                .map_err(|error| StorageError::Io(format!("{error:?}")))?,
+        )
+        .await
+        .map_err(|error| StorageError::Io(error.to_string()))?;
+        Ok(Self {
+            directory,
+            file,
+            writable,
+            temporary_name,
+            final_name: safe,
+            size: 0,
+        })
+    }
+}
+
+#[async_trait(?Send)]
+impl IncomingFileSink for WebFileSink {
+    async fn write(&mut self, chunk: &[u8]) -> Result<(), StorageError> {
+        let bytes = Uint8Array::new_with_length(chunk.len() as u32);
+        bytes.copy_from(chunk);
+        let write = function(&self.writable, "write")
+            .map_err(|error| StorageError::Io(error.to_string()))?
+            .call1(&self.writable, &bytes)
+            .map_err(|error| StorageError::Io(format!("{error:?}")))?;
+        promise(write)
+            .await
+            .map_err(|error| StorageError::Io(error.to_string()))?;
+        self.size = self.size.saturating_add(chunk.len() as u64);
+        Ok(())
+    }
+
+    async fn commit(mut self: Box<Self>) -> Result<ReceivedItem, StorageError> {
+        let result = async {
+            let close = function(&self.writable, "close")
+                .map_err(|error| StorageError::Io(error.to_string()))?
+                .call0(&self.writable)
+                .map_err(|error| StorageError::Io(format!("{error:?}")))?;
+            promise(close)
+                .await
+                .map_err(|error| StorageError::Io(error.to_string()))?;
+            let move_method = function(&self.file, "move")
+                .map_err(|_| StorageError::Unsupported("OPFS move is unavailable".into()))?;
+            let moved = move_method
+                .call1(&self.file, &JsValue::from_str(&self.final_name))
+                .map_err(|error| StorageError::Io(format!("{error:?}")))?;
+            promise(moved)
+                .await
+                .map_err(|error| StorageError::Io(error.to_string()))?;
+            Ok(ReceivedItem {
+                name: self.final_name.clone(),
+                size: self.size,
+                local_path_or_handle: format!("opfs:/Ponlet/{}", self.final_name),
+            })
+        }
+        .await;
+        if result.is_err() {
+            let _ = self.abort().await;
+        }
+        result
+    }
+
+    async fn abort(mut self: Box<Self>) -> Result<(), StorageError> {
+        if let Ok(abort) = function(&self.writable, "abort") {
+            if let Ok(result) = abort.call0(&self.writable) {
+                let _ = promise(result).await;
             }
         }
-    }) as Box<dyn FnMut(String)>);
-    let _ = js_sys::Reflect::set(&window, &JsValue::from_str("onTailcatHostAddressReady"), on_host_addr.as_ref().unchecked_ref());
-    on_host_addr.forget();
-
-    // Callback when remote peer connects via WireGuard
-    let app_weak_peer = app.as_weak();
-    let on_peer_connected = Closure::wrap(Box::new(move |peer_name: String| {
-        if let Some(app) = app_weak_peer.upgrade() {
-            let is_ja = app.get_current_language() == "ja";
-            app.set_screen_index(3); // Screen 3: Connected Home
-            app.set_peer_name(peer_name.into());
-            app.set_derp_info(if is_ja { "暗号化メッシュ".into() } else { "Encrypted Mesh".into() });
-            app.set_edge_relay_info(if is_ja { "DERPリレー".into() } else { "DERP Relay".into() });
-            app.set_status_text(I18nWeb::direct_connected(is_ja).into());
-            app.set_can_disconnect(true);
-            app.set_can_send(true);
-            app.set_is_derp_relay(true);
-            app.set_transport_type(2);
-            tailsend_telemetry::events::peer_connected(
-                if app.get_transport_type() == 2 { "relay" } else { "direct" },
-            );
-        }
-    }) as Box<dyn FnMut(String)>);
-    let _ = js_sys::Reflect::set(&window, &JsValue::from_str("onPeerConnectedSlint"), on_peer_connected.as_ref().unchecked_ref());
-    on_peer_connected.forget();
-
-    let app_weak_derp = app.as_weak();
-    let set_derp_relay = Closure::wrap(Box::new(move |is_derp: bool| {
-        if let Some(app) = app_weak_derp.upgrade() {
-            app.set_is_derp_relay(is_derp);
-            app.set_transport_type(if is_derp { 2 } else { 1 });
-        }
-    }) as Box<dyn FnMut(bool)>);
-    let _ = js_sys::Reflect::set(&window, &JsValue::from_str("setSlintDerpRelay"), set_derp_relay.as_ref().unchecked_ref());
-    set_derp_relay.forget();
-
-    let app_weak_transport = app.as_weak();
-    let set_transport_type = Closure::wrap(Box::new(move |t_type: i32| {
-        if let Some(app) = app_weak_transport.upgrade() {
-            app.set_transport_type(t_type);
-            app.set_is_derp_relay(t_type == 2);
-        }
-    }) as Box<dyn FnMut(i32)>);
-    let _ = js_sys::Reflect::set(&window, &JsValue::from_str("setSlintTransportType"), set_transport_type.as_ref().unchecked_ref());
-    set_transport_type.forget();
-
-    // Set up JS bridge callbacks for UI updates from incoming streams
-    let app_weak_msg = app.as_weak();
-    let on_incoming_text = Closure::wrap(Box::new(move |text: String| {
-        if let Some(app) = app_weak_msg.upgrade() {
-            let is_ja = app.get_current_language() == "ja";
-            let peer_label = I18nWeb::label_peer(is_ja);
-            let new_log = format!("{}: {}\n{}", peer_label, text, app.get_received_message_log());
-            app.set_received_message_log(new_log.into());
-            app.set_last_received_text(text.clone().into());
-            app.set_status_text(I18nWeb::msg_received(is_ja).into());
-            tailsend_telemetry::events::text_message_received(tailsend_telemetry::length_bucket(
-                text.chars().count(),
-            ));
-        }
-    }) as Box<dyn FnMut(String)>);
-    let _ = js_sys::Reflect::set(&window, &JsValue::from_str("onIncomingTextMessageSlint"), on_incoming_text.as_ref().unchecked_ref());
-    on_incoming_text.forget();
-
-    let app_weak_status = app.as_weak();
-    let update_status_cb = Closure::wrap(Box::new(move |status: String| {
-        if let Some(app) = app_weak_status.upgrade() {
-            app.set_status_text(status.into());
-        }
-    }) as Box<dyn FnMut(String)>);
-    let _ = js_sys::Reflect::set(&window, &JsValue::from_str("updateSlintStatusText"), update_status_cb.as_ref().unchecked_ref());
-    update_status_cb.forget();
-
-    let app_weak_sent = app.as_weak();
-    let on_text_sent = Closure::wrap(Box::new(move |text: String| {
-        if let Some(app) = app_weak_sent.upgrade() {
-            append_me_message_log(&app, &text);
-        }
-    }) as Box<dyn FnMut(String)>);
-    let _ = js_sys::Reflect::set(&window, &JsValue::from_str("onTextSentSlint"), on_text_sent.as_ref().unchecked_ref());
-    on_text_sent.forget();
-
-    let app_weak_progress = app.as_weak();
-    let update_transfer_state = Closure::wrap(Box::new(move |is_transferring: bool, completed: bool, is_sender: bool, status: String, filename: String, bytes_text: String, progress: f64, speed: String| {
-        if let Some(app) = app_weak_progress.upgrade() {
-            app.set_is_transferring(is_transferring);
-            app.set_transfer_completed(completed);
-            app.set_is_sender_transfer(is_sender);
-            app.set_transfer_status(status.into());
-            app.set_transfer_filename(filename.into());
-            app.set_transfer_bytes_text(bytes_text.into());
-            app.set_transfer_progress(progress as f32);
-            app.set_transfer_speed(speed.into());
-        }
-    }) as Box<dyn FnMut(bool, bool, bool, String, String, String, f64, String)>);
-    let _ = js_sys::Reflect::set(&window, &JsValue::from_str("updateSlintTransferState"), update_transfer_state.as_ref().unchecked_ref());
-    update_transfer_state.forget();
-
-    let app_weak_done = app.as_weak();
-    let on_file_done = Closure::wrap(Box::new(move |filename: String, size: f64| {
-        if let Some(app) = app_weak_done.upgrade() {
-            let is_ja = app.get_current_language() == "ja";
-            let mb = size / 1048576.0;
-            let recv_label = I18nWeb::label_file_recv(is_ja);
-            let new_log = format!("{}: {} ({:.1} MB)\n{}", recv_label, filename, mb, app.get_received_message_log());
-            app.set_received_message_log(new_log.into());
-            app.set_is_transferring(false);
-            app.set_transfer_completed(true);
-            app.set_is_sender_transfer(false);
-            app.set_transfer_status(I18nWeb::download_completed_badge(is_ja).into());
-            app.set_status_text(I18nWeb::file_download_done(is_ja, &filename, mb).into());
-            app.set_saved_file_path(filename.into());
-            app.set_path_copied_feedback(false);
-        }
-    }) as Box<dyn FnMut(String, f64)>);
-    let _ = js_sys::Reflect::set(&window, &JsValue::from_str("onFileReceivedCompleteSlint"), on_file_done.as_ref().unchecked_ref());
-    on_file_done.forget();
-
-    // UI Action Handlers
-    let app_weak_composer = app.as_weak();
-    app.on_open_text_composer(move || {
-        if let Some(app) = app_weak_composer.upgrade() {
-            let current = app.get_message_input().to_string();
-            trigger_open_composer(&current);
-        }
-    });
-
-    let app_weak = app.as_weak();
-    app.on_compose_text(move |msg| {
-        if let Some(app) = app_weak.upgrade() {
-            let text_to_send = msg.trim().to_string();
-            if text_to_send.is_empty() {
-                let current = app.get_message_input().to_string();
-                trigger_open_composer(&current);
-            } else {
-                // fromSlint=true tells the JS bridge the caller already logged
-                // this message, preventing a duplicate [Me] entry via onTextSentSlint.
-                send_tailcat_text_message(&text_to_send, true);
-                tailsend_telemetry::events::text_message_sent(tailsend_telemetry::length_bucket(
-                    text_to_send.chars().count(),
-                ));
-                append_me_message_log(&app, &text_to_send);
-                app.set_message_input("".into());
+        if let Ok(remove) = function(&self.directory, "removeEntry") {
+            if let Ok(result) =
+                remove.call1(&self.directory, &JsValue::from_str(&self.temporary_name))
+            {
+                let _ = promise(result).await;
             }
         }
-    });
+        Ok(())
+    }
+}
 
-    app.on_paste_and_send(move || {
-        trigger_paste_and_send();
-    });
+struct WebSession {
+    listener: Rc<Box<dyn Listener>>,
+    peer_address: RefCell<String>,
+    peer_info: RefCell<Option<PeerInfo>>,
+    peer_capabilities: RefCell<Option<Capabilities>>,
+    cancel: Arc<AtomicBool>,
+}
 
-    let app_weak_share = app.as_weak();
-    app.on_share_received_text(move || {
-        if let Some(app) = app_weak_share.upgrade() {
-            let text = app.get_last_received_text();
-            trigger_share_text(&text);
-        }
-    });
+struct WebBackend {
+    service: BackendService,
+    transport: Arc<WebTransport>,
+    session: RefCell<Option<Rc<WebSession>>>,
+    subscribers: RefCell<Vec<Function>>,
+}
 
-    let app_weak_save = app.as_weak();
-    app.on_save_received_text(move || {
-        if let Some(app) = app_weak_save.upgrade() {
-            let text = app.get_last_received_text();
-            trigger_save_text(&text);
-        }
-    });
+impl WebBackend {
+    fn new() -> Rc<Self> {
+        Rc::new(Self {
+            service: BackendService::default(),
+            transport: Arc::new(WebTransport),
+            session: RefCell::new(None),
+            subscribers: RefCell::new(Vec::new()),
+        })
+    }
 
-    let app_weak_copy = app.as_weak();
-    app.on_copy_received_text(move || {
-        if let Some(app) = app_weak_copy.upgrade() {
-            let text = app.get_last_received_text();
-            trigger_copy_text(&text);
-            let is_ja = app.get_current_language() == "ja";
-            app.set_status_text(I18nWeb::text_copied(is_ja).into());
-            app.set_text_copied_feedback(true);
-            let w_timer = app_weak_copy.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                let promise = js_sys::Promise::new(&mut |resolve, _| {
-                    let window = web_sys::window().unwrap();
-                    let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 3000);
-                });
-                let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
-                if let Some(app) = w_timer.upgrade() {
-                    app.set_text_copied_feedback(false);
-                }
-            });
-        }
-    });
+    fn snapshot(&self) -> UiSnapshot {
+        snapshot_from_service(&self.service)
+    }
 
-    let app_weak_copy_path = app.as_weak();
-    app.on_copy_file_path(move || {
-        if let Some(app) = app_weak_copy_path.upgrade() {
-            let path = app.get_saved_file_path();
-            if !path.is_empty() {
-                trigger_copy_text(&path);
-                let is_ja = app.get_current_language() == "ja";
-                app.set_status_text(I18nWeb::path_copied(is_ja).into());
-                app.set_path_copied_feedback(true);
-                let w_timer = app_weak_copy_path.clone();
-                wasm_bindgen_futures::spawn_local(async move {
-                    let promise = js_sys::Promise::new(&mut |resolve, _| {
-                        let window = web_sys::window().unwrap();
-                        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 3000);
-                    });
-                    let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
-                    if let Some(app) = w_timer.upgrade() {
-                        app.set_path_copied_feedback(false);
-                    }
-                });
+    fn notify(&self, event: UiEvent) {
+        let Ok(value) = serde_wasm_bindgen::to_value(&event) else {
+            return;
+        };
+        self.subscribers
+            .borrow_mut()
+            .retain(|subscriber| subscriber.call1(&JsValue::UNDEFINED, &value).is_ok());
+    }
+
+    fn state(&self, state: SessionState) {
+        let event = self.service.set_state(state);
+        self.notify(UiEvent::Snapshot {
+            sequence: event.sequence,
+            snapshot: self.snapshot(),
+        });
+    }
+
+    fn event(&self, event: AppEvent) {
+        let ordered = self.service.emit(event.clone());
+        match event {
+            AppEvent::StateChanged(_) | AppEvent::FilesReceived { .. } => {
+                self.notify(UiEvent::Snapshot {
+                    sequence: ordered.sequence,
+                    snapshot: self.snapshot(),
+                })
             }
-        }
-    });
-
-    let app_weak_file = app.as_weak();
-    app.on_pick_files(move || {
-        if let Some(_) = app_weak_file.upgrade() {
-            trigger_file_picker();
-        }
-    });
-
-    let app_weak_lang = app.as_weak();
-    app.on_switch_language(move |lang| {
-        if let Some(app) = app_weak_lang.upgrade() {
-            let l_str = lang.to_string();
-            app.set_current_language(l_str.clone().into());
-            let is_ja = l_str == "ja";
-            match app.get_screen_index() {
-                0 => app.set_status_text(I18nWeb::boot_status(is_ja).into()),
-                1 => {
-                    app.set_status_text(I18nWeb::scan_qr_status(is_ja).into());
-                    app.set_peer_name(I18nWeb::waiting_for_peer(is_ja).into());
-                },
-                2 => app.set_status_text(I18nWeb::connecting_peer(is_ja).into()),
-                3 => {
-                    app.set_peer_name(I18nWeb::connected_peer(is_ja).into());
-                    if !app.get_is_transferring() && !app.get_transfer_completed() {
-                        app.set_status_text(I18nWeb::securely_connected(is_ja).into());
-                        app.set_transfer_status(I18nWeb::ready_for_transfer(is_ja).into());
-                    }
-                },
-                _ => {}
-            }
-        }
-    });
-
-    let app_weak_copy_inv = app.as_weak();
-    app.on_copy_invite(move || {
-        if let Some(app) = app_weak_copy_inv.upgrade() {
-            let url = app.get_invite_url();
-            trigger_copy_text(&url);
-            app.set_copy_feedback_active(true);
-            let is_ja = app.get_current_language() == "ja";
-            app.set_status_text(I18nWeb::invite_copied(is_ja).into());
-
-            let w_timer = app_weak_copy_inv.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                // Wait 3 seconds then reset copy feedback
-                let promise = js_sys::Promise::new(&mut |resolve, _| {
-                    let window = web_sys::window().unwrap();
-                    let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(&resolve, 3000);
-                });
-                let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
-                if let Some(app) = w_timer.upgrade() {
-                    app.set_copy_feedback_active(false);
-                }
-            });
-        }
-    });
-
-    let app_weak_regen = app.as_weak();
-    app.on_regenerate_invite(move || {
-        if let Some(app) = app_weak_regen.upgrade() {
-            let window = web_sys::window().unwrap();
-            if let Ok(addr_val) = js_sys::Reflect::get(&window, &JsValue::from_str("hostTailcatAddress")) {
-                if let Some(host_address) = addr_val.as_string() {
-                    if !host_address.is_empty() {
-                        let mut session_id = [0u8; 16];
-                        let _ = getrandom::getrandom(&mut session_id);
-                        let mut invite_secret = [0u8; 32];
-                        let _ = getrandom::getrandom(&mut invite_secret);
-                        let now = (js_sys::Date::now() / 1000.0) as u64;
-
-                        let invitation = InvitationV1::new(host_address, session_id, invite_secret, now, 600);
-                        let base_url = "https://ponlet.mat2uken.app".to_string();
-                        let invite_url = invitation.to_qr_url(&base_url).unwrap_or_default();
-                        let session_token = invitation.to_base64url().unwrap_or_default();
-
-                        if let Ok(qr) = tailsend_qr::generate_qr_rgba(&invite_url, 236) {
-                            let pixel_buffer = slint::SharedPixelBuffer::<slint::Rgba8Pixel>::clone_from_slice(
-                                &qr.rgba_pixels,
-                                qr.width,
-                                qr.height,
-                            );
-                            app.set_qr_code_image(slint::Image::from_rgba8(pixel_buffer));
-                            app.set_has_qr_image(true);
-                            app.set_invite_url(invite_url.into());
-                            let short_tok = if session_token.len() >= 12 { format!("{}...", &session_token[..12]) } else { session_token };
-                            app.set_session_info(short_tok.into());
-                            let is_ja = app.get_current_language() == "ja";
-                            app.set_status_text(I18nWeb::qr_regenerated(is_ja).into());
-                        }
-                    }
-                }
-            }
-        }
-    });
-
-    let app_weak_join = app.as_weak();
-    app.on_join_session(move |input_text| {
-        let text = input_text.to_string();
-        if !text.is_empty() {
-            let now = (js_sys::Date::now() / 1000.0) as u64;
-            let url_to_parse = if text.starts_with("http") {
-                text.clone()
-            } else if text.starts_with("#i=") {
-                format!("https://ponlet.mat2uken.app/{}", text)
-            } else if text.starts_with("i=") {
-                format!("https://ponlet.mat2uken.app/#{}", text)
-            } else {
-                format!("https://ponlet.mat2uken.app/#i={}", text)
-            };
-
-            match InvitationV1::from_url(&url_to_parse, now) {
-                Ok(inv) => {
-                    let window = web_sys::window().unwrap();
-                    let _ = js_sys::Reflect::set(
-                        &window,
-                        &JsValue::from_str("hostTailcatAddress"),
-                        &JsValue::from_str(&inv.host_address),
-                    );
-
-                    let token_str = inv.to_base64url().unwrap_or_default();
-                    let short_tok = if token_str.len() >= 12 { format!("{}...", &token_str[..12]) } else { token_str };
-
-                    if let Some(app) = app_weak_join.upgrade() {
-                        let is_ja = app.get_current_language() == "ja";
-                        app.set_screen_index(3);
-                        app.set_peer_name(I18nWeb::connected_peer(is_ja).into());
-                        app.set_session_info(short_tok.into());
-                        app.set_status_text(I18nWeb::direct_connected(is_ja).into());
-                        app.set_can_disconnect(true);
-                        app.set_can_send(true);
-                        app.set_is_derp_relay(true);
-                        tailsend_telemetry::events::session_created("unknown");
-                    }
-
-                    if let Ok(func) = js_sys::Reflect::get(&window, &JsValue::from_str("connectToPeerFromInput")) {
-                        if let Some(f) = func.dyn_ref::<js_sys::Function>() {
-                            let _ = f.call1(&JsValue::NULL, &JsValue::from_str(&inv.host_address));
-                        }
-                    }
-                }
-                Err(e) => {
-                    if let Some(app) = app_weak_join.upgrade() {
-                        let is_ja = app.get_current_language() == "ja";
-                        app.set_status_text(if is_ja { format!("招待コードエラー: {}", e).into() } else { format!("Invalid invite code: {}", e).into() });
-                    }
-                }
-            }
-        }
-    });
-
-    app.on_paste_and_join(move || {
-        trigger_paste_and_send();
-    });
-
-    // Open External Links (Privacy Policy / OSS Licenses) in a new browser tab
-    app.on_open_url(move |url| {
-        if let Some(window) = web_sys::window() {
-            let _ = window.open_with_url(&url);
-        }
-    });
-
-    // Cancel Transfer Callback
-    let app_weak_cancel = app.as_weak();
-    app.on_cancel_transfer(move || {
-        if let Some(window) = web_sys::window() {
-            let _ = js_sys::Reflect::set(
-                &window,
-                &JsValue::from_str("isTransferCancelled"),
-                &JsValue::from_bool(true),
-            );
-        }
-        if let Some(app) = app_weak_cancel.upgrade() {
-            let is_ja = app.get_current_language() == "ja";
-            app.set_is_transferring(false);
-            app.set_transfer_progress(0.0);
-            app.set_transfer_status(I18nWeb::transfer_cancelled(is_ja).into());
-        }
-    });
-
-    // Scan QR Camera Callback
-    let app_weak_cam = app.as_weak();
-    app.on_scan_qr_camera(move || {
-        if let Some(app) = app_weak_cam.upgrade() {
-            let is_ja = app.get_current_language() == "ja";
-            app.set_status_text(I18nWeb::camera_unsupported(is_ja).into());
-        }
-    });
-
-    let app_weak_disc = app.as_weak();
-    app.on_disconnect(move || {
-        if let Some(app) = app_weak_disc.upgrade() {
-            let is_ja = app.get_current_language() == "ja";
-            app.set_screen_index(1);
-            app.set_peer_name(I18nWeb::waiting_for_peer(is_ja).into());
-            app.set_status_text(I18nWeb::disconnected(is_ja).into());
-            app.set_is_transferring(false);
-            app.set_transfer_completed(false);
-            app.set_is_sender_transfer(false);
-            app.set_saved_file_path("".into());
-            app.set_path_copied_feedback(false);
-        }
-    });
-
-    // Active Countdown Timer for QR Expiration
-    let _countdown_timer = slint::Timer::default();
-    let app_weak_countdown = app.as_weak();
-    _countdown_timer.start(slint::TimerMode::Repeated, std::time::Duration::from_secs(1), move || {
-        if let Some(app) = app_weak_countdown.upgrade() {
-            if app.get_screen_index() == 1 {
-                let cur = app.get_expires_secs();
-                if cur > 0 {
-                    app.set_expires_secs(cur - 1);
+            AppEvent::TextReceived { text } => self.notify(UiEvent::Text {
+                sequence: ordered.sequence,
+                text,
+                incoming: true,
+            }),
+            AppEvent::TransferCompleted { transfer_id } => self.notify(UiEvent::Terminal {
+                sequence: ordered.sequence,
+                id: id_string(transfer_id),
+                status: "completed",
+                message: None,
+            }),
+            AppEvent::TransferCancelled {
+                transfer_id,
+                reason,
+            } => self.notify(UiEvent::Terminal {
+                sequence: ordered.sequence,
+                id: id_string(transfer_id),
+                status: if reason == "Transfer cancelled by user" {
+                    "cancelled"
                 } else {
-                    let is_ja = app.get_current_language() == "ja";
-                    app.set_status_text(I18nWeb::invite_expired(is_ja).into());
+                    "failed"
+                },
+                message: Some(reason),
+            }),
+            AppEvent::TransferProgress {
+                transfer_id,
+                bytes_done,
+                bytes_total,
+            } => self.notify(UiEvent::Progress {
+                sequence: ordered.sequence,
+                id: id_string(transfer_id),
+                done: bytes_done,
+                total: bytes_total,
+            }),
+            AppEvent::ErrorOccurred { code, message } => self.notify(UiEvent::Snapshot {
+                sequence: ordered.sequence,
+                snapshot: UiSnapshot {
+                    error: Some(format!("{code}: {message}")),
+                    ..self.snapshot()
+                },
+            }),
+        }
+    }
+
+    fn progress(&self, update: ProgressUpdate) {
+        if let Some(event) = self.service.progress(
+            update.transfer_id,
+            update.bytes_transferred,
+            update.total_bytes,
+        ) {
+            self.notify(UiEvent::Progress {
+                sequence: event.sequence,
+                id: id_string(update.transfer_id),
+                done: update.bytes_transferred,
+                total: update.total_bytes,
+            });
+        }
+    }
+
+    async fn create_invite(self: Rc<Self>) -> Result<(), JsValue> {
+        self.disconnect().await?;
+        let listener: Rc<Box<dyn Listener>> = Rc::new(
+            self.transport
+                .listen(listen_options())
+                .await
+                .map_err(to_js)?,
+        );
+        let host_address = listener.local_address().to_string();
+        let session_id = new_id();
+        let invite_secret = new_secret();
+        let now = unix_seconds();
+        let invitation = InvitationV1::new(
+            host_address.clone(),
+            session_id,
+            invite_secret,
+            now,
+            INVITE_LIFETIME_SECS,
+        );
+        let invite_url = invitation
+            .to_qr_url(INVITE_BASE_URL)
+            .map_err(|error| to_js(error))?;
+        let session = Rc::new(WebSession {
+            listener,
+            peer_address: RefCell::new(String::new()),
+            peer_info: RefCell::new(None),
+            peer_capabilities: RefCell::new(None),
+            cancel: Arc::new(AtomicBool::new(false)),
+        });
+        *self.session.borrow_mut() = Some(session.clone());
+        self.state(SessionState::AwaitingPeer {
+            invite_url,
+            expires_at: now + INVITE_LIFETIME_SECS,
+            host_address,
+        });
+        let backend = self.clone();
+        spawn_local(async move {
+            let info = local_peer_info();
+            let result = run_host_handshake(
+                &session.listener,
+                session_id,
+                invite_secret,
+                &info,
+                &Capabilities::default(),
+            )
+            .await;
+            match result {
+                Ok(handshake) => {
+                    *session.peer_address.borrow_mut() = handshake.peer_address.clone();
+                    *session.peer_info.borrow_mut() = Some(handshake.peer_info.clone());
+                    *session.peer_capabilities.borrow_mut() =
+                        Some(handshake.peer_capabilities.clone());
+                    backend.state(SessionState::ConnectedIdle {
+                        peer_info: handshake.peer_info,
+                        peer_capabilities: handshake.peer_capabilities,
+                        peer_address: handshake.peer_address,
+                    });
+                    accept_loop(backend, session).await;
                 }
+                Err(error) => backend.state(SessionState::Error {
+                    code: 1001,
+                    message: error,
+                }),
+            }
+        });
+        Ok(())
+    }
+
+    async fn join(self: Rc<Self>, invite: String) -> Result<(), JsValue> {
+        self.disconnect().await?;
+        let invitation =
+            InvitationV1::from_url(&invite, unix_seconds()).map_err(|error| to_js(error))?;
+        self.state(SessionState::DialingHost {
+            host_address: invitation.host_address.clone(),
+        });
+        let listener: Rc<Box<dyn Listener>> = Rc::new(
+            self.transport
+                .listen(listen_options())
+                .await
+                .map_err(to_js)?,
+        );
+        let session = Rc::new(WebSession {
+            listener,
+            peer_address: RefCell::new(invitation.host_address.clone()),
+            peer_info: RefCell::new(None),
+            peer_capabilities: RefCell::new(None),
+            cancel: Arc::new(AtomicBool::new(false)),
+        });
+        *self.session.borrow_mut() = Some(session.clone());
+        self.state(SessionState::Authenticating);
+        let transport: Arc<dyn TailcatTransport> = self.transport.clone();
+        let result = run_joiner_handshake(
+            &transport,
+            &session.listener,
+            &invitation,
+            &local_peer_info(),
+            &Capabilities::default(),
+        )
+        .await;
+        match result {
+            Ok(handshake) => {
+                *session.peer_info.borrow_mut() = Some(handshake.peer_info.clone());
+                *session.peer_capabilities.borrow_mut() = Some(handshake.peer_capabilities.clone());
+                *session.peer_address.borrow_mut() = handshake.peer_address.clone();
+                self.state(SessionState::ConnectedIdle {
+                    peer_info: handshake.peer_info,
+                    peer_capabilities: handshake.peer_capabilities,
+                    peer_address: handshake.peer_address,
+                });
+                let backend = self.clone();
+                spawn_local(async move { accept_loop(backend, session).await });
+                Ok(())
+            }
+            Err(error) => {
+                let _ = session.listener.close().await;
+                *self.session.borrow_mut() = None;
+                self.state(SessionState::Error {
+                    code: 1002,
+                    message: error.clone(),
+                });
+                Err(JsValue::from_str(&error))
             }
         }
-    });
+    }
 
-    // Telemetry opt-out toggle (Slint flips the property before invoking)
-    app.set_telemetry_enabled(telemetry_initial);
-    let app_weak_telemetry = app.as_weak();
-    app.on_telemetry_toggled(move |enabled| {
-        tailsend_telemetry::set_enabled(enabled);
-        if let Some(app) = app_weak_telemetry.upgrade() {
-            app.set_telemetry_enabled(enabled);
+    async fn send_text(self: Rc<Self>, text: String) -> Result<(), JsValue> {
+        let session = self
+            .session
+            .borrow()
+            .clone()
+            .ok_or_else(|| JsValue::from_str("No connected peer"))?;
+        let id = new_id();
+        let cancel = self.service.register_transfer(id);
+        self.state(SessionState::Transferring {
+            transfer_id: id,
+            is_incoming: false,
+            is_files: false,
+            bytes_done: 0,
+            bytes_total: text.len() as u64,
+            current_item_name: "Message".into(),
+        });
+        let address = session.peer_address.borrow().clone();
+        let mut stream = match self
+            .transport
+            .dial(&address, TEXT_PORT, listen_options())
+            .await
+        {
+            Ok(stream) => stream,
+            Err(error) => {
+                return self.finish(id, Err(TransferError::Transport(error)));
+            }
+        };
+        let result = send_live_text_stream(&mut stream, &text, cancel).await;
+        let _ = stream.close().await;
+        self.finish(id, result.map(|_| ()))
+    }
+
+    async fn send_files(self: Rc<Self>, files: JsValue) -> Result<(), JsValue> {
+        let session = self
+            .session
+            .borrow()
+            .clone()
+            .ok_or_else(|| JsValue::from_str("No connected peer"))?;
+        let files = js_sys::Array::from(&files);
+        for file in files.iter() {
+            let name = property(&file, "name")
+                .map_err(to_js)?
+                .as_string()
+                .ok_or_else(|| JsValue::from_str("File has no name"))?;
+            let size = property(&file, "size")
+                .map_err(to_js)?
+                .as_f64()
+                .ok_or_else(|| JsValue::from_str("File has no size"))?
+                as u64;
+            let mime = property(&file, "type").map_err(to_js)?.as_string();
+            let source = WebFileSource {
+                file,
+                metadata: FileMetadata {
+                    name: name.clone(),
+                    size,
+                    mime,
+                    modified_unix_ms: None,
+                },
+            };
+            let id = new_id();
+            let cancel = self.service.register_transfer(id);
+            self.state(SessionState::Transferring {
+                transfer_id: id,
+                is_incoming: false,
+                is_files: true,
+                bytes_done: 0,
+                bytes_total: size,
+                current_item_name: name,
+            });
+            let mut source: Box<dyn FileSource> = Box::new(source);
+            let address = session.peer_address.borrow().clone();
+            let mut stream = match self
+                .transport
+                .dial(&address, FILE_PORT, listen_options())
+                .await
+            {
+                Ok(stream) => stream,
+                Err(error) => {
+                    return self.finish(id, Err(TransferError::Transport(error)));
+                }
+            };
+            let backend = self.clone();
+            let callback: ProgressCallback = Box::new(move |update| backend.progress(update));
+            let result =
+                send_named_file_stream(&mut stream, &mut source, id, cancel, Some(&callback)).await;
+            source.close().await;
+            let _ = stream.close().await;
+            self.finish(id, result.map(|_| ()))?;
         }
-    });
+        Ok(())
+    }
 
-    app.run().map_err(|e| JsValue::from_str(&e.to_string()))?;
-    Ok(())
+    fn finish(&self, id: [u8; 16], result: Result<(), TransferError>) -> Result<(), JsValue> {
+        let cancelled =
+            matches!(&result, Err(TransferError::Cancelled)) && self.service.is_cancelled(id);
+        let failed = result.is_err() && !cancelled;
+        if let Err(error) = result {
+            self.event(AppEvent::TransferCancelled {
+                transfer_id: id,
+                reason: error.to_string(),
+            });
+        } else {
+            self.event(AppEvent::TransferCompleted { transfer_id: id });
+        }
+        self.service.finish_transfer(id);
+        self.restore_connected_idle();
+        if failed {
+            Err(JsValue::from_str("Transfer failed"))
+        } else {
+            Ok(())
+        }
+    }
+
+    async fn disconnect(&self) -> Result<(), JsValue> {
+        if let SessionState::Transferring { transfer_id, .. } = self.service.snapshot().app.state {
+            let _ = self.service.cancel(transfer_id);
+        }
+        if let Some(session) = self.session.borrow_mut().take() {
+            session.cancel.store(true, Ordering::Release);
+            let _ = session.listener.close().await;
+        }
+        self.state(SessionState::Disconnected {
+            reason: "disconnected".into(),
+        });
+        Ok(())
+    }
+
+    fn restore_connected_idle(&self) {
+        let Some(session) = self.session.borrow().clone() else {
+            return;
+        };
+        let (Some(peer_info), Some(peer_capabilities)) = (
+            session.peer_info.borrow().clone(),
+            session.peer_capabilities.borrow().clone(),
+        ) else {
+            return;
+        };
+        let peer_address = session.peer_address.borrow().clone();
+        self.state(SessionState::ConnectedIdle {
+            peer_info,
+            peer_capabilities,
+            peer_address,
+        });
+    }
+}
+
+async fn accept_loop(backend: Rc<WebBackend>, session: Rc<WebSession>) {
+    loop {
+        if session.cancel.load(Ordering::Acquire) {
+            return;
+        }
+        let incoming = match session.listener.accept().await {
+            Ok(value) => value,
+            Err(_) => return,
+        };
+        let backend_for_stream = backend.clone();
+        spawn_local(async move {
+            match incoming.port {
+                TEXT_PORT => receive_text(backend_for_stream, incoming.stream).await,
+                FILE_PORT => receive_file(backend_for_stream, incoming.stream).await,
+                _ => {
+                    let mut stream = incoming.stream;
+                    let _ = stream.close().await;
+                }
+            }
+        });
+    }
+}
+
+async fn receive_text(backend: Rc<WebBackend>, mut stream: Box<dyn DuplexStream>) {
+    let id = new_id();
+    let cancel = backend.service.register_transfer(id);
+    let result = receive_live_text_stream(&mut stream, cancel, |text| {
+        backend.event(AppEvent::TextReceived { text })
+    })
+    .await;
+    let _ = stream.close().await;
+    if let Err(error) = result {
+        backend.event(AppEvent::TransferCancelled {
+            transfer_id: id,
+            reason: error.to_string(),
+        });
+    }
+    backend.service.finish_transfer(id);
+    backend.restore_connected_idle();
+}
+
+async fn receive_file(backend: Rc<WebBackend>, mut stream: Box<dyn DuplexStream>) {
+    let id = new_id();
+    let cancel = backend.service.register_transfer(id);
+    let progress_backend = backend.clone();
+    let callback: ProgressCallback = Box::new(move |update| progress_backend.progress(update));
+    let result = receive_named_file_stream_with_factory(
+        &mut stream,
+        |header| {
+            backend.state(SessionState::Transferring {
+                transfer_id: id,
+                is_incoming: true,
+                is_files: true,
+                bytes_done: 0,
+                bytes_total: header.size,
+                current_item_name: header.name.clone(),
+            });
+            let name = header.name.clone();
+            async move {
+                WebFileSink::prepare(&name)
+                    .await
+                    .map(|sink| Box::new(sink) as Box<dyn IncomingFileSink>)
+            }
+        },
+        id,
+        None,
+        cancel,
+        Some(&callback),
+    )
+    .await;
+    let _ = stream.close().await;
+    match result {
+        Ok(received) => backend.event(AppEvent::FilesReceived {
+            items: vec![received.item],
+        }),
+        Err(error) => backend.event(AppEvent::TransferCancelled {
+            transfer_id: id,
+            reason: error.to_string(),
+        }),
+    }
+    backend.service.finish_transfer(id);
+    backend.restore_connected_idle();
+}
+
+fn install_function(object: &Object, name: &str, function: &Function) -> Result<(), JsValue> {
+    Reflect::set(object, &JsValue::from_str(name), function).map(|_| ())
+}
+
+fn make_promise<F>(future: F) -> Promise
+where
+    F: std::future::Future<Output = Result<(), JsValue>> + 'static,
+{
+    future_to_promise(async move { future.await.map(|_| JsValue::UNDEFINED) })
+}
+
+#[wasm_bindgen]
+pub fn install_backend() -> Result<(), JsValue> {
+    console_error_panic_hook::set_once();
+    let backend = WebBackend::new();
+    let object = Object::new();
+    let snapshot = {
+        let backend = backend.clone();
+        Closure::wrap(Box::new(move || {
+            let value = serde_wasm_bindgen::to_value(&backend.snapshot()).unwrap_or(JsValue::NULL);
+            future_to_promise(async move { Ok(value) })
+        }) as Box<dyn FnMut() -> Promise>)
+    };
+    install_function(&object, "snapshot", snapshot.as_ref().unchecked_ref())?;
+    snapshot.forget();
+
+    let subscribe = {
+        let backend = backend.clone();
+        Closure::wrap(Box::new(move |callback: Function| {
+            backend.subscribers.borrow_mut().push(callback.clone());
+            let subscribers = backend.subscribers.clone();
+            Closure::wrap(Box::new(move || {
+                subscribers.borrow_mut().retain(|item| item != &callback);
+            }) as Box<dyn FnMut()>)
+            .into_js_value()
+        }) as Box<dyn FnMut(Function) -> JsValue>)
+    };
+    install_function(&object, "subscribe", subscribe.as_ref().unchecked_ref())?;
+    subscribe.forget();
+
+    let create_invite = {
+        let backend = backend.clone();
+        Closure::wrap(
+            Box::new(move || make_promise(backend.clone().create_invite()))
+                as Box<dyn FnMut() -> Promise>,
+        )
+    };
+    install_function(
+        &object,
+        "createInvite",
+        create_invite.as_ref().unchecked_ref(),
+    )?;
+    create_invite.forget();
+    let join = {
+        let backend = backend.clone();
+        Closure::wrap(
+            Box::new(move |invite: String| make_promise(backend.clone().join(invite)))
+                as Box<dyn FnMut(String) -> Promise>,
+        )
+    };
+    install_function(&object, "join", join.as_ref().unchecked_ref())?;
+    join.forget();
+    let send_text = {
+        let backend = backend.clone();
+        Closure::wrap(
+            Box::new(move |text: String| make_promise(backend.clone().send_text(text)))
+                as Box<dyn FnMut(String) -> Promise>,
+        )
+    };
+    install_function(&object, "sendText", send_text.as_ref().unchecked_ref())?;
+    send_text.forget();
+    let send_files = {
+        let backend = backend.clone();
+        Closure::wrap(Box::new(move |files: JsValue| {
+            make_promise(backend.clone().send_files(files))
+        }) as Box<dyn FnMut(JsValue) -> Promise>)
+    };
+    install_function(&object, "sendFiles", send_files.as_ref().unchecked_ref())?;
+    send_files.forget();
+    let cancel = {
+        let backend = backend.clone();
+        Closure::wrap(Box::new(move |id: String| {
+            let backend = backend.clone();
+            make_promise(async move {
+                let transfer_id = parse_id(&id)?;
+                if !backend.service.cancel(transfer_id) {
+                    return Err(JsValue::from_str("Transfer is no longer active"));
+                }
+                Ok(())
+            })
+        }) as Box<dyn FnMut(String) -> Promise>)
+    };
+    install_function(&object, "cancelTransfer", cancel.as_ref().unchecked_ref())?;
+    cancel.forget();
+    let disconnect = {
+        let backend = backend.clone();
+        Closure::wrap(Box::new(move || {
+            let backend = backend.clone();
+            make_promise(async move { backend.disconnect().await })
+        }) as Box<dyn FnMut() -> Promise>)
+    };
+    install_function(&object, "disconnect", disconnect.as_ref().unchecked_ref())?;
+    disconnect.forget();
+
+    let window = web_sys::window().ok_or_else(|| JsValue::from_str("window is unavailable"))?;
+    Reflect::set(&window, &JsValue::from_str("__ponletBackend"), &object).map(|_| ())
+}
+
+fn snapshot_from_service(service: &BackendService) -> UiSnapshot {
+    let snapshot = service.snapshot();
+    let app = snapshot.app;
+    let (state, peer_name, invite_url, expires, can_send, can_disconnect, transfer, error) =
+        match app.state {
+            SessionState::Booting => (
+                "booting",
+                app.peer_display_name,
+                None,
+                0,
+                false,
+                false,
+                None,
+                None,
+            ),
+            SessionState::AwaitingPeer { invite_url, .. } => (
+                "awaiting-peer",
+                app.peer_display_name,
+                Some(invite_url),
+                app.invite_expires_in_secs,
+                false,
+                app.can_disconnect,
+                None,
+                None,
+            ),
+            SessionState::ConnectedIdle { .. } => (
+                "connected",
+                app.peer_display_name,
+                None,
+                0,
+                app.can_send,
+                app.can_disconnect,
+                None,
+                None,
+            ),
+            SessionState::Transferring {
+                transfer_id,
+                is_incoming,
+                bytes_done,
+                bytes_total,
+                current_item_name,
+                ..
+            } => (
+                "transferring",
+                app.peer_display_name,
+                None,
+                0,
+                false,
+                app.can_disconnect,
+                Some(UiTransfer {
+                    id: id_string(transfer_id),
+                    name: current_item_name,
+                    done: bytes_done,
+                    total: bytes_total,
+                    incoming: is_incoming,
+                    status: "transferring",
+                }),
+                None,
+            ),
+            SessionState::Error { message, .. } => (
+                "error",
+                app.peer_display_name,
+                None,
+                0,
+                false,
+                app.can_disconnect,
+                None,
+                Some(message),
+            ),
+            SessionState::Disconnected { reason } => (
+                "error",
+                app.peer_display_name,
+                None,
+                0,
+                false,
+                false,
+                None,
+                Some(reason),
+            ),
+            SessionState::DialingHost { .. }
+            | SessionState::Authenticating
+            | SessionState::AwaitingAcceptance { .. }
+            | SessionState::AwaitingUserDecision { .. } => (
+                "booting",
+                app.peer_display_name,
+                None,
+                0,
+                false,
+                app.can_disconnect,
+                None,
+                None,
+            ),
+        };
+    UiSnapshot {
+        api_version: snapshot.api_version,
+        sequence: snapshot.sequence,
+        state,
+        peer_name,
+        invite_url,
+        invite_expires_in_secs: expires,
+        can_send,
+        can_disconnect,
+        transfer,
+        error,
+    }
+}
+
+fn listen_options() -> ListenOptions {
+    ListenOptions {
+        derp_map_url: DERP_MAP_URL.to_string(),
+        verbose: false,
+    }
+}
+fn local_peer_info() -> PeerInfo {
+    PeerInfo::new_browser(
+        "Ponlet Web".into(),
+        PlatformKind::Web,
+        env!("CARGO_PKG_VERSION").into(),
+        BrowserFamily::Other,
+    )
+}
+fn to_js(error: impl std::fmt::Display) -> JsValue {
+    JsValue::from_str(&error.to_string())
+}
+fn spawn_local<F>(future: F)
+where
+    F: std::future::Future<Output = ()> + 'static,
+{
+    wasm_bindgen_futures::spawn_local(future);
+}
+fn unix_seconds() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+fn new_id() -> [u8; 16] {
+    let mut id = [0; 16];
+    getrandom::getrandom(&mut id).expect("browser random source");
+    id
+}
+fn new_secret() -> [u8; 32] {
+    let mut secret = [0; 32];
+    getrandom::getrandom(&mut secret).expect("browser random source");
+    secret
+}
+fn id_string(id: [u8; 16]) -> String {
+    id.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+fn parse_id(value: &str) -> Result<[u8; 16], JsValue> {
+    if value.len() != 32 {
+        return Err(JsValue::from_str("Invalid transfer id"));
+    }
+    let mut id = [0; 16];
+    for (index, chunk) in value.as_bytes().chunks_exact(2).enumerate() {
+        let text =
+            std::str::from_utf8(chunk).map_err(|_| JsValue::from_str("Invalid transfer id"))?;
+        id[index] =
+            u8::from_str_radix(text, 16).map_err(|_| JsValue::from_str("Invalid transfer id"))?;
+    }
+    Ok(id)
 }

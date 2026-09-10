@@ -1,6 +1,6 @@
 name: Deploy Web to Cloudflare Pages
 
-# Builds the WebAssembly web client (Go tailcat bridge + Rust/Slint UI)
+# Builds the WebAssembly web client (Go tailcat bridge + Rust service + VanJS UI)
 # from source and deploys it to Cloudflare Pages. The built WASM artifacts
 # are no longer committed to dist/; CI always builds them fresh so web
 # source changes (apps/web, crates, ui, tailcat) deploy automatically.
@@ -116,17 +116,25 @@ jobs:
             cp "$(go env GOROOT)/misc/wasm/wasm_exec.js" dist/assets/wasm_exec.js
           fi
 
-      - name: Build Rust Slint Web App
+      - name: Build Rust Web Service
         run: |
           cargo build -p tailsend-web --target wasm32-unknown-unknown --release
-          wasm-bindgen --target web --out-dir dist/pkg target/wasm32-unknown-unknown/release/tailsend_web.wasm
-          gzip -9 -c dist/pkg/tailsend_web_bg.wasm > dist/pkg/tailsend_web_bg.wasm.gz
-          du -h dist/pkg/tailsend_web_bg.wasm dist/pkg/tailsend_web_bg.wasm.gz
+          rm -rf dist/wasm
+          mkdir -p dist/wasm
+          wasm-bindgen --target web --out-dir dist/wasm target/wasm32-unknown-unknown/release/tailsend_web.wasm
+          gzip -9 -c dist/wasm/tailsend_web_bg.wasm > dist/wasm/tailsend_web_bg.wasm.gz
+          du -h dist/wasm/tailsend_web_bg.wasm dist/wasm/tailsend_web_bg.wasm.gz
+
+      - name: Install VanJS UI into the Pages root
+        run: |
+          # Keep legal/static files already in dist while replacing the old
+          # Slint entry point with the Vite output.
+          cp -R web-ui/dist/web/. dist/
 
       - name: Verify WASM Sizes (Cloudflare 25 MiB limit)
         run: |
           set -e
-          for f in dist/assets/tailcat.wasm.gz dist/pkg/tailsend_web_bg.wasm.gz; do
+          for f in dist/assets/tailcat.wasm.gz dist/wasm/tailsend_web_bg.wasm.gz; do
             SIZE=$(stat -c%s "$f")
             LIMIT=$((25 * 1024 * 1024))
             if [ "$SIZE" -gt "$LIMIT" ]; then

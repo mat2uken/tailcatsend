@@ -1,5 +1,5 @@
 import van from "vanjs-core";
-import { createBackend } from "@backend";
+import { createBackend, initializeBrowserBackend } from "@backend";
 import { initialSnapshot, type PonletBackend } from "./api/application-api";
 import { Session, type Message } from "./session";
 import { placeAnchor } from "./lib/position";
@@ -74,24 +74,32 @@ const uiText = isJapanese
       saved: "Copy invitation",
     };
 
-const backend: PonletBackend = createBackend();
+let backend: PonletBackend = createBackend();
 const snapshot = van.state(initialSnapshot());
 const messages = van.state<Array<Message>>([]);
 const lastReceivedText = van.state("");
 const textDraft = van.state("");
 const joinDraft = van.state("");
 const operationBusy = van.state(false);
-const session = new Session(backend, (view) => {
-  snapshot.val = view.snapshot;
-  messages.val = view.messages;
-  lastReceivedText.val = view.lastReceivedText;
-});
+let session: Session | undefined;
+
+function createSession(): Session {
+  return new Session(backend, (view) => {
+    snapshot.val = view.snapshot;
+    messages.val = view.messages;
+    lastReceivedText.val = view.lastReceivedText;
+  });
+}
 
 async function run(action: () => Promise<void>): Promise<void> {
   try {
     await action();
   } catch (error) {
-    session.reportError(error);
+    if (session) {
+      session.reportError(error);
+    } else {
+      snapshot.val = { ...snapshot.val, state: "error", error: String(error) };
+    }
   }
 }
 
@@ -109,7 +117,9 @@ async function perform(action: () => Promise<void>): Promise<void> {
 
 window.addEventListener("pagehide", (event) => {
   if (!event.persisted) {
-    void run(() => session.dispose());
+    if (session) {
+      void run(() => session!.dispose());
+    }
   }
 });
 
@@ -347,9 +357,18 @@ document.body.append(
 );
 
 async function startApplication(): Promise<void> {
-  await session.start();
-  if (invitationFromHash && snapshot.val.state !== "error") {
-    void perform(() => backend.join(invitationFromHash));
+  try {
+    await initializeBrowserBackend();
+    backend = createBackend();
+    session = createSession();
+    await session.start();
+    if (invitationFromHash && snapshot.val.state !== "error") {
+      void perform(() => backend.join(invitationFromHash));
+    }
+  } catch (error) {
+    await run(async () => {
+      throw error;
+    });
   }
 }
 

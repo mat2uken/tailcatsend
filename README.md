@@ -1,10 +1,10 @@
 # TailSend 🚀
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Slint UI](https://img.shields.io/badge/UI-Slint-purple.svg)](https://slint.dev/)
+[![Native UI](https://img.shields.io/badge/Native_UI-Slint-purple.svg)](https://slint.dev/)
 [![Web Client](https://img.shields.io/badge/Web_Client-Cloudflare_Pages-orange.svg)](https://ponlet.mat2uken.app)
 
-> **TailSend** is a modern, secure, cross-platform peer-to-peer (P2P) file transfer application built with **Rust**, **Slint UI**, and **Tailcat** (WireGuard mesh networking).
+> **TailSend** is a modern, secure, cross-platform peer-to-peer (P2P) file transfer application built with **Rust**, **VanJS WebView UI**, and **Tailcat** (WireGuard mesh networking).
 
 Transfer files, photos, videos, and clipboard text directly between devices without cloud intermediaries, file size limits, or complicated network setups.
 
@@ -21,8 +21,8 @@ Transfer files, photos, videos, and clipboard text directly between devices with
   - **Desktop**: Windows (x86_64), macOS (Apple Silicon & Intel Universal), Linux
   - **Mobile**: iOS (UIKit / Metal), Android (arm64-v8a NativeActivity)
   - **Web**: WebAssembly (WASM) client hosted on Cloudflare Pages
-- 🎨 **Unified Declarative Dark UI**  
-  100% shared declarative UI written in [Slint](https://slint.dev/) across all desktop, mobile, and web targets.
+- 🎨 **Lightweight Shared Web UI**
+  The browser and Tauri shells share a small VanJS + TypeScript + standard HTML/CSS UI. Native mobile and desktop shells remain on Slint during the staged migration.
 - 📦 **High-Throughput Chunked Streaming**  
   Transfers large files reliably using 64 KiB chunks with real-time transfer progress, live throughput calculation, and SHA-256 integrity verification.
 - 📋 **Integrated Clipboard & File Sharing**  
@@ -48,7 +48,8 @@ TailSend is organized as a Cargo workspace with a submoduled Go Tailcat engine:
 tailcatsend/
 ├── apps/
 │   ├── desktop/              # Native Windows / macOS / Linux desktop application
-│   ├── web/                  # WebAssembly (wasm32-unknown-unknown) web app
+│   ├── tauri/                # Tauri shell using the shared Rust service and Go C ABI
+│   ├── web/                  # Rust WebAssembly transfer service
 │   ├── ios/                  # iOS native target (UIKit / Metal)
 │   └── android/              # Android native target (NativeActivity / JNI)
 ├── crates/
@@ -65,6 +66,7 @@ tailcatsend/
 │   └── bridge/               # C-ABI and WebAssembly bridge adapters
 ├── ui/
 │   └── app-window.slint      # Shared declarative Slint UI definitions
+├── web-ui/                   # VanJS + TypeScript WebView UI (Vite/Oxlint/Vitest)
 ├── docs/                     # Internal developer and platform guides
 ├── scripts/                  # Build, test, packaging, and deployment scripts
 └── cloudflare/               # Cloudflare Pages configuration & headers
@@ -104,16 +106,20 @@ GOOS=js GOARCH=wasm go build -ldflags "-s -w" -o ../../../dist/assets/tailcat.wa
 gzip -9 -c ../../../dist/assets/tailcat.wasm > ../../../dist/assets/tailcat.wasm.gz
 cd ../../..
 
-# Build Rust Slint Web App
+# Build the Rust WebAssembly transfer service
 cargo build -p tailsend-web --target wasm32-unknown-unknown --release
-wasm-bindgen --target web --out-dir dist/pkg target/wasm32-unknown-unknown/release/tailsend_web.wasm
-gzip -9 -c dist/pkg/tailsend_web_bg.wasm > dist/pkg/tailsend_web_bg.wasm.gz
+wasm-bindgen --target web --out-dir dist/wasm target/wasm32-unknown-unknown/release/tailsend_web.wasm
+gzip -9 -c dist/wasm/tailsend_web_bg.wasm > dist/wasm/tailsend_web_bg.wasm.gz
+
+# Build the lightweight UI in both shell modes
+./scripts/build_web_ui.sh
+cp -R web-ui/dist/web/. dist/
 
 # Serve locally
 npx serve dist -l 8788
 ```
 
-### 4. WebView UI (移行中)
+### 4. WebView UI
 
 VanJS UIの移行用ソースは [`web-ui/`](web-ui/) にある。ブラウザ用とTauri用を同じTypeScriptから生成する。
 
@@ -121,7 +127,7 @@ VanJS UIの移行用ソースは [`web-ui/`](web-ui/) にある。ブラウザ�
 ./scripts/build_web_ui.sh
 ```
 
-現行の配布版は切替検証が終わるまで既存のSlint経路を使う。共通転送処理とWebView接続の実装状態は [`docs/WEBVIEW_MIGRATION.md`](docs/WEBVIEW_MIGRATION.md) を参照。
+Browser mode loads the Go Tailcat bridge followed by the Rust transfer service. Tauri mode uses the same UI through commands and events. Dedicated Worker isolation, mobile shells, and physical device/transport validation remain staged work; see [`docs/WEBVIEW_MIGRATION.md`](docs/WEBVIEW_MIGRATION.md).
 
 ---
 

@@ -1,6 +1,6 @@
 # WebView / Tauri / WASM 移行の実装状態
 
-共通Rust転送基盤とvanjslitetemplate準拠のWeb UIツールチェーンはコミット済みである。現在の作業では、Tauriデスクトップ向けの実通信adapterまで接続した。製品全体のUI置換、Worker/WASM接続、起動時の更新取得は完了していない。`apps/desktop`、`apps/ios`、`apps/android`、`apps/web` は、引き続きSlintと各アプリの転送処理を呼ぶ。
+共通Rust転送基盤とvanjslitetemplate準拠のWeb UIツールチェーンはコミット済みである。Tauriデスクトップ向けの実通信adapterと、ブラウザ向けのGo Tailcat WASM＋Rust WASM service adapterまで接続した。製品全体のUI置換、Dedicated Workerへの分離、起動時の更新取得は完了していない。`apps/desktop`、`apps/ios`、`apps/android` は、引き続きSlintと各アプリの転送処理を呼ぶ。
 
 元の要件は、機能・動作・操作感を保った共通Web UIと、TauriまたはWASMによるbackendである。画面をビルドできることと、同じ使い味で送受信できることは分けて確認する。
 
@@ -8,14 +8,14 @@
 
 | 部分 | 実装と役割 | 未実装部分 |
 | --- | --- | --- |
-| Web UI | `web-ui/src/main.ts` のVanJS画面 | QR表示・読取、設定、受信ファイル操作などの機能一致 |
+| Web UI | `web-ui/src/main.ts` のVanJS画面。Vite 8/esbuild/Oxlint/Oxfmt/Vitestを使用 | QR表示・読取、設定、受信ファイル操作などの機能一致 |
 | Application API | `web-ui/src/api/` の型と版確認 | Rustデータとの変換、未移植操作の追加 |
 | 表示状態 | `web-ui/src/session.ts` のイベント順序・購読・終了処理 | 実adapterからの再接続通知と履歴復元 |
-| backend選択 | `web-ui/src/backends/{browser,tauri}.ts` をVite modeで選択 | Browser Worker生成、Rust WASM起動 |
-| Rust状態管理 | `tailsend-core::BackendService` のsnapshot・イベント・取消トークン | アプリ操作とtransportへの接続 |
+| backend選択 | `web-ui/src/backends/{browser,tauri}.ts` をVite modeで選択。BrowserはGo bridgeとRust WASMを起動、Tauriはcommand/eventを使用 | Dedicated Workerへの分離、再作成時の操作無効化 |
+| Rust状態管理 | `tailsend-core::BackendService` のsnapshot・イベント・取消トークン | OS/Webの操作を含む製品全体への接続 |
 | 共通転送 | `tailsend-transfer/src/live.rs` の現行NAME/改行形式、`lib.rs` の既存バイナリ形式、`io.rs` の部分I/O | 各アプリのfile/stream adapter |
 | Native bridge | GoのC ABI、`tailsend-native-bridge` のRust宣言、`tailsend-native-transport` のstream/listener adapter | 各OSの実転送確認、配布物への組込み |
-| Browser保存 | `web-ui/src/opfs.ts` の途中保存・サイズ検査・確定・取消 | Workerへの接続、保存済みファイルの利用、起動時の途中ファイル回収 |
+| Browser保存 | Rust WASMがOPFSの途中保存・サイズ検査・確定・取消を実行。`web-ui/src/opfs.ts` はWorker向けの同等adapter | Workerへの移設、保存済みファイルの利用、起動時の途中ファイル回収 |
 | 更新検証 | `tailsend-updates` の署名・互換性・ファイル検査 | 配信manifest生成、ダウンロード、展開、切替、起動失敗時の復元 |
 
 `pentang` の `packages/api` と `packages/backends` にある、UIから独立したAPI、backendごとの初期化、購読と終了の整理を参照した。pentangのデモ用C++処理やTauri commandsをPonletの転送機能として接続した状態ではない。
@@ -36,10 +36,12 @@
 - 共通転送のテストを通常の`cargo test`でも実行する設定にした。Web UIのビルドスクリプトでもテストと両modeのビルドを実行する。
 - `apps/tauri` を追加し、`ponlet_*` command、Tauri event、Go C ABI、共通handshake/NAME転送へ接続した。Tauriへのinvoke payloadはファイル本文ではなく、ファイル名・サイズ・パスだけを渡す。
 - Tauriのnative buildでは、`scripts/build_tauri.sh` が対象OS用Go bridgeを生成してからRustとVanJS bundleをビルドする。ローカルのTauri実行はこのbridge生成を通した成果物で確認する。
+- `apps/web` の旧Slintエントリを共通Rust転送serviceへ置き換えた。ブラウザ側はGo WASM bridgeを起動してからRust WASMを読み込み、`window.__ponletBackend`へsnapshot・購読・招待・送受信・取消・切断を公開する。
+- Pages workflowは、Viteの`web-ui/dist/web`、Go Tailcat WASM、`wasm-bindgen`で生成したRust service WASMを一つの配布物へ配置する構成へ変更した。旧Slint WASMを配信対象にしない。
 
 ## 接続時に守る順序
 
-Native shellまたはWorker adapterは初期化を完了してから、UIへbackendを渡す。Tauri modeの`@backend`は`@tauri-apps/api`の`invoke`/`listen`を使って`apps/tauri`へ接続する。Browser modeはWorker adapterを実装するまで送受信不可を表示する。
+Native shellまたはBrowser adapterは初期化を完了してから、UIへbackendを渡す。Tauri modeの`@backend`は`@tauri-apps/api`の`invoke`/`listen`を使って`apps/tauri`へ接続する。Browser modeはGo bridgeとRust WASMが揃わない場合だけ送受信不可を表示する。Dedicated Workerへの移設後も、この起動順序とAPIを維持する。
 
 Rustの`BackendSnapshot`は`{ api_version, sequence, app }`、TypeScript側は`{ apiVersion, sequence, state, ... }`で、JSON形式は同じではない。`SessionState`、転送ID、イベント形式も異なる。adapterは変換を実装してテストし、Rustのserde結果をそのまま渡さない。`apiVersion = 1`だけで互換と判断しない。
 
@@ -65,6 +67,6 @@ cargo check -p tailsend-core -p tailsend-transfer -p tailsend-updates --target w
 ./scripts/build_web_ui.sh
 ```
 
-ブラウザ用は`web-ui/dist/web`、Tauri用は`web-ui/dist/native`に出力する。Cloudflare Pages workflowで現在デプロイされるのは引き続き既存のSlint/Go構成であり、Browser adapterの実通信確認後に切り替える。
+ブラウザ用は`web-ui/dist/web`、Tauri用は`web-ui/dist/native`に出力する。Cloudflare Pages workflowは新しいVanJS index、Go Tailcat bridge、Rust service WASMを生成して配置する。Cloudflare Pagesへの実デプロイ、2端末実通信、Dedicated Worker、全transport経路は未確認である。
 
 今回の検証結果と移行前に必要な比較は[レビュー記録](WEBVIEW_REVIEW.md)を参照。

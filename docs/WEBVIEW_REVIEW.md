@@ -4,7 +4,7 @@
 
 ## レビュー判断
 
-共通転送、状態管理、C ABI、保存、署名検証は移行の部品として利用できる形へ改善した。TauriデスクトップではVanJS UIから共通Rust転送・Go C ABIへ接続するadapterを追加した。WebView版全体への置換、Browser Worker接続、旧アプリの削除、Pagesの配信先切替は未完了である。
+共通転送、状態管理、C ABI、保存、署名検証は移行の部品として利用できる形へ改善した。TauriデスクトップではVanJS UIから共通Rust転送・Go C ABIへ接続するadapterを追加した。Browserでは旧Slint WASMを共通Rust service WASMへ置き換え、Go Tailcat bridgeの起動後にVanJS UIへ接続する構成へ更新した。Dedicated Worker分離、旧ネイティブアプリの削除、Pagesの実デプロイ、実機転送は未完了である。
 
 優先して修正した不具合は次の通り。
 
@@ -20,6 +20,7 @@
 | P2 | テキスト受信が接続終了まで通知されず、メッセージを貯め続ける | `tailsend-transfer/src/live.rs` |
 | P2 | 署名が正しくても別対象・旧revision・非互換APIを選べる、移植先によって意味が変わるパスを許す | `tailsend-updates/src/lib.rs` |
 | P2 | 通常のcargo testで転送テストが0件になり、Web UIにも回帰テストがない | `tailsend-transfer/Cargo.toml`、`web-ui/tests/` |
+| P1 | Browser UIが旧Slint WASMを前提にし、共通Rust serviceを呼ばない | `apps/web/src/lib.rs`、`web-ui/src/backends/browser.ts`、`.github/workflows/deploy_pages.yml` |
 
 WASM時刻処理の選択には[web-timeの仕様](https://docs.rs/web-time/latest/web_time/)を確認し、実際にWASMへビルドして実行した。
 
@@ -34,6 +35,8 @@ WASM時刻処理の選択には[web-timeの仕様](https://docs.rs/web-time/late
 | Web UI tests | 16件成功、import解決警告なし | bridge、イベント順序、OPFS、popover位置 |
 | TypeScript / Vite | 成功 | 型検査、web/tauri両mode |
 | Tauri native build | 成功 | macOSでGo c-archive生成後に`apps/tauri`をリンク。UI bundle、commands、event DTOを含む |
+| Browser Rust WASM bindgen | 成功 | `apps/web`を`wasm32-unknown-unknown --release`でビルドし、`wasm-bindgen --target web`を実行。生成WASMは約260 KiB、gzip約100 KiB |
+| Browser VanJS production bundle | 成功 | `web-ui`のweb/tauri両modeをVite 8で生成。UI JavaScriptは約18 KiB |
 | ローカルWeb UI表示 | 成功 | backend未接続表示、送信・ファイル選択・接続ボタンの無効化 |
 | 旧Web appのwasm32 check | 成功 | 既存Slintアプリとのコンパイル互換 |
 | 旧desktop appのcheck | 成功 | 共通crateとSlintアプリのコンパイル互換。警告なし |
@@ -60,7 +63,7 @@ Tauri native buildの成功はリンク確認であり、Go bridgeを使った2�
 | 保存先表示・パスcopy・受信ファイルshare | 未移植 | 同じ保存先とOSの共有・開く操作 |
 | 言語切替・telemetry設定・接続経路・速度表示 | OS言語判定と簡易画面のみ | 現行設定の保持と全表示項目 |
 | Tauriからのtailcat利用 | `apps/tauri`のcommands、Go C ABI、共通Rust転送へ接続。`scripts/build_tauri.sh`でGo archiveを先に生成 | 実機での起動、再起動、終了、各OSリンク、実転送 |
-| ブラウザWASM/Worker | 型とOPFSのみ。Worker本体がない | WASM起動、メッセージ処理、バッファ再利用、送信量の制御 |
+| ブラウザWASM/Worker | Browser Rust WASMとGo bridgeは実装・bindgen確認済み。Dedicated Worker本体は未接続 | Worker移設、メッセージ処理、バッファ再利用、送信量の制御 |
 | Pagesから新しいUI/WASMを取得 | 検証関数のみ | manifest作成、取得、完全性確認、一括切替、内蔵版への復元 |
 
 実転送の比較では旧版・新版の送信側/受信側を同時に記録し、バイト数、SHA-256、保存先のファイル、取消結果、所要時間、メモリ使用量を同じ条件で確認する。送信側が書き終わったことだけを受信保存の成功として扱わない。

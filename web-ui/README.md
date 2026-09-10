@@ -1,15 +1,17 @@
 # Ponlet WebView UI
 
-VanJSとTypeScriptによる移行用UI。`web` modeは`dist/web`、`tauri` modeは`dist/native`へ出力する。同じUIから`@backend`でadapterの入口を選ぶ。
+VanJSとTypeScriptで実装した共通UI。`web` modeは`dist/web`、`tauri` modeは`dist/native`へ出力する。同じUIから`@backend`でadapterの入口を選ぶ。Vite 8、esbuild、Oxlint、Oxfmt、Vitestはvanjslitetemplateの構成に合わせ、実行時依存は`vanjs-core`とTauri APIだけに絞っている。
 
-現在はTauri shell、Worker bootstrap、実通信adapterが未実装。初期化済みの`window.__ponletBackend`を渡す仕組みを想定しているが、未接続の場合は送受信不可を表示し、成功イベントを作らない。
+ブラウザmodeは起動時にGo Tailcat WASMを読み込み、その後にRust WASMサービスを初期化して`window.__ponletBackend`へ接続する。Rust側が招待、handshake、NAME形式の転送、進捗、取消、OPFS保存を担当する。必要なWASMがない場合は送受信成功を作らず、画面にエラーを表示する。Tauri modeは同じUIからTauri command/event adapterを使用する。
 
 - `src/api/`: UIが利用する型とAPI版の検査。
 - `src/backend.ts`: 注入されたadapterの確認とブラウザ操作の補助。
+- `src/backends/browser.ts`: Go bridgeとRust WASMサービスの起動。
+- `src/backends/tauri.ts`: Tauri command/event adapter。
 - `src/session.ts`: snapshotとイベントの順序、重複除外、表示状態、終了。
 - `src/main.ts`: DOMとユーザー操作。
-- `src/opfs.ts`: ファイル単位の途中保存・確定・取消。Workerへは未接続。
-- `src/worker.ts`: 今後使うメッセージ型。Worker実行本体ではない。
+- `src/opfs.ts`: 将来のWorker adapterでも利用できるファイル単位の途中保存・確定・取消。
+- `src/worker.ts`: Transferable bufferの上限とWorker message型。
 
 ```sh
 npm ci --ignore-scripts --no-audit --no-fund

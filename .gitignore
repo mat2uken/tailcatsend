@@ -19,6 +19,7 @@ dist/pkg/tailsend_web.js
 dist/pkg/tailsend_web.d.ts
 dist/pkg/tailsend_web_bg.wasm.d.ts
 dist/pkg/tailsend_web_bg.wasm.gz
+dist/wasm/
 scratch/
 
 # Node / JS

@@ -13,10 +13,6 @@ tailsend-protocol = { workspace = true }
 tailsend-transport-api = { workspace = true }
 tailsend-platform-api = { workspace = true }
 tailsend-transfer = { workspace = true }
-tailsend-ui-controller = { workspace = true }
-tailsend-qr = { workspace = true }
-tailsend-telemetry = { workspace = true }
-slint = { workspace = true, features = ["backend-winit", "renderer-femtovg", "std", "compat-1-2"] }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }
 js-sys = { workspace = true }
@@ -24,10 +20,11 @@ web-sys = { workspace = true }
 log = { workspace = true }
 getrandom = { workspace = true }
 console_error_panic_hook = "0.1"
-
-[build-dependencies]
-slint-build = { version = "1.17.1" }
+serde = { workspace = true, features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+bytes = { workspace = true }
+futures = { workspace = true }
+async-trait = { workspace = true }
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = ["-Oz", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
-

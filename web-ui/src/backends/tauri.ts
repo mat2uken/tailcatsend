@@ -1,10 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type {
-  BackendEvent,
-  BackendSnapshot,
-  PonletBackend,
-} from "../api/application-api";
+import type { BackendEvent, BackendSnapshot, PonletBackend } from "../api/application-api";
 import { validateSnapshot } from "../api/validation";
 
 type TauriFile = File & { path?: string };
@@ -105,3 +101,8 @@ export function createBackend(): PonletBackend {
 }
 
 export type { BackendEvent, BackendSnapshot, PonletBackend } from "../api/application-api";
+
+/** Tauri bundles the Rust service in the application; no browser bootstrap is needed. */
+export function initializeBrowserBackend(): Promise<void> {
+  return Promise.resolve();
+}
