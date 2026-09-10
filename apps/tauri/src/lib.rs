@@ -1773,6 +1773,47 @@ mod tests {
             "report (3).txt"
         );
     }
+
+    #[tokio::test]
+    async fn stale_session_cannot_replace_or_clear_current_session() {
+        let hub = tailsend_core::MockNetworkHub::new();
+        let listener = hub
+            .listen(ListenOptions {
+                derp_map_url: String::new(),
+                verbose: false,
+            })
+            .await
+            .expect("mock listener");
+        let runtime = TauriRuntime {
+            backend: BackendService::default(),
+            transport: Arc::new(NativeTailcatTransport),
+            state: Mutex::new(RuntimeState {
+                session: None,
+                active_transfer: None,
+            }),
+            downloads_dir: Mutex::new(PathBuf::from("/tmp/ponlet-test")),
+            received: Arc::new(Mutex::new(Vec::new())),
+        };
+        let current = Arc::new(PeerSession {
+            listener: Arc::new(listener),
+            peer_address: Mutex::new(String::new()),
+            cancel: Arc::new(AtomicBool::new(false)),
+            transport_path: Mutex::new(TransportPath::Unknown),
+        });
+        let stale = Arc::new(PeerSession {
+            listener: current.listener.clone(),
+            peer_address: Mutex::new(String::new()),
+            cancel: Arc::new(AtomicBool::new(true)),
+            transport_path: Mutex::new(TransportPath::Unknown),
+        });
+        runtime.set_session(current.clone());
+
+        assert!(!runtime.session_is_current(&stale));
+        assert!(!runtime.take_session_if_current(&stale));
+        assert!(runtime.session_is_current(&current));
+        assert!(runtime.take_session_if_current(&current));
+        assert!(!runtime.session_is_current(&current));
+    }
 }
 
 mod commands {
