@@ -93,6 +93,20 @@ it("class adapters keep prototype methods and their receiver", async () => {
   ]);
 });
 
+it("forwards the native picker without requiring a JavaScript File object", async () => {
+  let picked = 0;
+  const backend = createBackend(
+    bridge({
+      pickAndSendFiles: async () => {
+        picked++;
+      },
+    }),
+  );
+  expect(typeof backend.pickAndSendFiles).toBe("function");
+  await backend.pickAndSendFiles();
+  expect(picked).toBe(1);
+});
+
 it("unsupported API version and unavailable clipboard reject", async () => {
   const backend = createBackend(
     bridge({ snapshot: async () => ({ ...initialSnapshot(), apiVersion: 2 }) }),

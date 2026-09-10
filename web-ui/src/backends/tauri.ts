@@ -28,17 +28,7 @@ async function shareText(text: string): Promise<void> {
 }
 
 async function saveText(text: string): Promise<void> {
-  const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "ponlet-message.txt";
-  document.body.append(link);
-  try {
-    link.click();
-  } finally {
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
-  }
+  await invoke("ponlet_save_text", { text });
 }
 
 function toFileRequest(file: File): NativeFileRequest {
@@ -85,6 +75,7 @@ export function createBackend(): PonletBackend {
     join: (invite) => invoke("ponlet_join", { invite }),
     sendText: (text) => invoke("ponlet_send_text", { text }),
     sendFiles: (files) => invoke("ponlet_send_files", { files: files.map(toFileRequest) }),
+    pickAndSendFiles: () => invoke("ponlet_pick_and_send_files"),
     cancelTransfer: (id) => invoke("ponlet_cancel_transfer", { id }),
     disconnect: () => invoke("ponlet_disconnect"),
     copyText,

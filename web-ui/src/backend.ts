@@ -111,5 +111,8 @@ export function createBackend(
     shareText: (text) => (native.shareText ? native.shareText(text) : shareText(text)),
     saveText: (text) => (native.saveText ? native.saveText(text) : saveText(text)),
     dispose: () => native.dispose(),
+    ...(native.pickAndSendFiles
+      ? { pickAndSendFiles: () => native.pickAndSendFiles!() }
+      : {}),
   };
 }

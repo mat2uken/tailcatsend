@@ -1,6 +1,6 @@
 # WebView / Tauri / WASM 移行の実装状態
 
-共通Rust転送基盤とvanjslitetemplate準拠のWeb UIツールチェーンはコミット済みである。Tauriデスクトップ向けの実通信adapterと、ブラウザ向けのGo Tailcat WASM＋Rust WASM service adapterまで接続した。`apps/desktop` の製品入口はTauri WebViewへ切り替え、TauriのiOS/Android shellも生成して、共通Rust・Go bridge・VanJS bundleを各モバイル形式へリンクできる状態にした。`apps/ios` と `apps/android` の旧Slint製品入口は引き続き残している。製品全体のUI置換、Dedicated Workerへの分離、起動時の更新取得は完了していない。
+共通Rust転送基盤とvanjslitetemplate準拠のWeb UIツールチェーンはコミット済みである。Tauriデスクトップ向けの実通信adapterと、ブラウザ向けのGo Tailcat WASM＋Rust WASM service adapterまで接続した。`apps/desktop` の製品入口はTauri WebViewへ切り替え、TauriのiOS/Android shellも生成して、共通Rust・Go bridge・VanJS bundleを各モバイル形式へリンクできる状態にした。モバイルのファイル選択・保存はTauriのDialog/FSをRust側から使い、本文をWebViewへ渡さない経路へ接続した。`apps/ios` と `apps/android` の旧Slint製品入口は引き続き残している。製品全体のUI置換、Dedicated Workerへの分離、起動時の更新取得は完了していない。
 
 元の要件は、機能・動作・操作感を保った共通Web UIと、TauriまたはWASMによるbackendである。画面をビルドできることと、同じ使い味で送受信できることは分けて確認する。
 
@@ -13,7 +13,7 @@
 | 表示状態 | `web-ui/src/session.ts` のイベント順序・購読・終了処理。接続時は`direct-udp`、`webrtc`、`derp`、`unknown`を表示 | 実adapterからの再接続通知と履歴復元 |
 | backend選択 | `web-ui/src/backends/{browser,tauri}.ts` をVite modeで選択。BrowserはGo bridgeとRust WASMを起動、Tauriはcommand/eventを使用 | Dedicated Workerへの分離、再作成時の操作無効化 |
 | Native shell | `apps/desktop` は `tailsend-tauri` を起動し、`apps/tauri` のVanJS WebView・共通Rust service・Go C archiveを使う | デスクトップの2端末実転送、実機での再起動・終了・送受信 |
-| Mobile shell | `apps/tauri/gen/apple` と `apps/tauri/gen/android` をTauri initから生成。`scripts/build_tauri_mobile.sh`がiOS 17 arm64 archive、Android API 31/arm64 shared library、UI bundleをまとめてビルドする | Slint製品入口の置換、file picker・保存・権限、実機送受信、ストア署名設定 |
+| Mobile shell | `apps/tauri/gen/apple` と `apps/tauri/gen/android` をTauri initから生成。`scripts/build_tauri_mobile.sh`がiOS 17 arm64 archive、Android API 31/arm64 shared library、UI bundleをまとめてビルドする。Dialog/FSでfile picker・保存をRustのファイルハンドルへ接続 | Slint製品入口の置換、実機送受信、ストア署名設定 |
 | Rust状態管理 | `tailsend-core::BackendService` のsnapshot・イベント・取消トークン | OS/Webの操作を含む製品全体への接続 |
 | 共通転送 | `tailsend-transfer/src/live.rs` の現行NAME/改行形式、`lib.rs` の既存バイナリ形式、`io.rs` の部分I/O。`TransportPath`をstreamからsnapshotまで伝える | iOS/Androidを含む各OSのfile/stream adapter |
 | Native bridge | GoのC ABI、`tailsend-native-bridge` のRust宣言、`tailsend-native-transport` のstream/listener adapter | 各OSの実転送確認、配布物への組込み |
@@ -41,6 +41,8 @@
 - `apps/desktop` の旧Slint入口と専用daemon IPCを削除し、既存の製品名を保ったまま `tailsend-tauri::run` を呼ぶ薄い起動処理へ切り替えた。デスクトップのReleaseリンクは確認済みだが、2端末実転送は未確認である。
 - TauriのiOS/Android shellを`cargo tauri ios/android init`で生成した。iOSはdeployment target 17.0、AndroidはminSdk 31・targetSdk 36・arm64-v8aに合わせ、XcodeGenのlink設定へターゲット別Go archiveを追加した。署名チームは`APPLE_DEVELOPMENT_TEAM`で実行時に渡し、設定ファイルへ固定しない。
 - `scripts/build_tauri_mobile.sh`を追加した。`android debug/release`、`ios-sim debug`、`ios debug/release`を同じUIビルドから実行し、Androidの`-checklinkname=0`とiOSのsimulator/device archiveを明示する。iOSはXcodeGenを再実行してからTauri工程をビルドする。
+- Tauriのファイル操作を追加した。`ponlet_pick_and_send_files`はDialogの複数選択結果をFSで開き、Androidの`content://`、iOSの`file://`を含む入力を共通Rust `FileSource`へ渡す。`ponlet_save_text`は保存先DialogとFSの逐次書込みを使う。ファイル本文をIPC JSONやJavaScriptへ載せない。モバイル受信先はapp dataの`received`へ分離し、DesktopはDownloads/Ponletへ保存する。Dialog/FSのschemaはTauri生成物へ反映した。
+- `scripts/build_tauri_mobile.sh`はiOSの既存生成物を削除してから再ビルドするため、同じtargetを繰り返してもarchive移動が衝突しない。
 - `apps/web` の旧Slintエントリを共通Rust転送serviceへ置き換えた。ブラウザ側はGo WASM bridgeを起動してからRust WASMを読み込み、`window.__ponletBackend`へsnapshot・購読・招待・送受信・取消・切断を公開する。
 - 共通transport APIに経路コードを追加した。`0`はWireGuard UDP、`1`はWebRTC DataChannel、`2`はDERP relay、`255`は判定不能で、Go bridge・native adapter・browser adapter・UI snapshotで同じ値を使う。ブラウザのread要求長をGo bridgeへ渡し、Rust側の小さいバッファへ過剰に返さないようにした。
 - Pages workflowは、Viteの`web-ui/dist/web`、Go Tailcat WASM、`wasm-bindgen`で生成したRust service WASMを一つの配布物へ配置する構成へ変更した。旧Slint WASMを配信対象にしない。
@@ -73,6 +75,6 @@ cargo check -p tailsend-core -p tailsend-transfer -p tailsend-updates --target w
 ./scripts/build_web_ui.sh
 ```
 
-ブラウザ用は`web-ui/dist/web`、Tauri用は`web-ui/dist/native`に出力する。Cloudflare Pages workflowは新しいVanJS index、Go Tailcat bridge、Rust service WASMを生成して配置する。ローカルChromeの2タブではWebRTC DataChannel接続とテキスト送受信まで確認した。Cloudflare Pagesへの実デプロイ、Tauriの2端末実転送、Dedicated Worker、WireGuard UDPとDERPを強制した経路、全platform組合せは未確認である。iOS/AndroidのSlint削除、file picker・保存先・共有、実機の権限と再起動も未確認で、旧アプリを削除する段階にはまだ進めない。
+ブラウザ用は`web-ui/dist/web`、Tauri用は`web-ui/dist/native`に出力する。Cloudflare Pages workflowは新しいVanJS index、Go Tailcat bridge、Rust service WASMを生成して配置する。ローカルChromeの2タブではWebRTC DataChannel接続とテキスト送受信まで確認した。Android実機ではdebug APKのインストール、起動、招待作成と待受画面を確認した。iOSでは署名済みIPAをiPhone 12 Proへインストールしたが、端末ロック中のため起動できていない。Cloudflare Pagesへの実デプロイ、Tauriの2端末実転送、Dedicated Worker、WireGuard UDPとDERPを強制した経路、全platform組合せは未確認である。iOS/AndroidのSlint削除、モバイルのfile picker・保存先・共有を実機で確認する作業は残っており、旧アプリを削除する段階にはまだ進めない。
 
 今回の検証結果と移行前に必要な比較は[レビュー記録](WEBVIEW_REVIEW.md)を参照。

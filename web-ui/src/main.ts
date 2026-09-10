@@ -260,7 +260,13 @@ sendButton.addEventListener(
       }
     }),
 );
-fileButton.addEventListener("click", () => fileInput.click());
+fileButton.addEventListener("click", () => {
+  if (backend.pickAndSendFiles) {
+    void perform(() => backend.pickAndSendFiles!());
+  } else {
+    fileInput.click();
+  }
+});
 fileInput.addEventListener("change", () => {
   const files = Array.from(fileInput.files ?? []);
   fileInput.value = "";

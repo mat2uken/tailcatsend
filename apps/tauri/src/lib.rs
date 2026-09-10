@@ -13,6 +13,8 @@ use async_trait::async_trait;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
+use tauri_plugin_dialog::{DialogExt, FileAccessMode, PickerMode};
+use tauri_plugin_fs::{FilePath, FsExt, OpenOptions};
 
 use tailsend_core::{
     run_host_handshake, run_joiner_handshake, AppEvent, BackendService, SessionState,
@@ -91,7 +93,7 @@ enum UiEvent {
     },
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileRequest {
     pub name: String,
@@ -116,7 +118,7 @@ pub struct TauriRuntime {
     backend: BackendService,
     transport: Arc<NativeTailcatTransport>,
     state: Mutex<RuntimeState>,
-    downloads_dir: PathBuf,
+    downloads_dir: Mutex<PathBuf>,
 }
 
 impl TauriRuntime {
@@ -129,7 +131,7 @@ impl TauriRuntime {
                 session: None,
                 active_transfer: None,
             }),
-            downloads_dir: default_downloads_dir(),
+            downloads_dir: Mutex::new(default_downloads_dir()),
         })
     }
 
@@ -587,7 +589,7 @@ async fn ponlet_send_files_impl(
     }
     let session = runtime.session()?;
     for request in files {
-        let source = NativeFileSource::open(request).await?;
+        let source = NativeFileSource::open(&app, request).await?;
         let transfer_id = new_id();
         let cancel = runtime.register_transfer(transfer_id);
         let metadata = source.metadata();
@@ -644,6 +646,94 @@ async fn ponlet_send_files_impl(
     Ok(())
 }
 
+async fn ponlet_pick_and_send_files_impl(
+    app: AppHandle,
+    runtime: State<'_, TauriRuntime>,
+) -> Result<(), String> {
+    let files = pick_file_requests(&app)?;
+    if files.is_empty() {
+        return Ok(());
+    }
+    ponlet_send_files_impl(app, runtime, files).await
+}
+
+fn pick_file_requests(app: &AppHandle) -> Result<Vec<FileRequest>, String> {
+    let paths = app
+        .dialog()
+        .file()
+        .set_title("Choose files to send")
+        .set_picker_mode(PickerMode::Document)
+        .set_file_access_mode(FileAccessMode::Copy)
+        .blocking_pick_files();
+    let Some(paths) = paths else {
+        return Ok(Vec::new());
+    };
+
+    paths
+        .into_iter()
+        .enumerate()
+        .map(|(index, path)| {
+            let name = picker_file_name(&path, index);
+            let mut options = OpenOptions::new();
+            options.read(true);
+            let file = app
+                .fs()
+                .open(path.clone(), options)
+                .map_err(|error| format!("cannot open selected file {path}: {error}"))?;
+            let size = file
+                .metadata()
+                .map_err(|error| format!("cannot stat selected file {path}: {error}"))?
+                .len();
+            Ok(FileRequest {
+                name,
+                size,
+                mime: None,
+                path: path.to_string(),
+            })
+        })
+        .collect()
+}
+
+fn picker_file_name(path: &FilePath, index: usize) -> String {
+    let candidate = path
+        .as_path()
+        .and_then(Path::file_name)
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .map(str::to_owned)
+        .or_else(|| {
+            path.to_string()
+                .split(['/', '\\'])
+                .next_back()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(|value| value.split('?').next().unwrap_or(value).to_owned())
+        });
+    candidate.unwrap_or_else(|| format!("selected-file-{}", index + 1))
+}
+
+async fn ponlet_save_text_impl(app: AppHandle, text: String) -> Result<(), String> {
+    let path = app
+        .dialog()
+        .file()
+        .set_title("Save message")
+        .set_file_name("ponlet-message.txt")
+        .set_picker_mode(PickerMode::Document)
+        .blocking_save_file();
+    let Some(path) = path else {
+        return Ok(());
+    };
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    let mut file = app
+        .fs()
+        .open(path.clone(), options)
+        .map_err(|error| format!("cannot open save destination {path}: {error}"))?;
+    std::io::Write::write_all(&mut file, text.as_bytes())
+        .map_err(|error| format!("cannot save message: {error}"))?;
+    std::io::Write::flush(&mut file).map_err(|error| format!("cannot flush message: {error}"))
+}
+
 async fn ponlet_cancel_transfer_impl(
     _app: AppHandle,
     runtime: State<'_, TauriRuntime>,
@@ -693,8 +783,20 @@ impl TauriRuntime {
     fn clone_state(&self) -> Arc<TauriState> {
         Arc::new(TauriState {
             backend: self.backend.clone(),
-            downloads_dir: self.downloads_dir.clone(),
+            downloads_dir: self
+                .downloads_dir
+                .lock()
+                .expect("downloads directory mutex poisoned")
+                .clone(),
         })
+    }
+
+    fn configure_storage(&self, app: &AppHandle) {
+        let directory = app_storage_dir(app);
+        *self
+            .downloads_dir
+            .lock()
+            .expect("downloads directory mutex poisoned") = directory;
     }
 }
 
@@ -985,10 +1087,18 @@ struct NativeFileSource {
 }
 
 impl NativeFileSource {
-    async fn open(request: FileRequest) -> Result<Self, String> {
-        let file = tokio::fs::File::open(&request.path)
-            .await
+    async fn open(app: &AppHandle, request: FileRequest) -> Result<Self, String> {
+        let path = request
+            .path
+            .parse::<FilePath>()
+            .expect("FilePath parsing is infallible");
+        let mut options = OpenOptions::new();
+        options.read(true);
+        let file = app
+            .fs()
+            .open(path, options)
             .map_err(|error| error.to_string())?;
+        let file = tokio::fs::File::from_std(file);
         let actual = file.metadata().await.map_err(|error| error.to_string())?;
         if actual.len() != request.size {
             return Err(format!(
@@ -1240,6 +1350,24 @@ fn default_downloads_dir() -> PathBuf {
     PathBuf::from("Downloads").join("Ponlet")
 }
 
+fn app_storage_dir(app: &AppHandle) -> PathBuf {
+    #[cfg(mobile)]
+    {
+        return app
+            .path()
+            .app_data_dir()
+            .unwrap_or_else(|_| PathBuf::from("Ponlet"))
+            .join("received");
+    }
+    #[cfg(not(mobile))]
+    {
+        app.path()
+            .download_dir()
+            .unwrap_or_else(|_| default_downloads_dir())
+            .join("Ponlet")
+    }
+}
+
 fn local_peer_info() -> PeerInfo {
     PeerInfo::new_native(
         "Ponlet".to_string(),
@@ -1296,6 +1424,29 @@ fn parse_id(value: &str) -> Result<[u8; 16], String> {
     Ok(id)
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn picker_file_name_keeps_paths_and_has_a_fallback() {
+        let path = "/tmp/report.txt"
+            .parse::<FilePath>()
+            .expect("FilePath parsing is infallible");
+        assert_eq!(picker_file_name(&path, 0), "report.txt");
+
+        let uri = "content://com.example.documents/document/primary%3Areport.txt"
+            .parse::<FilePath>()
+            .expect("FilePath parsing is infallible");
+        assert_eq!(picker_file_name(&uri, 1), "primary%3Areport.txt");
+
+        let opaque = "content://picker/"
+            .parse::<FilePath>()
+            .expect("FilePath parsing is infallible");
+        assert_eq!(picker_file_name(&opaque, 2), "selected-file-3");
+    }
+}
+
 mod commands {
     use super::*;
 
@@ -1340,6 +1491,19 @@ mod commands {
     }
 
     #[tauri::command]
+    pub async fn ponlet_pick_and_send_files(
+        app: AppHandle,
+        runtime: State<'_, TauriRuntime>,
+    ) -> Result<(), String> {
+        super::ponlet_pick_and_send_files_impl(app, runtime).await
+    }
+
+    #[tauri::command]
+    pub async fn ponlet_save_text(app: AppHandle, text: String) -> Result<(), String> {
+        super::ponlet_save_text_impl(app, text).await
+    }
+
+    #[tauri::command]
     pub async fn ponlet_cancel_transfer(
         app: AppHandle,
         runtime: State<'_, TauriRuntime>,
@@ -1361,6 +1525,8 @@ mod commands {
 pub fn run() {
     let runtime = TauriRuntime::new().expect("Tailcat bridge initialization failed");
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(runtime)
         .invoke_handler(tauri::generate_handler![
             commands::ponlet_snapshot,
@@ -1368,11 +1534,14 @@ pub fn run() {
             commands::ponlet_join,
             commands::ponlet_send_text,
             commands::ponlet_send_files,
+            commands::ponlet_pick_and_send_files,
+            commands::ponlet_save_text,
             commands::ponlet_cancel_transfer,
             commands::ponlet_disconnect,
         ])
         .setup(|app| {
             let state = app.state::<TauriRuntime>();
+            state.configure_storage(app.handle());
             state.set_state(
                 app.handle(),
                 SessionState::Disconnected {

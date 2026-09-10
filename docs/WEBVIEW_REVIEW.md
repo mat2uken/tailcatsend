@@ -1,6 +1,6 @@
 # WebView移行レビュー記録
 
-対象は`feature/common-rust-transfer-engine`。共通Rust転送基盤、Web UIツールチェーン、Tauri native adapter、デスクトップ入口切替はそれぞれ`3d6400a`、`0cc621c`、`90e2c91`、`784ffde`以降へコミット済みである。Tauriモバイルshellとビルド入口も追加し、Android/iOSのbundle生成まで確認した。以下の実機転送・配布・性能項目は現在のコミットで再確認していない。
+対象は`feature/common-rust-transfer-engine`。共通Rust転送基盤、Web UIツールチェーン、Tauri native adapter、デスクトップ入口切替はそれぞれ`3d6400a`、`0cc621c`、`90e2c91`、`784ffde`以降へコミット済みである。Tauriモバイルshellとビルド入口も追加し、Android/iOSのbundle生成まで確認した。モバイルのファイル選択・保存はDialog/FS経由でRustへ接続したが、以下の実機転送・配布・性能項目は現在のコミットで再確認していない。
 
 ## レビュー判断
 
@@ -34,7 +34,7 @@ WASM時刻処理の選択には[web-timeの仕様](https://docs.rs/web-time/late
 | 共通Rustのwasm32 check | 成功 | core / transfer / updatesのコンパイル |
 | Go native unit tests | race検査込みで成功 | 部分write、取消、generation、並行init/shutdown |
 | Go daemon build | 成功 | macOSで`tailcat_daemon` tagの生成 |
-| Web UI tests | 17件成功、import解決警告なし | bridge、イベント順序、OPFS、popover位置、transport path検証 |
+| Web UI tests | 18件成功、import解決警告なし | bridge、イベント順序、OPFS、popover位置、transport path検証、native picker forwarding |
 | TypeScript / Vite | 成功 | 型検査、web/tauri両mode |
 | Tauri native build | 成功 | macOSでGo c-archive生成後に`apps/tauri`をリンク。UI bundle、commands、event DTOを含む |
 | Browser Rust WASM bindgen | 成功 | `apps/web`を`wasm32-unknown-unknown --release`でビルドし、`wasm-bindgen --target web`を実行。生成WASMは約260 KiB、gzip約100 KiB |
@@ -46,7 +46,8 @@ WASM時刻処理の選択には[web-timeの仕様](https://docs.rs/web-time/late
 | Android / iOS / iOS Simulator check | 成功 | 各targetでのRustコンパイル。Androidには未使用importのwarningが3件ある |
 | Tauri Android debug/release | 成功 | NDK 28.2、arm64-v8a、minSdk 31でdebug APKとunsigned release APKを生成 |
 | Tauri iOS Simulator debug | 成功 | iOS 17.0 targetのarm64 simulator bundleを生成 |
-| Tauri iOS device debug | 成功 | 既存の開発チームを`APPLE_DEVELOPMENT_TEAM`へ渡した場合に署名済みIPAを生成。端末へのインストールと起動は未実施 |
+| Tauri iOS device debug | 成功 | `APPLE_DEVELOPMENT_TEAM=4C6WC6J297`で署名済みIPAを生成し、iPhone 12 Proへインストール。端末ロック中のため起動は未確認 |
+| Android実機起動 | 成功 | debug APKを`QV770139JG`へインストールし、VanJS画面の起動と招待作成・待受表示を確認。2端末転送は未確認 |
 | WASM実行smoke | 成功 | Node上で招待状態、時刻、進捗間引き、flush、sequenceを確認 |
 | Native C ABI smoke | 成功 | Go c-sharedを実ヘッダーでCからリンク。init/version/shutdown/reinit |
 | 静的検査 | 成功 | 変更した4 workflowのactionlint、build_web_ui.shのshellcheck、各変更shellの構文、Rust整形と差分の空白 |
@@ -55,7 +56,7 @@ WASM時刻処理の選択には[web-timeの仕様](https://docs.rs/web-time/late
 
 WASM実行smokeの一時ソースと生成物は`/tmp/tailsend-wasm-smoke`、C ABI smokeは`/tmp/tailcat-c-abi-smoke`に置いた。WASM側の出力は`state_seq=1,progress_seq=2,flush_seq=3,snapshot_seq=3,done=3`、C側の版取得は`tailcat-bridge/abi2/dev`だった。一時生成物はGitへ追加していない。
 
-Browser two-tab smokeの成功は、同一ブラウザ内のWebRTC DataChannel経路とテキスト処理を示す。Tauri native/mobile buildの成功はリンクとbundle生成の確認であり、Go bridgeを使った2端末間の実転送、ファイル保存、DERP・WireGuard UDPの経路選択を証明するものではない。これらはWebView製品版の実機・速度・省メモリ性と同じく未検証である。受信側の経路表示はTailcat server statusが接続直後に未確定となる場合があり、`unknown`を許容して後続の状態更新で再判定する必要がある。
+Browser two-tab smokeの成功は、同一ブラウザ内のWebRTC DataChannel経路とテキスト処理を示す。Tauri native/mobile buildの成功はリンクとbundle生成の確認であり、Android実機の招待待受表示までを確認した段階である。Go bridgeを使った2端末間の実転送、ファイル保存、iOS起動、DERP・WireGuard UDPの経路選択は証明していない。これらはWebView製品版の実機・速度・省メモリ性と同じく未検証である。受信側の経路表示はTailcat server statusが接続直後に未確定となる場合があり、`unknown`を許容して後続の状態更新で再判定する必要がある。
 
 ## 置換前に残る比較
 
@@ -65,7 +66,7 @@ Browser two-tab smokeの成功は、同一ブラウザ内のWebRTC DataChannel�
 | --- | --- | --- |
 | 招待URL・QR表示・再生成・カメラ読取・貼り付け接続 | URL入力とボタンのみ。実通信未接続 | 同じ招待形式・有効期限、QRとdeep link |
 | テキスト送受信・Paste & Send・履歴消去 | 入力・表示・copy/share/saveの入口のみ | 双方向通信、IME、改行、貼り付け、履歴と各OS操作 |
-| ファイル送受信・取消 | UIと共通engineが別々に存在 | transport/file adapter、保存完了、取消、ディスク不足、0-byte/大容量 |
+| ファイル送受信・取消 | 送信はDialog/FSから共通engineへ接続、受信はOS別保存先へ確定 | 実機のfile picker・保存先・共有、transport/file adapter、保存完了、取消、ディスク不足、0-byte/大容量 |
 | 保存先表示・パスcopy・受信ファイルshare | 未移植 | 同じ保存先とOSの共有・開く操作 |
 | 言語切替・telemetry設定・接続経路・速度表示 | OS言語判定と簡易画面のみ | 現行設定の保持と全表示項目 |
 | Tauriからのtailcat利用 | `apps/tauri`のcommands、Go C ABI、共通Rust転送へ接続。`apps/desktop`から同じTauri entryを起動し、`scripts/build_tauri.sh`でGo archiveを先に生成 | 実機での起動、再起動、終了、各OSリンク、実転送 |

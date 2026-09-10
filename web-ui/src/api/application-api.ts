@@ -57,6 +57,8 @@ export interface PonletBackend {
   shareText(text: string): Promise<void>;
   snapshot(): Promise<BackendSnapshot>;
   subscribe(listener: (event: BackendEvent) => void): () => void;
+  /** Open the native picker and start a transfer without exposing file bytes to JS. */
+  pickAndSendFiles?: () => Promise<void>;
 }
 
 export function initialSnapshot(): BackendSnapshot {

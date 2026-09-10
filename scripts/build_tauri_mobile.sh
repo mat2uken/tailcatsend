@@ -88,6 +88,13 @@ else
     echo "xcodegen is required to regenerate the Tauri iOS project" >&2
     exit 1
   fi
+  # The Tauri CLI moves the archive's app into this directory. Remove only
+  # the previous generated product so a repeated build is deterministic.
+  if [[ "${mobile_target}" == "aarch64-sim" ]]; then
+    rm -rf "${repo_dir}/apps/tauri/gen/apple/build/arm64-sim"
+  else
+    rm -rf "${repo_dir}/apps/tauri/gen/apple/build/arm64"
+  fi
   (cd "${repo_dir}/apps/tauri/gen/apple" && xcodegen generate)
   (cd "${repo_dir}/apps/tauri" && cargo tauri ios build "${tauri_args[@]}" --target "${mobile_target}")
 fi
