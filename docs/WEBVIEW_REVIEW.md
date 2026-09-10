@@ -21,12 +21,13 @@ UI と転送処理の責務は分かれ、ファイル本文を UI の JSON、Ba
 | native bridge 改修後の Android 再検証 | `a4d2143` で再生成した APK、WebRTC／DERP 双方向転送、131,071 byte と SHA-256一致 |
 | Tauri実機 smoke | macOS bundle と Sony XQ-DQ44 の direct-udp 表示、DERP転送、取消 |
 | Android/iOS bundle | Android APK と iOS 18.5 iPhone 16 simulator bundle を最新コードで再生成・起動 |
+| 招待の連続再生成 | macOS WebViewで取消済みaccept処理が新しい待機状態を上書きしないことを確認 |
 
 ## 未完了の受入項目
 
 - Tauri 2端末の共有先選択、取消後の再転送。開く、保存先コピー、テキストのコピー／保存、取消自体と通常転送は macOS↔Android で確認済み。
 - iOS 実機起動と実機ファイル操作。
-- WireGuard UDP、WebRTC、DERP を強制または再現条件で分けた全 OS 組み合わせ。
+- WireGuard UDP、WebRTC、DERP を `PONLET_TRANSPORT` の起動固定または再現条件で分けた全 OS 組み合わせ。固定入口は実装済みだが、組み合わせの転送結果は未完了。
 - Cloudflare Pages 実デプロイ、署名付き更新、失敗版隔離と復帰。
 - 速度中央値、入力応答 p95、Go heap、WebView を含む総メモリ、bundle サイズの同一条件比較。
 - iOS実機は Bundle ID `jp.yasagure.ponlet` の Provisioning Profile 不足、Linux cross check は aarch64 sysroot／`pkg-config` 不足、Windows実機は検証環境不在で未完了。

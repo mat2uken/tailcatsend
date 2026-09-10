@@ -27,6 +27,18 @@
 - `adb7b65` で共通 Rust service から native／Web の stream close を呼ぶ取消 callback を追加した。callback は状態 mutex の外で一度だけ実行し、I/O 待ちを解除する。
 - native read/write は `block_in_place` 内でC ABIへ入力バッファを直接渡し、チャンクごとの `spawn_blocking` と一時 `Vec` をなくした。buffer pointerは各呼出しの終了前にGo側が使い終える前提を保つ。
 
+## 経路別試験の起動設定
+
+ネイティブ bridge は起動時だけ `PONLET_TRANSPORT` を読み、試験用にTailcatの経路選択を固定できる。未設定または `auto` は通常の自動選択、`direct-udp` は WireGuard UDP、`webrtc` は WebRTC DataChannel、`derp` は DERP relay を指定する。設定は `tc_init` の前に適用され、接続中には変更しない。
+
+```sh
+PONLET_TRANSPORT=direct-udp ./target/release/tailsend
+PONLET_TRANSPORT=webrtc ./target/release/tailsend
+PONLET_TRANSPORT=derp ./target/release/tailsend
+```
+
+これは経路を指定した再現試験の入口であり、各端末・各通信方式の転送成功を自動的に保証するものではない。受入時は表示された経路、送受信 byte 数、SHA-256、保存物を同じ実行で記録する。
+
 ## 確認済み
 
 - Rust workspace unit test、Tauri desktop check、`tailsend-web` の `wasm32-unknown-unknown` check。
