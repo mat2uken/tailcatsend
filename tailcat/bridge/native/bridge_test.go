@@ -208,3 +208,30 @@ func TestTransportFromPing(t *testing.T) {
 		t.Fatalf("unknown path = %d, want %d", got, TC_TRANSPORT_UNKNOWN)
 	}
 }
+
+func TestParseTransportMode(t *testing.T) {
+	tests := []struct {
+		value string
+		want  transportMode
+	}{
+		{value: "", want: transportModeAuto},
+		{value: "auto", want: transportModeAuto},
+		{value: "wireguard-udp", want: transportModeDirectUDP},
+		{value: "webrtc", want: transportModeWebRTC},
+		{value: "relay", want: transportModeDERP},
+	}
+	for _, test := range tests {
+		t.Run(test.value, func(t *testing.T) {
+			got, err := parseTransportMode(test.value)
+			if err != nil {
+				t.Fatalf("parseTransportMode(%q): %v", test.value, err)
+			}
+			if got != test.want {
+				t.Fatalf("parseTransportMode(%q) = %d, want %d", test.value, got, test.want)
+			}
+		})
+	}
+	if _, err := parseTransportMode("bogus"); err == nil {
+		t.Fatal("invalid transport mode was accepted")
+	}
+}

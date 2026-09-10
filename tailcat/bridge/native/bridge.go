@@ -39,6 +39,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"runtime"
 	"strings"
 	"sync"
@@ -47,6 +48,7 @@ import (
 	"unsafe"
 
 	"github.com/tailscale/tailcat"
+	"tailscale.com/envknob"
 	_ "tailscale.com/feature/webrtc"
 	"tailscale.com/net/netmon"
 	"tailscale.com/tailcfg"
@@ -77,6 +79,67 @@ const (
 	TC_TRANSPORT_DERP       = 2
 	TC_TRANSPORT_UNKNOWN    = 255
 )
+
+const transportModeEnv = "PONLET_TRANSPORT"
+
+type transportMode uint8
+
+const (
+	transportModeAuto transportMode = iota
+	transportModeDirectUDP
+	transportModeWebRTC
+	transportModeDERP
+)
+
+// parseTransportMode accepts a small, test-only override used by the native
+// matrix runner.  Normal product launches leave PONLET_TRANSPORT unset and
+// retain Tailcat's own path selection.
+func parseTransportMode(value string) (transportMode, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "", "auto":
+		return transportModeAuto, nil
+	case "direct", "direct-udp", "udp", "wireguard", "wireguard-udp":
+		return transportModeDirectUDP, nil
+	case "webrtc", "datachannel":
+		return transportModeWebRTC, nil
+	case "derp", "relay":
+		return transportModeDERP, nil
+	default:
+		return transportModeAuto, fmt.Errorf("invalid %s value %q (want auto, direct-udp, webrtc, or derp)", transportModeEnv, value)
+	}
+}
+
+func configureTransportMode() error {
+	mode, err := parseTransportMode(os.Getenv(transportModeEnv))
+	if err != nil {
+		return err
+	}
+	if mode == transportModeAuto {
+		return nil
+	}
+
+	// envknob.Setenv updates the registered values before Tailcat starts any
+	// network goroutines.  The setting is process-wide, so it is intentionally
+	// applied only at bridge initialization and never changed during a session.
+	set := func(name string, enabled bool) {
+		envknob.Setenv(name, fmt.Sprintf("%t", enabled))
+	}
+	switch mode {
+	case transportModeDirectUDP:
+		set("TS_DEBUG_ALWAYS_USE_DERP", false)
+		set("TS_DEBUG_NEVER_DIRECT_UDP", false)
+		set("TS_DEBUG_NEVER_DIRECT_WEBRTC", true)
+	case transportModeWebRTC:
+		set("TS_DEBUG_ALWAYS_USE_DERP", false)
+		set("TS_DEBUG_NEVER_DIRECT_UDP", true)
+		set("TS_DEBUG_NEVER_DIRECT_WEBRTC", false)
+	case transportModeDERP:
+		set("TS_DEBUG_ALWAYS_USE_DERP", true)
+		set("TS_DEBUG_NEVER_DIRECT_UDP", true)
+		set("TS_DEBUG_NEVER_DIRECT_WEBRTC", true)
+	}
+	return nil
+}
 
 // bridgeVersion is overridden by release builds with -ldflags=-X. Keeping a
 // useful fallback makes locally produced bridge artifacts diagnosable too.
@@ -370,6 +433,10 @@ func closeAllBridgeClients() {
 func tc_init() C.int32_t {
 	lifecycleMu.Lock()
 	defer lifecycleMu.Unlock()
+	if err := configureTransportMode(); err != nil {
+		setLastError(err.Error())
+		return TC_INVALID_ARGUMENT
+	}
 	state.mu.Lock()
 	if state.shuttingDown.Load() {
 		state.generation++
