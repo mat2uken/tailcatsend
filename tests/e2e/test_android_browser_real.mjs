@@ -68,6 +68,10 @@ function adb(...args) {
   return execFileSync("adb", ["-s", serial, ...args], { encoding: "utf8" }).trim();
 }
 
+function shellQuote(value) {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
 async function snapshot(page) {
   return page.evaluate(() => window.__ponletBackend?.snapshot?.());
 }
@@ -185,7 +189,10 @@ async function main() {
       /^\/data\/user\/0\/jp\.yasagure\.ponlet\//,
       "",
     );
-    const hashOutput = adb("shell", "run-as", "jp.yasagure.ponlet", "sha256sum", relativePath);
+    const hashOutput = adb(
+      "shell",
+      `run-as jp.yasagure.ponlet sha256sum -- ${shellQuote(relativePath)}`,
+    );
     const actualHash = hashOutput.split(/\s+/, 1)[0];
     if (actualHash !== expectedHash) {
       throw new Error(`Android file hash mismatch: ${actualHash} != ${expectedHash}`);
