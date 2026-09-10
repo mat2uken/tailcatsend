@@ -15,8 +15,8 @@ use tailsend_native_bridge::{
     TC_OK, TC_PROTOCOL_ERROR, TC_TIMEOUT,
 };
 use tailsend_transport_api::{
-    DuplexStream, IncomingStream, ListenOptions, Listener, TailcatTransport, TransportError,
-    TransportPath,
+    CancellationCallback, DuplexStream, IncomingStream, ListenOptions, Listener,
+    TailcatTransport, TransportError, TransportPath,
 };
 
 const IO_TIMEOUT_MS: u32 = 30_000;
@@ -320,6 +320,20 @@ impl NativeStream {
 
 #[async_trait::async_trait]
 impl DuplexStream for NativeStream {
+    fn cancellation_callback(&self) -> Option<CancellationCallback> {
+        let handle = self.handle;
+        let closed = self.closed.clone();
+        Some(Arc::new(move || {
+            if !closed.load(Ordering::Acquire) {
+                // tc_cancel closes the underlying net.Conn while retaining the
+                // handle for the caller's normal tc_stream_close cleanup.
+                unsafe {
+                    let _ = tailsend_native_bridge::tc_cancel(handle);
+                }
+            }
+        }))
+    }
+
     fn transport_path(&self) -> TransportPath {
         let cached = TransportPath::from_code(self.transport_path.load(Ordering::Acquire));
         if cached != TransportPath::Unknown {

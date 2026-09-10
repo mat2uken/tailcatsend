@@ -5,7 +5,7 @@
 //! Go owns Tailcat/WebRTC/DERP sockets; Rust owns invitation state, framing,
 //! progress, cancellation and OPFS commit ordering.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -37,8 +37,8 @@ use tailsend_transfer::{
     send_named_file_stream, ProgressCallback, ProgressUpdate, TransferError,
 };
 use tailsend_transport_api::{
-    DuplexStream, IncomingStream, ListenOptions, Listener, TailcatTransport, TransportError,
-    TransportPath,
+    CancellationCallback, DuplexStream, IncomingStream, ListenOptions, Listener,
+    TailcatTransport, TransportError, TransportPath,
 };
 
 const DERP_MAP_URL: &str = "https://tailcat.dev/derpmap.json";
@@ -155,7 +155,7 @@ struct WebTransport;
 
 struct WebStream {
     connection: JsValue,
-    closed: bool,
+    closed: Rc<Cell<bool>>,
     transport_path: TransportPath,
     /// Preserve a status returned together with bytes. The common transfer
     /// loop consumes the bytes first and observes the status on the next
@@ -186,12 +186,28 @@ impl WebStream {
 
 #[async_trait(?Send)]
 impl DuplexStream for WebStream {
+    fn cancellation_callback(&self) -> Option<CancellationCallback> {
+        let connection = self.connection.clone();
+        let closed = self.closed.clone();
+        Some(Rc::new(move || {
+            if closed.replace(true) {
+                return;
+            }
+            // The bridge's close method closes the underlying net.Conn and
+            // wakes a pending read/write. The returned Promise is intentionally
+            // fire-and-forget because this hook is synchronous by design.
+            if let Ok(close) = function(&connection, "close") {
+                let _ = close.call0(&connection);
+            }
+        }))
+    }
+
     fn transport_path(&self) -> TransportPath {
         self.current_transport_path()
     }
 
     async fn read(&mut self, buffer: &mut [u8]) -> Result<usize, TransportError> {
-        if self.closed {
+        if self.closed.get() {
             return Err(TransportError::Closed);
         }
         if let Some(status) = self.pending_read_status.take() {
@@ -238,7 +254,7 @@ impl DuplexStream for WebStream {
     }
 
     async fn write(&mut self, buffer: &[u8]) -> Result<usize, TransportError> {
-        if self.closed {
+        if self.closed.get() {
             return Err(TransportError::Closed);
         }
         let bytes = Uint8Array::new_with_length(buffer.len() as u32);
@@ -251,7 +267,7 @@ impl DuplexStream for WebStream {
     }
 
     async fn close_write(&mut self) -> Result<(), TransportError> {
-        if self.closed {
+        if self.closed.get() {
             return Ok(());
         }
         let close = function(&self.connection, "closeWrite")?
@@ -262,10 +278,10 @@ impl DuplexStream for WebStream {
     }
 
     async fn close(&mut self) -> Result<(), TransportError> {
-        if self.closed {
+        if self.closed.get() {
             return Ok(());
         }
-        self.closed = true;
+        self.closed.set(true);
         let close = function(&self.connection, "close")?
             .call0(&self.connection)
             .map_err(js_error)?;
@@ -306,7 +322,7 @@ impl Listener for WebListener {
         Ok(IncomingStream {
             stream: Box::new(WebStream {
                 connection: value,
-                closed: false,
+                closed: Rc::new(Cell::new(false)),
                 transport_path,
                 pending_read_status: None,
             }),
@@ -395,7 +411,7 @@ impl TailcatTransport for WebTransport {
             .unwrap_or_default();
         Ok(Box::new(WebStream {
             connection,
-            closed: false,
+            closed: Rc::new(Cell::new(false)),
             transport_path,
             pending_read_status: None,
         }))
@@ -990,6 +1006,9 @@ impl WebBackend {
                 return self.finish(id, Err(TransferError::Transport(error)));
             }
         };
+        if let Some(callback) = stream.cancellation_callback() {
+            self.service.set_cancellation_callback(id, callback);
+        }
         self.event(AppEvent::TransportChanged(stream.transport_path()));
         let result = send_live_text_stream(&mut stream, &text, cancel).await;
         let _ = stream.close().await;
@@ -1045,6 +1064,9 @@ impl WebBackend {
                     return self.finish(id, Err(TransferError::Transport(error)));
                 }
             };
+            if let Some(callback) = stream.cancellation_callback() {
+                self.service.set_cancellation_callback(id, callback);
+            }
             self.event(AppEvent::TransportChanged(stream.transport_path()));
             let backend = self.clone();
             let callback: ProgressCallback = Box::new(move |update| backend.progress(update));
@@ -1149,6 +1171,9 @@ async fn receive_text(
 ) {
     let id = new_id();
     let cancel = backend.service.register_transfer(id);
+    if let Some(callback) = stream.cancellation_callback() {
+        backend.service.set_cancellation_callback(id, callback);
+    }
     let result = receive_live_text_stream(&mut stream, cancel, |text| {
         backend.event(AppEvent::TextReceived { text })
     })
@@ -1174,6 +1199,9 @@ async fn receive_file(
 ) {
     let id = new_id();
     let cancel = backend.service.register_transfer(id);
+    if let Some(callback) = stream.cancellation_callback() {
+        backend.service.set_cancellation_callback(id, callback);
+    }
     let progress_backend = backend.clone();
     let callback: ProgressCallback = Box::new(move |update| progress_backend.progress(update));
     let result = receive_named_file_stream_with_factory(

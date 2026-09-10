@@ -2,6 +2,18 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+/// A synchronous hook used to wake an in-flight native or browser I/O call.
+///
+/// The common state service invokes this hook after setting the transfer
+/// cancellation flag.  Native streams call the Tailcat C ABI and browser
+/// streams close their JavaScript connection; adapters that cannot interrupt
+/// an operation leave it unset and retain the flag-only behavior.
+#[cfg(target_arch = "wasm32")]
+pub type CancellationCallback = std::rc::Rc<dyn Fn()>;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub type CancellationCallback = std::sync::Arc<dyn Fn() + Send + Sync>;
+
 /// Native streams can cross I/O threads.  Browser streams stay inside one
 /// Worker and intentionally do not require `Send + Sync`.
 #[cfg(target_arch = "wasm32")]
@@ -82,6 +94,13 @@ impl TransportPath {
 pub trait DuplexStream: TransportThreadSafety {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, TransportError>;
     async fn write_all(&mut self, buf: &[u8]) -> Result<(), TransportError>;
+
+    /// Return a cheap, idempotent hook that interrupts a pending read/write.
+    /// The hook is deliberately synchronous so cancellation does not depend
+    /// on another async task getting scheduled while the I/O is blocked.
+    fn cancellation_callback(&self) -> Option<CancellationCallback> {
+        None
+    }
 
     /// Report the path selected by the underlying Tailcat stack.  Adapters
     /// that predate path reporting return `Unknown` without affecting I/O.

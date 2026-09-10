@@ -14,7 +14,7 @@ use futures::channel::mpsc::{channel, Receiver, Sender};
 use serde::{Deserialize, Serialize};
 
 use crate::{AppEvent, AppSnapshot, SessionState};
-use tailsend_transport_api::TransportPath;
+use tailsend_transport_api::{CancellationCallback, TransportPath};
 
 const DEFAULT_EVENT_QUEUE: usize = 64;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(200);
@@ -62,6 +62,7 @@ struct ServiceState {
     subscribers: Vec<Sender<BackendEvent>>,
     progress: HashMap<[u8; 16], QueuedProgress>,
     cancellation: HashMap<[u8; 16], Arc<AtomicBool>>,
+    cancellation_callbacks: HashMap<[u8; 16], CancellationCallback>,
     /// Retain terminal events for a short resubscription window.  The queue
     /// is metadata only and is intentionally bounded.
     recent: VecDeque<BackendEvent>,
@@ -95,6 +96,7 @@ impl BackendService {
                 subscribers: Vec::new(),
                 progress: HashMap::new(),
                 cancellation: HashMap::new(),
+                cancellation_callbacks: HashMap::new(),
                 recent: VecDeque::with_capacity(queue_limit),
             })),
             queue_limit,
@@ -152,6 +154,7 @@ impl BackendService {
                 publish_locked(&mut inner, self.queue_limit, queued.event);
             }
             inner.cancellation.remove(transfer_id);
+            inner.cancellation_callbacks.remove(transfer_id);
         }
         publish_locked(&mut inner, self.queue_limit, event)
     }
@@ -211,16 +214,45 @@ impl BackendService {
 
     /// Request cancellation without entering the transfer I/O lock.
     pub fn cancel(&self, transfer_id: [u8; 16]) -> bool {
-        self.inner
-            .lock()
-            .expect("backend state mutex poisoned")
-            .cancellation
-            .get(&transfer_id)
-            .map(|token| {
-                token.store(true, Ordering::Release);
-                true
-            })
-            .unwrap_or(false)
+        let callback = {
+            let inner = self.inner.lock().expect("backend state mutex poisoned");
+            let Some(token) = inner.cancellation.get(&transfer_id) else {
+                return false;
+            };
+            if token.swap(true, Ordering::AcqRel) {
+                return true;
+            }
+            inner.cancellation_callbacks.get(&transfer_id).cloned()
+        };
+        // The callback may close a socket or call into JavaScript. Never hold
+        // the state mutex while doing that work, otherwise a terminal event
+        // could deadlock waiting for the same lock.
+        if let Some(callback) = callback {
+            callback();
+        }
+        true
+    }
+
+    /// Attach the transport-specific wake-up hook after a stream is created.
+    /// If cancellation raced with stream setup, invoke the hook immediately.
+    pub fn set_cancellation_callback(
+        &self,
+        transfer_id: [u8; 16],
+        callback: CancellationCallback,
+    ) -> bool {
+        let should_cancel = {
+            let mut inner = self.inner.lock().expect("backend state mutex poisoned");
+            let Some(token) = inner.cancellation.get(&transfer_id) else {
+                return false;
+            };
+            let should_cancel = token.load(Ordering::Acquire);
+            inner.cancellation_callbacks.insert(transfer_id, callback.clone());
+            should_cancel
+        };
+        if should_cancel {
+            callback();
+        }
+        true
     }
 
     pub fn is_cancelled(&self, transfer_id: [u8; 16]) -> bool {
@@ -236,6 +268,7 @@ impl BackendService {
     pub fn finish_transfer(&self, transfer_id: [u8; 16]) {
         let mut inner = self.inner.lock().expect("backend state mutex poisoned");
         inner.cancellation.remove(&transfer_id);
+        inner.cancellation_callbacks.remove(&transfer_id);
         inner.progress.remove(&transfer_id);
     }
 
@@ -412,6 +445,29 @@ mod tests {
         assert!(token.load(Ordering::Acquire));
         service.finish_transfer(transfer_id);
         assert!(!service.is_cancelled(transfer_id));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn cancellation_callback_runs_once_and_outside_state_lock() {
+        let service = BackendService::default();
+        let transfer_id = [8u8; 16];
+        service.register_transfer(transfer_id);
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let calls_for_callback = calls.clone();
+        let service_for_callback = service.clone();
+        service.set_cancellation_callback(
+            transfer_id,
+            Arc::new(move || {
+                let _ = service_for_callback.snapshot();
+                calls_for_callback.fetch_add(1, Ordering::AcqRel);
+            }),
+        );
+
+        assert!(service.cancel(transfer_id));
+        assert!(service.cancel(transfer_id));
+        assert_eq!(calls.load(Ordering::Acquire), 1);
+        service.finish_transfer(transfer_id);
     }
 
     #[test]

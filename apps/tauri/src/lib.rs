@@ -640,6 +640,11 @@ async fn ponlet_send_text_impl(
             )
         }
     };
+    if let Some(callback) = stream.cancellation_callback() {
+        runtime
+            .backend
+            .set_cancellation_callback(transfer_id, callback);
+    }
     runtime.publish(&app, AppEvent::TransportChanged(stream.transport_path()));
     let result = send_live_text_stream(&mut stream, &text, cancel.clone()).await;
     let _ = stream.close().await;
@@ -693,6 +698,11 @@ async fn ponlet_send_files_impl(
                 );
             }
         };
+        if let Some(callback) = stream.cancellation_callback() {
+            runtime
+                .backend
+                .set_cancellation_callback(transfer_id, callback);
+        }
         runtime.publish(&app, AppEvent::TransportChanged(stream.transport_path()));
         let app_for_progress = app.clone();
         let backend_for_progress = runtime.clone_state();
@@ -1066,6 +1076,11 @@ async fn accept_loop(runtime: Arc<TauriState>, app: AppHandle, session: Arc<Peer
 async fn receive_text(runtime: Arc<TauriState>, app: AppHandle, mut stream: Box<dyn DuplexStream>) {
     let transfer_id = new_id();
     let cancel_token = runtime.backend.register_transfer(transfer_id);
+    if let Some(callback) = stream.cancellation_callback() {
+        runtime
+            .backend
+            .set_cancellation_callback(transfer_id, callback);
+    }
     let result = receive_live_text_stream(&mut stream, cancel_token, |text| {
         let event = runtime
             .backend
@@ -1104,6 +1119,11 @@ async fn receive_text(runtime: Arc<TauriState>, app: AppHandle, mut stream: Box<
 async fn receive_file(runtime: Arc<TauriState>, app: AppHandle, mut stream: Box<dyn DuplexStream>) {
     let transfer_id = new_id();
     let cancel_token = runtime.backend.register_transfer(transfer_id);
+    if let Some(callback) = stream.cancellation_callback() {
+        runtime
+            .backend
+            .set_cancellation_callback(transfer_id, callback);
+    }
     let backend_for_progress = runtime.clone();
     let app_for_progress = app.clone();
     let callback: ProgressCallback = Box::new(move |update| {
