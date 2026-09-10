@@ -37,11 +37,13 @@ Chrome 2 タブの実通信では、日本語テキスト、131,089 byte ファ�
 
 同じ端末で以前に Android picker から Chromium へ送った `android-real.bin` は DERP relay として確定しているため、Android／Web の実機では WebRTC と DERP の二つの経路を別実行で確認した。macOS上のTailcat低レベル probe では WireGuard UDP の直接経路 (`Endpoint=192.168.31.151:59013`) も観測したが、これは製品UIを介した2端末転送の証明には使わない。
 
+正式な macOS Tauri bundle (`target/release/bundle/macos/Ponlet.app`) と Sony XQ-DQ44 (Android 15) を同じ実行で接続した。招待直後の状態取得は `transport=direct-udp`、データ送受信後は両端の表示が `derp` へ更新された。macOS Tauri から Android へ `tauri-to-android-日本語.bin` (131,071 bytes) を送信し、Android の `received/` に保存されたファイルの SHA-256 `db7a7ca4ee279909ee4b75b9286e3ad86491667a7a43697a23dec03bf79118a0` が送信元と一致した。テキストは `macOS Tauri→Android 実通信 ✅` と `Android→macOS Tauri 実通信 ↔ 日本語` の双方向を確認した。これは Tauri 2端末の実通信と、同一接続での直接経路からDERPへの経路表示更新を確認する証拠である。
+
 Web 2タブの実通信E2Eには `npm run test:e2e:real:derp` を追加した。ローカル試験ページだけ WebRTC API を無効にして DERPへフォールバックさせ、両端の `derp` 表示、双方向テキスト、131,089／98,321 byte のファイル、SHA-256一致を確認する。受信開始時に未確定だった経路は、最初のデータ後に再取得して接続後の表示へ反映する。
 
 ## まだ実機で証明していない項目
 
-- Tauri の2端末間での双方向テキスト・ファイル転送、SHA-256、保存後の開く／共有。
+- Tauri の2端末間で、保存後の開く／共有、取消と再転送。
 - iOS 実機のロック解除後起動とファイル操作。iOS Simulator の bundle 生成と、署名済み IPA のインストールは別に記録する。
 - WireGuard UDP、WebRTC DataChannel、DERP relay をそれぞれ指定した同一条件の転送。UI は制御接続ではなく各データ stream の bridge 報告を表示するが、強制切替の成功を意味しない。
 - Windows、macOS、Linux、iOS、Android、Web の全組み合わせ、低容量保存先、巨大ファイル、100回の接続・取消・切断後の参照解放。

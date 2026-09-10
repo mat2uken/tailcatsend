@@ -36,7 +36,21 @@ export PONLET_TAILCAT_LIB_DIR="${out_dir}"
 export PONLET_TAILCAT_LIB_NAME=tailcat
 
 "${repo_dir}/scripts/build_web_ui.sh"
-(cd "${repo_dir}" && cargo build -p tailsend-tauri --release)
-(cd "${repo_dir}" && cargo build -p tailsend-desktop --release)
+
+# `cargo build` compiles the Tauri runner but does not apply the frontend
+# asset embedding performed by the Tauri CLI.  Use the product build path so a
+# directly launched desktop binary cannot open a blank WebView.
+(cd "${repo_dir}/apps/tauri" && \
+  cargo tauri build --no-bundle --ci --no-sign)
+
+tauri_binary="${repo_dir}/target/release/tailsend-tauri"
+if [[ -x "${tauri_binary}" ]]; then
+  cp "${tauri_binary}" "${repo_dir}/target/release/tailsend"
+elif [[ -x "${tauri_binary}.exe" ]]; then
+  cp "${tauri_binary}.exe" "${repo_dir}/target/release/tailsend.exe"
+else
+  echo "Tauri CLI did not produce ${tauri_binary}" >&2
+  exit 1
+fi
 
 echo "Tauri desktop shell built with Go bridge from ${go_output}"

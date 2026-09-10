@@ -32,12 +32,13 @@
 - Chrome 2 タブの招待、WebRTC DataChannel 接続、テキスト送受信。
 - Sony XQ-DQ44 の Android Tauri WebView と Chromium の接続、`DERP relay` の経路表示、Android picker から `android-real.bin` (131,071 bytes) を Web 側へ送信する実機確認。
 - Sony XQ-DQ44 と Chromium を新しいホストへ接続し、`WebRTC DataChannel` で双方向テキスト、ブラウザから Android への `browser-to-android-日本語.bin` (131,071 bytes) を送信し、Android `received/` の SHA-256 (`e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19`) を確認する `tests/e2e/test_android_browser_real.mjs`。
+- 正式な macOS Tauri bundle (`target/release/bundle/macos/Ponlet.app`) と Sony XQ-DQ44 (Android 15) を接続し、招待直後の `direct-udp`、データ転送後の `derp`、双方向テキスト、macOS Tauri から Android への `tauri-to-android-日本語.bin` (131,071 bytes) 保存を確認した。Android の SHA-256 は `db7a7ca4ee279909ee4b75b9286e3ad86491667a7a43697a23dec03bf79118a0` で、送信元と一致した。
 - `cd web-ui && npm run test:e2e:real` で、招待、接続、テキスト、131,089 byte ファイル、OPFSからの開く操作、SHA-256、両端の経路表示を一括確認する。
 - `cd web-ui && npm run test:e2e:real:derp` ではローカル試験ページの WebRTC API を無効にして、同じ転送を DERP relay で再実行する。両端の経路表示が `derp` になることを含めて検査する。
 
 ## 残っている検証
 
-1. Tauri 2端末のテキスト・ファイル双方向転送、保存物の SHA-256、取消と再転送。
+1. Tauri 2端末での保存後の開く／共有、取消と再転送。
 2. iOS 実機のロック解除後起動、picker、保存、share/open。
 3. Windows、macOS、Linux、iOS、Android、Web の組み合わせを、Direct UDP、WebRTC、DERP に分けた同一入力で実行する。
 4. 各データ stream の Go bridge path report が接続後に安定すること、経路別の速度・CPU・総メモリを測る。`unknown` の表示だけでは経路試験を通過としない。
