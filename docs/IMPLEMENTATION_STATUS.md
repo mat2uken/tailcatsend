@@ -51,9 +51,11 @@ Worker化後も `npm run test:e2e:real` と `npm run test:e2e:real:derp` が同�
 
 正式な macOS bundle を `adb7b65` で再ビルドし、Sony XQ-DQ44 と接続した。64 MiB のファイルを使い、Android→macOS の送信側取消、macOS→Android の受信側取消を DERP relay 上でそれぞれ実行した。取消後は両端が接続待機へ戻り、受信先に確定ファイルも `.part` も残らないことを確認した。通常転送では Android から macOS へ 4,096 byte の `small.bin`（SHA-256 `2dba0b4d9372f74682a66cb4eb7edfb620d6b4b151ea25b68f115ff82979a3f0`）と 98,321 byte の日本語名ファイル（SHA-256 `2e1b363da4361f817a79751077a6930d34e0d7e4766e98b82522ab74900e8937`）を保存し、既存名との衝突時は `(1)` を付けることを確認した。
 
+同じ接続で `open-test.txt` (27 bytes) を受信し、WebViewの「開く」からmacOS TextEditで本文を表示した。「保存先をコピー」は `/Users/kenichim/Downloads/Ponlet/open-test.txt` をクリップボードへ渡し、受信テキストの「コピー」と「保存」（`/tmp/ponlet-message.txt`）も確認した。共有はmacOS共有シートの起動と取消を確認したが、共有先を選択した完了判定は残している。
+
 ## まだ実機で証明していない項目
 
-- Tauri の2端末間で、保存後の開く／共有、取消後の再転送。取消そのものは macOS↔Android の送信側・受信側で確認済み。
+- Tauri の2端末間で、保存後の開く、共有先選択、取消後の再転送。開く、保存先コピー、テキストのコピー／保存、取消そのものは macOS↔Android で確認済み。
 - iOS 実機のロック解除後起動とファイル操作。iOS Simulator の bundle 生成と、署名済み IPA のインストールは別に記録する。
 - WireGuard UDP、WebRTC DataChannel、DERP relay をそれぞれ指定した同一条件の転送。UI は制御接続ではなく各データ stream の bridge 報告を表示するが、強制切替の成功を意味しない。
 - Windows、macOS、Linux、iOS、Android、Web の全組み合わせ、低容量保存先、巨大ファイル、100回の接続・取消・切断後の参照解放。

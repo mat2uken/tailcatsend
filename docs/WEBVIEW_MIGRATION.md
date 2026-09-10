@@ -42,10 +42,11 @@
 - `cd web-ui && PONLET_ANDROID_SERIAL=<serial> npm run test:e2e:android` では Sony XQ-DQ44 の Android Tauri WebView とWorker化した Chromiumを WebRTCで接続し、双方向テキストと131,071 byteファイルのSHA-256一致を確認する。`PONLET_TEST_TRANSPORT=derp` を付けた `npm run test:e2e:android:derp` では同じ入力を DERP relayで再実行する。
 - `adb7b65` 後にも Android APK を再ビルドして上記2コマンドを実行し、WebRTC／DERP ともに両端の経路表示、双方向テキスト、131,071 byteファイル、SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` の一致を確認した。
 - 同じ commit の macOS Tauri bundle と Android を DERP relay で接続し、64 MiB の送信側取消と受信側取消を実行した。どちらも接続待機へ戻り、保存先に確定ファイルや `.part` が残らなかった。通常の Android→macOS 転送では 4,096 byte と 98,321 byte のファイルを SHA-256 一致で保存し、日本語名の衝突時に `(1)` を付けることも確認した。
+- 受信した `open-test.txt` をmacOS TextEditで開き、保存先コピー、受信テキストのコピーと `/tmp/ponlet-message.txt` への保存を確認した。共有シートは起動と取消までで、共有先を選んだ完了判定は未実施である。
 
 ## 残っている検証
 
-1. Tauri 2端末での保存後の開く／共有、取消後の再転送（取消自体は macOS↔Android の両方向で確認済み）。
+1. Tauri 2端末での共有先選択、取消後の再転送（開く、保存先コピー、テキストのコピー／保存、取消自体は macOS↔Android の両方向で確認済み）。
 2. iOS 実機のロック解除後起動、picker、保存、share/open。
 3. Windows、macOS、Linux、iOS、Android、Web の組み合わせを、Direct UDP、WebRTC、DERP に分けた同一入力で実行する。
 4. 各データ stream の Go bridge path report が接続後に安定すること、経路別の速度・CPU・総メモリを測る。`unknown` の表示だけでは経路試験を通過としない。
