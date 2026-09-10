@@ -280,19 +280,20 @@ fn receive_text_stream(
         }
         info!("✉️ [Tailcat Android] Text Received: {}", line);
 
-        let mut is_handshake = false;
-        if let Some(idx) = line.find("JOIN:") {
-            is_handshake = true;
-            let peer_addr = line[idx + 5..].split_whitespace().next().unwrap_or("").trim();
-            if !peer_addr.is_empty() {
-                if let Ok(mut guard) = target_peer_addr.lock() {
-                    *guard = Some(peer_addr.to_string());
-                    info!("🔗 [Tailcat Android] Automatically paired with remote peer: {}", peer_addr);
+        // Only messages sent by peers as handshakes start with the
+        // handshake emoji; plain text containing "JOIN:" is a normal
+        // message and must be displayed.
+        let is_handshake = line.starts_with("🤝");
+        if is_handshake {
+            if let Some(idx) = line.find("JOIN:") {
+                let peer_addr = line[idx + 5..].split_whitespace().next().unwrap_or("").trim();
+                if !peer_addr.is_empty() {
+                    if let Ok(mut guard) = target_peer_addr.lock() {
+                        *guard = Some(peer_addr.to_string());
+                        info!("🔗 [Tailcat Android] Automatically paired with remote peer: {}", peer_addr);
+                    }
                 }
             }
-        }
-        if line.starts_with("🤝") {
-            is_handshake = true;
         }
 
         if !is_handshake {

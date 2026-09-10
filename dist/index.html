@@ -690,20 +690,19 @@
             console.log("⚡ [Ponlet Web] Received text on Port 101:", text);
 
             let isHandshake = false;
-            // Check for JOIN:<address> handshake
-            if (text.includes("JOIN:")) {
+            // Only messages sent by peers as handshakes start with the
+            // handshake emoji; plain text containing "JOIN:" is a normal
+            // message and must be displayed.
+            if (text.startsWith("🤝")) {
                 isHandshake = true;
-                const parts = text.split("JOIN:");
-                if (parts.length > 1) {
-                    const peerAddr = parts[1].trim().split(/\s+/)[0];
+                const joinIdx = text.indexOf("JOIN:");
+                if (joinIdx !== -1) {
+                    const peerAddr = text.substring(joinIdx + 5).trim().split(/\s+/)[0];
                     if (peerAddr && peerAddr.length > 5) {
                         window.targetPeerAddress = peerAddr;
                         console.log("🔗 [Ponlet Web] Automatically paired with remote peer:", peerAddr);
                     }
                 }
-            }
-            if (text.startsWith("🤝")) {
-                isHandshake = true;
             }
 
             if (isHandshake) {

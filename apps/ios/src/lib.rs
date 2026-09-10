@@ -193,19 +193,20 @@ fn receive_text_stream(
                           target_peer_addr: &Arc<Mutex<Option<String>>>| {
         info!("✉️ [Tailcat iOS] Text Received: {}", text);
 
-        let mut is_handshake = false;
-        if let Some(idx) = text.find("JOIN:") {
-            is_handshake = true;
-            let peer_addr = text[idx + 5..].split_whitespace().next().unwrap_or("").trim();
-            if !peer_addr.is_empty() {
-                if let Ok(mut guard) = target_peer_addr.lock() {
-                    *guard = Some(peer_addr.to_string());
-                    info!("🔗 [Tailcat iOS] Automatically paired with remote peer: {}", peer_addr);
+        // Only messages sent by peers as handshakes start with the
+        // handshake emoji; plain text containing "JOIN:" is a normal
+        // message and must be displayed.
+        let is_handshake = text.starts_with("🤝");
+        if is_handshake {
+            if let Some(idx) = text.find("JOIN:") {
+                let peer_addr = text[idx + 5..].split_whitespace().next().unwrap_or("").trim();
+                if !peer_addr.is_empty() {
+                    if let Ok(mut guard) = target_peer_addr.lock() {
+                        *guard = Some(peer_addr.to_string());
+                        info!("🔗 [Tailcat iOS] Automatically paired with remote peer: {}", peer_addr);
+                    }
                 }
             }
-        }
-        if text.starts_with("🤝") {
-            is_handshake = true;
         }
 
         if !is_handshake {
