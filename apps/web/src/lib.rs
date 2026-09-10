@@ -582,6 +582,10 @@ impl WebBackend {
                     snapshot: self.snapshot(),
                 })
             }
+            AppEvent::TransportChanged(_) => self.notify(UiEvent::Snapshot {
+                sequence: ordered.sequence,
+                snapshot: self.snapshot(),
+            }),
             AppEvent::FilesReceived { items } => {
                 let items = items
                     .into_iter()
@@ -814,6 +818,7 @@ impl WebBackend {
                 return self.finish(id, Err(TransferError::Transport(error)));
             }
         };
+        self.event(AppEvent::TransportChanged(stream.transport_path()));
         let result = send_live_text_stream(&mut stream, &text, cancel).await;
         let _ = stream.close().await;
         self.finish(id, result.map(|_| ()))
@@ -868,6 +873,7 @@ impl WebBackend {
                     return self.finish(id, Err(TransferError::Transport(error)));
                 }
             };
+            self.event(AppEvent::TransportChanged(stream.transport_path()));
             let backend = self.clone();
             let callback: ProgressCallback = Box::new(move |update| backend.progress(update));
             let result =
@@ -944,6 +950,7 @@ async fn accept_loop(backend: Rc<WebBackend>, session: Rc<WebSession>) {
             Ok(value) => value,
             Err(_) => return,
         };
+        backend.event(AppEvent::TransportChanged(incoming.stream.transport_path()));
         let backend_for_stream = backend.clone();
         spawn_local(async move {
             match incoming.port {

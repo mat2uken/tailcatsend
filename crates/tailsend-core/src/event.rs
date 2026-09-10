@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
 use tailsend_platform_api::ReceivedItem;
 use crate::state::SessionState;
+use tailsend_transport_api::TransportPath;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AppEvent {
     StateChanged(SessionState),
+    TransportChanged(TransportPath),
     TextReceived {
         text: String,
     },

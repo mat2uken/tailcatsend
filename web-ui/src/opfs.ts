@@ -15,6 +15,7 @@ interface OpfsWritable {
 
 interface OpfsFileHandle {
   createWritable(options?: { keepExistingData?: boolean }): Promise<OpfsWritable>;
+  getFile?: () => Promise<File>;
   move?: (name: string) => Promise<void>;
 }
 
@@ -53,6 +54,53 @@ function sanitizeFileName(name: string): string {
 
 function getStorage(): StorageWithOpfs {
   return (globalThis.navigator as Navigator & { storage?: StorageWithOpfs }).storage ?? {};
+}
+
+async function opfsFile(handleName: string): Promise<File> {
+  if (!handleName.startsWith("opfs:/")) {
+    throw new Error("Received file is not available in OPFS");
+  }
+  const parts = handleName
+    .slice("opfs:/".length)
+    .split("/")
+    .filter((part) => part.length > 0);
+  if (
+    parts.length !== 2 ||
+    parts[0] === "." ||
+    parts[0] === ".." ||
+    parts[1] === "." ||
+    parts[1] === ".."
+  ) {
+    throw new Error("Invalid OPFS file handle");
+  }
+  const storage = getStorage();
+  if (!storage.getDirectory) {
+    throw new Error("OPFS is unavailable");
+  }
+  const root = await storage.getDirectory();
+  const directory = await root.getDirectoryHandle(parts[0]);
+  const handle = await directory.getFileHandle(parts[1]);
+  if (!handle.getFile) {
+    throw new Error("OPFS file reading is unavailable");
+  }
+  return handle.getFile();
+}
+
+/** Download a completed browser receive without copying it through the UI. */
+export async function downloadOpfsItem(handleName: string, name: string): Promise<void> {
+  const file = await opfsFile(handleName);
+  const url = URL.createObjectURL(file);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name || file.name;
+  link.hidden = true;
+  document.body.append(link);
+  try {
+    link.click();
+  } finally {
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+  }
 }
 
 /** Open a bounded OPFS sink.  Callers must commit only after the declared

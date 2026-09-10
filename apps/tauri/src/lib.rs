@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
 use tauri_plugin_dialog::{DialogExt, FileAccessMode, PickerMode};
 use tauri_plugin_fs::{FilePath, FsExt, OpenOptions};
+use tauri_plugin_opener::OpenerExt;
 
 use tailsend_core::{
     run_host_handshake, run_joiner_handshake, AppEvent, BackendService, SessionState,
@@ -377,6 +378,9 @@ impl TauriRuntime {
             AppEvent::StateChanged(_) => {
                 self.emit_snapshot(app, ordered.sequence);
             }
+            AppEvent::TransportChanged(_) => {
+                self.emit_snapshot(app, ordered.sequence);
+            }
         }
     }
 
@@ -635,6 +639,7 @@ async fn ponlet_send_text_impl(
             )
         }
     };
+    runtime.publish(&app, AppEvent::TransportChanged(stream.transport_path()));
     let result = send_live_text_stream(&mut stream, &text, cancel.clone()).await;
     let _ = stream.close().await;
     finish_outgoing(&runtime, &app, transfer_id, result.map(|_| ()), cancel)
@@ -687,6 +692,7 @@ async fn ponlet_send_files_impl(
                 );
             }
         };
+        runtime.publish(&app, AppEvent::TransportChanged(stream.transport_path()));
         let app_for_progress = app.clone();
         let backend_for_progress = runtime.clone_state();
         let callback: ProgressCallback = Box::new(move |update| {
@@ -823,6 +829,32 @@ async fn ponlet_disconnect_impl(
     runtime.disconnect_internal(&app).await
 }
 
+fn ponlet_open_received_impl(
+    app: &AppHandle,
+    runtime: &TauriRuntime,
+    local_path_or_handle: &str,
+) -> Result<(), String> {
+    let received = runtime
+        .received
+        .lock()
+        .expect("received item mutex poisoned");
+    let allowed = received_path_allowed(&received, local_path_or_handle);
+    if !allowed {
+        return Err("Received file is not registered by this session".to_string());
+    }
+    let path = PathBuf::from(local_path_or_handle);
+    if !path.is_file() {
+        return Err("Received file is no longer available".to_string());
+    }
+    app.opener()
+        .open_path(local_path_or_handle, None::<String>)
+        .map_err(|error| error.to_string())
+}
+
+fn received_path_allowed(items: &[UiReceivedItem], path: &str) -> bool {
+    items.iter().any(|item| item.local_path_or_handle == path)
+}
+
 impl TauriRuntime {
     async fn disconnect_internal(&self, app: &AppHandle) -> Result<(), String> {
         let active_transfer = self
@@ -913,6 +945,22 @@ impl TauriState {
         }
     }
 
+    fn set_transport_path(&self, app: &AppHandle, path: TransportPath) {
+        let event = self.backend.set_transport_path(path);
+        let received = self
+            .received
+            .lock()
+            .expect("received item mutex poisoned")
+            .clone();
+        let _ = app.emit(
+            APP_EVENT,
+            UiEvent::Snapshot {
+                sequence: event.sequence,
+                snapshot: snapshot_from_backend(&self.backend, &received),
+            },
+        );
+    }
+
     fn add_received(&self, item: ReceivedItem) -> UiReceivedItem {
         let item = UiReceivedItem {
             name: item.name,
@@ -947,6 +995,7 @@ async fn accept_loop(runtime: Arc<TauriState>, app: AppHandle, session: Arc<Peer
                 return;
             }
         };
+        runtime.set_transport_path(&app, incoming.stream.transport_path());
         let runtime_for_stream = runtime.clone();
         let app_for_stream = app.clone();
         tokio::spawn(async move {
@@ -1563,6 +1612,17 @@ mod tests {
         assert_eq!(image.width, image.height);
         assert_eq!(image.rgba_pixels.len(), (image.width * image.height * 4) as usize);
     }
+
+    #[test]
+    fn received_open_rejects_paths_not_reported_by_the_service() {
+        let items = vec![UiReceivedItem {
+            name: "report.txt".to_string(),
+            size: 12,
+            local_path_or_handle: "/tmp/ponlet/report.txt".to_string(),
+        }];
+        assert!(received_path_allowed(&items, "/tmp/ponlet/report.txt"));
+        assert!(!received_path_allowed(&items, "/etc/passwd"));
+    }
 }
 
 mod commands {
@@ -1642,6 +1702,15 @@ mod commands {
     ) -> Result<(), String> {
         super::ponlet_disconnect_impl(app, runtime).await
     }
+
+    #[tauri::command]
+    pub fn ponlet_open_received(
+        app: AppHandle,
+        runtime: State<'_, TauriRuntime>,
+        local_path_or_handle: String,
+    ) -> Result<(), String> {
+        super::ponlet_open_received_impl(&app, &runtime, &local_path_or_handle)
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1650,6 +1719,11 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(
+            tauri_plugin_opener::Builder::new()
+                .open_js_links_on_click(false)
+                .build(),
+        )
         .manage(runtime)
         .invoke_handler(tauri::generate_handler![
             commands::ponlet_snapshot,
@@ -1662,6 +1736,7 @@ pub fn run() {
             commands::ponlet_qr_code,
             commands::ponlet_cancel_transfer,
             commands::ponlet_disconnect,
+            commands::ponlet_open_received,
         ])
         .setup(|app| {
             let state = app.state::<TauriRuntime>();

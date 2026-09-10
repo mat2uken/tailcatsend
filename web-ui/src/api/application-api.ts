@@ -65,6 +65,8 @@ export interface PonletBackend {
   disconnect(): Promise<void>;
   dispose(): Promise<void>;
   join(invite: string): Promise<void>;
+  /** Open a received file without copying its bytes through the UI. */
+  openReceivedItem(item: ReceivedItem): Promise<void>;
   /** Open the native picker and start a transfer without exposing file bytes to JS. */
   pickAndSendFiles?: () => Promise<void>;
   /** Render an invitation without adding a JavaScript QR dependency. */

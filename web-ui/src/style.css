@@ -193,6 +193,11 @@ progress {
   color: #aeb7c8;
   font-size: 0.78rem;
 }
+.received-item-actions {
+  display: flex;
+  gap: 0.45rem;
+  flex-shrink: 0;
+}
 .settings-toggle {
   display: flex;
   gap: 0.5rem;

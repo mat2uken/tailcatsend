@@ -30,7 +30,7 @@ cargo check -p tailsend-tauri -p tailsend-desktop
 
 - Tauri の2端末間での双方向テキスト・ファイル転送、SHA-256、保存後の開く／共有。
 - iOS 実機のロック解除後起動とファイル操作。iOS Simulator の bundle 生成と、署名済み IPA のインストールは別に記録する。
-- WireGuard UDP、WebRTC DataChannel、DERP relay をそれぞれ指定した同一条件の転送。UI の経路表示は bridge の報告を表示するだけで、強制切替の成功を意味しない。
+- WireGuard UDP、WebRTC DataChannel、DERP relay をそれぞれ指定した同一条件の転送。UI は制御接続ではなく各データ stream の bridge 報告を表示するが、強制切替の成功を意味しない。
 - Windows、macOS、Linux、iOS、Android、Web の全組み合わせ、低容量保存先、巨大ファイル、100回の接続・取消・切断後の参照解放。
 - Cloudflare Pages の実デプロイ、署名付き UI/WASM 更新、起動失敗からの復元、速度・CPU・総メモリの受入値。
 

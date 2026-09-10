@@ -1,10 +1,12 @@
 import { initialSnapshot } from "./api/application-api";
-import type { PonletBackend } from "./api/application-api";
+import type { PonletBackend, ReceivedItem } from "./api/application-api";
 import { validateSnapshot } from "./api/validation";
+import { downloadOpfsItem } from "./opfs";
 export type {
   BackendEvent,
   BackendSnapshot,
   PonletBackend,
+  ReceivedItem,
   SessionState,
 } from "./api/application-api";
 
@@ -46,6 +48,10 @@ async function saveText(text: string): Promise<void> {
   }
 }
 
+async function openReceivedItem(item: ReceivedItem): Promise<void> {
+  await downloadOpfsItem(item.localPathOrHandle, item.name);
+}
+
 function unavailableBackend(): PonletBackend {
   const message = navigator.language.toLowerCase().startsWith("ja")
     ? "通信処理が未接続です。この移行用UIでは送受信できません。"
@@ -62,6 +68,7 @@ function unavailableBackend(): PonletBackend {
     sendFiles: unavailable,
     cancelTransfer: unavailable,
     disconnect: unavailable,
+    openReceivedItem: unavailable,
     copyText,
     shareText,
     saveText,
@@ -107,6 +114,9 @@ export function createBackend(
     sendFiles: (files) => native.sendFiles(files),
     cancelTransfer: (id) => native.cancelTransfer(id),
     disconnect: () => native.disconnect(),
+    openReceivedItem: native.openReceivedItem
+      ? (item) => native.openReceivedItem!(item)
+      : openReceivedItem,
     copyText: (text) => (native.copyText ? native.copyText(text) : copyText(text)),
     shareText: (text) => (native.shareText ? native.shareText(text) : shareText(text)),
     saveText: (text) => (native.saveText ? native.saveText(text) : saveText(text)),

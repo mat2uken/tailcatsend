@@ -34,7 +34,7 @@
 1. Tauri 2端末のテキスト・ファイル双方向転送、保存物の SHA-256、取消と再転送。
 2. iOS 実機のロック解除後起動、picker、保存、share/open。
 3. Windows、macOS、Linux、iOS、Android、Web の組み合わせを、Direct UDP、WebRTC、DERP に分けた同一入力で実行する。
-4. Go bridge の path report が接続後に安定すること、経路別の速度・CPU・総メモリを測る。`unknown` の表示だけでは経路試験を通過としない。
+4. 各データ stream の Go bridge path report が接続後に安定すること、経路別の速度・CPU・総メモリを測る。`unknown` の表示だけでは経路試験を通過としない。
 5. Pages 実デプロイ、署名付き UI/WASM の取得・検証・切替、起動失敗時の復元。
 6. 100回の接続・転送・取消・切断後に stream、Go client、JS callback、購読、timer が残らないこと。
 

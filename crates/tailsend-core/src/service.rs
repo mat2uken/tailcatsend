@@ -133,6 +133,13 @@ impl BackendService {
         self.emit(AppEvent::StateChanged(state))
     }
 
+    /// Record the path selected for the current data stream.  Tailcat can
+    /// choose a different path for a transfer than it used for the control
+    /// handshake, so adapters call this after every dial/accept.
+    pub fn set_transport_path(&self, path: TransportPath) -> BackendEvent {
+        self.emit(AppEvent::TransportChanged(path))
+    }
+
     /// Publish a non-progress event.  Terminal events are never coalesced.
     pub fn emit(&self, event: AppEvent) -> BackendEvent {
         let mut inner = self.inner.lock().expect("backend state mutex poisoned");
@@ -331,6 +338,9 @@ fn publish_locked(inner: &mut ServiceState, queue_limit: usize, event: AppEvent)
             inner.snapshot.app.state = state.clone();
             refresh_capabilities(&mut inner.snapshot.app, state);
         }
+        AppEvent::TransportChanged(path) => {
+            inner.snapshot.app.transport_path = *path;
+        }
         AppEvent::TransferProgress {
             transfer_id,
             bytes_done,
@@ -378,6 +388,18 @@ mod tests {
         assert_eq!(event.sequence, 1);
         assert_eq!(snapshot.sequence, 1);
         assert_eq!(snapshot.app.state, state);
+    }
+
+    #[test]
+    fn transport_event_updates_the_path_during_a_transfer() {
+        let service = BackendService::default();
+        let event = service.set_transport_path(TransportPath::Derp);
+        let snapshot = service.snapshot();
+        assert!(matches!(
+            event.event,
+            AppEvent::TransportChanged(TransportPath::Derp)
+        ));
+        assert_eq!(snapshot.app.transport_path, TransportPath::Derp);
     }
 
     #[test]

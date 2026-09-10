@@ -38,6 +38,7 @@ const uiText = isJapanese
       share: "共有",
       save: "保存",
       copyPath: "保存先をコピー",
+      openFile: "開く",
       receivedFiles: "受信ファイル",
       scan: "カメラで読取",
       scanUnavailable: "このWebViewではカメラQR読取を利用できません。URLを貼り付けてください。",
@@ -69,6 +70,7 @@ const uiText = isJapanese
       share: "Share",
       save: "Save",
       copyPath: "Copy save location",
+      openFile: "Open",
       receivedFiles: "Received files",
       scan: "Scan with camera",
       scanUnavailable: "Camera QR scanning is unavailable in this WebView. Paste the URL instead.",
@@ -384,10 +386,12 @@ van.derive(() => {
   receivedList.replaceChildren(
     ...snapshot.val.received.map((item) => {
       const pathButton = button({ class: "secondary", type: "button" }, uiText.copyPath);
+      const openButton = button({ class: "secondary", type: "button" }, uiText.openFile);
       pathButton.addEventListener(
         "click",
         () => void run(() => backend.copyText(item.localPathOrHandle)),
       );
+      openButton.addEventListener("click", () => void run(() => backend.openReceivedItem(item)));
       return li(
         { class: "received-item" },
         div(
@@ -395,7 +399,7 @@ van.derive(() => {
           item.name,
           span({ class: "received-item-size" }, `${item.size.toLocaleString()} bytes`),
         ),
-        pathButton,
+        div({ class: "received-item-actions" }, openButton, pathButton),
       );
     }),
   );

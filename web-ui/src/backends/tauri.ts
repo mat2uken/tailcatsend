@@ -5,6 +5,7 @@ import type {
   BackendSnapshot,
   PonletBackend,
   QrBitmap,
+  ReceivedItem,
 } from "../api/application-api";
 import { validateSnapshot } from "../api/validation";
 
@@ -84,6 +85,8 @@ export function createBackend(): PonletBackend {
     qrCode: (url): Promise<QrBitmap> => invoke("ponlet_qr_code", { url }),
     cancelTransfer: (id) => invoke("ponlet_cancel_transfer", { id }),
     disconnect: () => invoke("ponlet_disconnect"),
+    openReceivedItem: (item: ReceivedItem) =>
+      invoke("ponlet_open_received", { localPathOrHandle: item.localPathOrHandle }),
     copyText,
     shareText,
     saveText,

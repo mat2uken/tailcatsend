@@ -30,6 +30,7 @@ function bridge(overrides = {}) {
     sendFiles: async () => {},
     cancelTransfer: async () => {},
     disconnect: async () => {},
+    openReceivedItem: async () => {},
     dispose: async () => {},
     ...overrides,
   };
@@ -111,6 +112,18 @@ it("forwards the QR renderer without adding a JavaScript QR dependency", async (
   const bitmap = { width: 2, height: 2, rgbaPixels: [0, 0, 0, 255, 255, 255, 255, 255] };
   const backend = createBackend(bridge({ qrCode: async () => bitmap }));
   await expect(backend.qrCode?.("https://example.test/#i=abc")).resolves.toEqual(bitmap);
+});
+
+it("opens received items through the adapter without exposing file bytes", async () => {
+  const opened = [];
+  const item = { name: "report.txt", size: 12, localPathOrHandle: "/tmp/report.txt" };
+  const backend = createBackend(
+    bridge({
+      openReceivedItem: async (received) => opened.push(received),
+    }),
+  );
+  await backend.openReceivedItem(item);
+  expect(opened).toEqual([item]);
 });
 
 it("unsupported API version and unavailable clipboard reject", async () => {
