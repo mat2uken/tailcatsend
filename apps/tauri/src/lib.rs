@@ -4,6 +4,7 @@
 //! file handles stay in the native process, while the shared Rust transfer
 //! engine owns framing, byte counts, cancellation and save completion.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -1264,6 +1265,7 @@ impl FileSource for NativeFileSource {
             .read(&mut bytes)
             .await
             .map_err(|error| StorageError::Io(error.to_string()))?;
+        self.next_offset = offset.saturating_add(count as u64);
         bytes.truncate(count);
         Ok(bytes::Bytes::from(bytes))
     }
@@ -1274,14 +1276,19 @@ impl FileSource for NativeFileSource {
         destination: &mut [u8],
     ) -> Result<usize, StorageError> {
         use tokio::io::{AsyncReadExt, AsyncSeekExt};
-        self.file
-            .seek(std::io::SeekFrom::Start(offset))
-            .await
-            .map_err(|error| StorageError::Io(error.to_string()))?;
-        self.file
+        if self.next_offset != offset {
+            self.file
+                .seek(std::io::SeekFrom::Start(offset))
+                .await
+                .map_err(|error| StorageError::Io(error.to_string()))?;
+        }
+        let count = self
+            .file
             .read(destination)
             .await
-            .map_err(|error| StorageError::Io(error.to_string()))
+            .map_err(|error| StorageError::Io(error.to_string()))?;
+        self.next_offset = offset.saturating_add(count as u64);
+        Ok(count)
     }
 
     async fn close(&mut self) {}
@@ -1290,6 +1297,7 @@ impl FileSource for NativeFileSource {
 struct NativeFileSource {
     file: tokio::fs::File,
     metadata: FileMetadata,
+    next_offset: u64,
 }
 
 impl NativeFileSource {
@@ -1321,6 +1329,7 @@ impl NativeFileSource {
                 mime: request.mime,
                 modified_unix_ms: None,
             },
+            next_offset: 0,
         })
     }
 }
@@ -1383,29 +1392,7 @@ impl IncomingFileSink for NativeFileSink {
                     .await
                     .map_err(|error| StorageError::Io(error.to_string()))?;
             }
-            if tokio::fs::try_exists(&self.final_path)
-                .await
-                .map_err(|error| StorageError::Io(error.to_string()))?
-            {
-                let stem = self
-                    .final_path
-                    .file_stem()
-                    .and_then(|v| v.to_str())
-                    .unwrap_or("received");
-                let ext = self
-                    .final_path
-                    .extension()
-                    .and_then(|v| v.to_str())
-                    .unwrap_or("");
-                let suffix = if ext.is_empty() {
-                    String::new()
-                } else {
-                    format!(".{ext}")
-                };
-                self.final_path = self
-                    .final_path
-                    .with_file_name(format!("{stem} (1){suffix}"));
-            }
+            self.final_path = unique_received_path(&self.final_path).await?;
             tokio::fs::rename(&self.temp_path, &self.final_path)
                 .await
                 .map_err(|error| StorageError::Io(error.to_string()))?;
@@ -1427,6 +1414,35 @@ impl IncomingFileSink for NativeFileSink {
         let _ = tokio::fs::remove_file(&self.temp_path).await;
         Ok(())
     }
+}
+
+async fn unique_received_path(path: &Path) -> Result<PathBuf, StorageError> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| StorageError::Io("received path has no parent".into()))?;
+    let candidate = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| StorageError::Io("received path has no filename".into()))?;
+    let mut existing = HashSet::new();
+    let mut entries = tokio::fs::read_dir(parent)
+        .await
+        .map_err(|error| StorageError::Io(error.to_string()))?;
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(|error| StorageError::Io(error.to_string()))?
+    {
+        if let Some(name) = entry.file_name().to_str() {
+            existing.insert(name.to_owned());
+        }
+    }
+    let unique = unique_received_name(&existing, candidate);
+    Ok(parent.join(unique))
+}
+
+fn unique_received_name(existing: &HashSet<String>, candidate: &str) -> String {
+    tailsend_protocol::filename::generate_unique_filename(existing, candidate)
 }
 
 fn snapshot_from_backend(backend: &BackendService, received: &[UiReceivedItem]) -> UiSnapshot {
@@ -1680,6 +1696,21 @@ mod tests {
         }];
         assert!(received_path_allowed(&items, "/tmp/ponlet/report.txt"));
         assert!(!received_path_allowed(&items, "/etc/passwd"));
+    }
+
+    #[test]
+    fn received_name_skips_all_existing_collision_suffixes() {
+        let existing = [
+            "report.txt".to_string(),
+            "report (1).txt".to_string(),
+            "report (2).txt".to_string(),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(
+            unique_received_name(&existing, "report.txt"),
+            "report (3).txt"
+        );
     }
 }
 

@@ -115,8 +115,10 @@ tc_result_t tc_stream_dial_wait(
     tc_handle_t *out_stream);
 
 /*
- * Read up to capacity bytes. TC_OK with out_read>0 means data.
- * TC_EOF means orderly peer half-close. Only one concurrent read per stream.
+ * Read up to capacity bytes. out_read is valid for every returned status.
+ * When out_read>0 and the status is TC_EOF or another error, consume those
+ * bytes first and handle the status on the following read. TC_EOF with zero
+ * bytes means an orderly peer half-close. Only one concurrent read per stream.
  */
 tc_result_t tc_stream_read(
     tc_handle_t stream,
