@@ -23,6 +23,8 @@
 - Go bridge の server status は peer 情報を明示的に取得する。接続通知時の値だけでなく、Rust stream がデータ開始時に再取得するため、受信側も実際の経路へ追随する。
 - `vanjslitetemplate` の Vite 8、Vitest、Oxlint、Oxfmt、`@nkzw/oxlint-config`、`vanjs-core` 構成を採用した。mode ごとの outDir と ES2018 target は維持する。
 - 旧 Slint workspace crate、font/icon、winit patch、NativeActivity/UIKit shell、旧生成 Pages entry を削除した。
+- `d1c3473` で保存先の確認を上限付き存在確認へ変更し、宣言サイズを受信した時点で保存を確定するようにした。遅延する half-close を待たないため、Files provider と大きなファイルでの停止を避ける。
+- `adb7b65` で共通 Rust service から native／Web の stream close を呼ぶ取消 callback を追加した。callback は状態 mutex の外で一度だけ実行し、I/O 待ちを解除する。
 
 ## 確認済み
 
@@ -38,10 +40,12 @@
 - `cd web-ui && npm run test:e2e:real` で、招待、接続、テキスト、131,089 byte ファイル、OPFSからの開く操作、SHA-256、両端の経路表示を一括確認する。
 - `cd web-ui && npm run test:e2e:real:derp` ではローカル試験ページの WebRTC API を無効にして、同じ転送を DERP relay で再実行する。両端の経路表示が `derp` になることを含めて検査する。
 - `cd web-ui && PONLET_ANDROID_SERIAL=<serial> npm run test:e2e:android` では Sony XQ-DQ44 の Android Tauri WebView とWorker化した Chromiumを WebRTCで接続し、双方向テキストと131,071 byteファイルのSHA-256一致を確認する。`PONLET_TEST_TRANSPORT=derp` を付けた `npm run test:e2e:android:derp` では同じ入力を DERP relayで再実行する。
+- `adb7b65` 後にも Android APK を再ビルドして上記2コマンドを実行し、WebRTC／DERP ともに両端の経路表示、双方向テキスト、131,071 byteファイル、SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` の一致を確認した。
+- 同じ commit の macOS Tauri bundle と Android を DERP relay で接続し、64 MiB の送信側取消と受信側取消を実行した。どちらも接続待機へ戻り、保存先に確定ファイルや `.part` が残らなかった。通常の Android→macOS 転送では 4,096 byte と 98,321 byte のファイルを SHA-256 一致で保存し、日本語名の衝突時に `(1)` を付けることも確認した。
 
 ## 残っている検証
 
-1. Tauri 2端末での保存後の開く／共有、取消と再転送。
+1. Tauri 2端末での保存後の開く／共有、取消後の再転送（取消自体は macOS↔Android の両方向で確認済み）。
 2. iOS 実機のロック解除後起動、picker、保存、share/open。
 3. Windows、macOS、Linux、iOS、Android、Web の組み合わせを、Direct UDP、WebRTC、DERP に分けた同一入力で実行する。
 4. 各データ stream の Go bridge path report が接続後に安定すること、経路別の速度・CPU・総メモリを測る。`unknown` の表示だけでは経路試験を通過としない。
@@ -49,6 +53,8 @@
 6. 100回の接続・転送・取消・切断後に stream、Go client、JS callback、購読、timer が残らないこと。
 
 iOS 実機は Bundle ID `jp.yasagure.ponlet` の署名・Provisioning Profile が開発チームに存在せず、2026-09-11 の debug build が Xcode signing で停止した。iOS Simulator の build 成功とは分けて扱う。
+
+Linux cross check は aarch64 用 sysroot と `pkg-config` の `libdbus` 設定不足で停止し、Windows target と Windows／Linux／iOS の実機はこの環境にない。Pages の実デプロイ、署名付き更新の起動切替、性能と総メモリの測定も未実施である。
 
 ## 再現コマンド
 

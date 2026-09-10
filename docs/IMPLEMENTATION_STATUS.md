@@ -17,6 +17,8 @@
 - BrowserではGo Tailcat WASMをWindowに置き、Rust service WASMとOPFSをDedicated Workerへ置く。Workerとのstream I/OはMessagePortで中継し、本文バッファはTransferableなArrayBufferを使う。Workerを使えないWebViewには同一Window adapterの切替を残す。
 - ブラウザのFileSourceは再利用バッファへ直接読み出す`read_into`を使い、64 KiBごとの一時`Bytes`割当を追加しない。
 - Tailcat の状態取得では peer 情報を要求し、受信側のデータ stream でも WebRTC／WireGuard UDP／DERP の表示を接続後に更新する。修正は `tailcat/patches/0003-tailcat-status-peer-report.patch` としてビルド時に適用する。
+- `d1c3473` で受信保存の衝突候補をディレクトリ全走査から上限付き存在確認へ変更し、宣言サイズを受け取った後に遅延する half-close を待たず保存を確定する。iCloud／Files provider での待機と、100%表示後に止まる受信を避ける。
+- `adb7b65` で取消時に native／Web の stream を実際に閉じる callback を共通 service へ登録した。callback は状態 mutex の外で一度だけ呼び出し、Go の read/write 待ちも close で解除する。
 
 ## ローカルで通過させる確認
 
@@ -27,7 +29,7 @@ cargo check -p tailsend-tauri -p tailsend-desktop
 (cd web-ui && npm ci && npm run lint && npm run typecheck && npm test && npm run build -- --mode web && npm run build -- --mode tauri)
 ```
 
-現在の unit test は Rust workspace と Web UI の回帰ケースを対象にし、ヘッダー分割、本文同時受信、部分 I/O、取消、保存失敗、イベント順序、QR、受信一覧、Tauri picker forwarding を含める。
+現在の unit test は Rust workspace 46件（core 14、transfer 17を含む）と Web UI 21件を対象にし、ヘッダー分割、本文同時受信、部分 I/O、取消、保存失敗、イベント順序、QR、受信一覧、Tauri picker forwarding、署名付き更新 manifest を含める。
 
 Chrome 2 タブの実通信では、日本語テキスト、131,089 byte ファイル、OPFSからの開く操作、SHA-256一致、両端の `webrtc` 表示を確認した。再現コマンドは `cd web-ui && npm run test:e2e:real`。
 
@@ -45,14 +47,20 @@ Web 2タブの実通信E2Eには `npm run test:e2e:real:derp` を追加した。
 
 Worker化後も `npm run test:e2e:real` と `npm run test:e2e:real:derp` が同じ入力とSHA-256で通過した。Sony XQ-DQ44 (Android 15) とWorker化した Chromiumの実機E2Eも `npm run test:e2e:android` (WebRTC) と `npm run test:e2e:android:derp` (DERP) で通過し、131,071 byteのファイル保存と端末上のSHA-256を確認した。
 
+`adb7b65` 後に同じ Android APK を再インストールして、上記 Android／Chromium E2E を再実行した。WebRTC と DERP の両方で接続後の両端表示、双方向テキスト、`browser-to-android-日本語.bin` (131,071 bytes)、SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` が一致した。Browser 2タブも同じ commit で WebRTC／DERP の各実行を再確認した。
+
+正式な macOS bundle を `adb7b65` で再ビルドし、Sony XQ-DQ44 と接続した。64 MiB のファイルを使い、Android→macOS の送信側取消、macOS→Android の受信側取消を DERP relay 上でそれぞれ実行した。取消後は両端が接続待機へ戻り、受信先に確定ファイルも `.part` も残らないことを確認した。通常転送では Android から macOS へ 4,096 byte の `small.bin`（SHA-256 `2dba0b4d9372f74682a66cb4eb7edfb620d6b4b151ea25b68f115ff82979a3f0`）と 98,321 byte の日本語名ファイル（SHA-256 `2e1b363da4361f817a79751077a6930d34e0d7e4766e98b82522ab74900e8937`）を保存し、既存名との衝突時は `(1)` を付けることを確認した。
+
 ## まだ実機で証明していない項目
 
-- Tauri の2端末間で、保存後の開く／共有、取消と再転送。
+- Tauri の2端末間で、保存後の開く／共有、取消後の再転送。取消そのものは macOS↔Android の送信側・受信側で確認済み。
 - iOS 実機のロック解除後起動とファイル操作。iOS Simulator の bundle 生成と、署名済み IPA のインストールは別に記録する。
 - WireGuard UDP、WebRTC DataChannel、DERP relay をそれぞれ指定した同一条件の転送。UI は制御接続ではなく各データ stream の bridge 報告を表示するが、強制切替の成功を意味しない。
 - Windows、macOS、Linux、iOS、Android、Web の全組み合わせ、低容量保存先、巨大ファイル、100回の接続・取消・切断後の参照解放。
 - Cloudflare Pages の実デプロイ、署名付き UI/WASM 更新、起動失敗からの復元、速度・CPU・総メモリの受入値。
 
 2026-09-11 の iOS 実機試行は、接続済み iPhone 12 Pro に対して `APPLE_DEVELOPMENT_TEAM=4VSXQAQDT ./scripts/build_tauri_mobile.sh ios debug` を実行したが、`jp.yasagure.ponlet` の Bundle ID を登録できず、Provisioning Profile が見つからないため Xcode signing で停止した。署名設定を変更して通過扱いにはしていない。
+
+`cargo check -p tailsend-tauri` は aarch64-apple-ios、aarch64-apple-ios-sim、x86_64-apple-ios、wasm32-unknown-unknown で通過した。aarch64-unknown-linux-gnu は Rust のエラーではなく、実行環境に cross sysroot と `pkg-config` の `libdbus` 設定がないため停止している。Windows target と各 OS の実機はこの環境にない。
 
 上記はビルド成功やブラウザ2タブの WebRTC smoke だけでは完了扱いにしない。端末、commit、通信経路、入力ファイル、受信ハッシュ、保存物、所要時間を同じ記録へ残してから判定する。

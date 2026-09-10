@@ -12,19 +12,22 @@ UI と転送処理の責務は分かれ、ファイル本文を UI の JSON、Ba
 
 | 確認 | 状態 |
 | --- | --- |
-| `cargo test --workspace` | Slint 削除後の全 crate を実行 |
+| `cargo test --workspace` | Slint 削除後の全 crate、46 Rust tests を実行 |
 | `cargo check -p tailsend-web --target wasm32-unknown-unknown` | Browser service の compile |
 | Tauri/Desktop check | Go bridge と WebView adapter の link |
-| Web UI lint/typecheck/unit/build | web/tauri 両 mode |
-| Browser smoke | 2 タブ WebRTC DataChannel の招待とテキスト |
+| Web UI lint/typecheck/unit/build | web/tauri 両 mode、Vitest 21件、Oxlint/Oxfmt |
+| Browser smoke | 2 タブ WebRTC／DERP の招待、テキスト、ファイル、SHA-256 |
+| Android実機 smoke | Sony XQ-DQ44 と Chromium の WebRTC／DERP 双方向転送 |
+| Tauri実機 smoke | macOS bundle と Sony XQ-DQ44 の direct-udp 表示、DERP転送、取消 |
 | Android/iOS bundle | Tauri mobile の生成 |
 
 ## 未完了の受入項目
 
-- Tauri 2端末の実ファイル送受信、保存、share/open、取消。
+- Tauri 2端末の保存後の開く／共有、取消後の再転送。取消自体と通常転送は macOS↔Android で確認済み。
 - iOS 実機起動と実機ファイル操作。
 - WireGuard UDP、WebRTC、DERP を強制または再現条件で分けた全 OS 組み合わせ。
 - Cloudflare Pages 実デプロイ、署名付き更新、失敗版隔離と復帰。
 - 速度中央値、入力応答 p95、Go heap、WebView を含む総メモリ、bundle サイズの同一条件比較。
+- iOS実機は Bundle ID `jp.yasagure.ponlet` の Provisioning Profile 不足、Linux cross check は aarch64 sysroot／`pkg-config` 不足、Windows実機は検証環境不在で未完了。
 
 これらはビルドや静的検査だけでは完了扱いにしない。実機の commit と通信経路を固定し、送受信 hash と保存物を確認してから完了にする。
