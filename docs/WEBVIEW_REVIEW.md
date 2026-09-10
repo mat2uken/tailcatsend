@@ -20,7 +20,7 @@ UI と転送処理の責務は分かれ、ファイル本文を UI の JSON、Ba
 | Android実機 smoke | Sony XQ-DQ44 と Chromium の WebRTC／DERP 双方向転送 |
 | native bridge 改修後の Android 再検証 | `a4d2143` で再生成した APK、WebRTC／DERP 双方向転送、131,071 byte と SHA-256一致 |
 | Tauri実機 smoke | macOS bundle と Sony XQ-DQ44 の direct-udp 表示、DERP転送、取消 |
-| Android/iOS bundle | Tauri mobile の生成 |
+| Android/iOS bundle | Android APK と iOS 18.5 iPhone 16 simulator bundle を最新コードで再生成・起動 |
 
 ## 未完了の受入項目
 

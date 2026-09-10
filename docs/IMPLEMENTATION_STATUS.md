@@ -52,6 +52,8 @@ Worker化後も `npm run test:e2e:real` と `npm run test:e2e:real:derp` が同�
 
 `a4d2143` の native bridge 改修後に Android debug APK を再生成して Sony XQ-DQ44 へ再インストールし、同じ Android／Chromium E2E を再実行した。WebRTC と DERP の両方で両端の `connected` と経路表示、双方向テキスト、`browser-to-android-日本語.bin` (131,071 bytes)、SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` が一致した。APK は `apps/tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk` に生成され、Rust 側のチャンク一時割当削減後も実機転送が維持されることを確認した。
 
+`ffb753c` 後に `./scripts/build_tauri_mobile.sh ios-sim debug` を実行して iOS 18.5 の iPhone 16 simulator 用 `apps/tauri/gen/apple/build/arm64-sim/Ponlet.app` を再生成し、`xcrun simctl install`／`launch` で起動待機画面を確認した。これは iOS WebView shell の起動確認であり、iOS 実機の署名・通信確認ではない。
+
 正式な macOS bundle を `adb7b65` で再ビルドし、Sony XQ-DQ44 と接続した。64 MiB のファイルを使い、Android→macOS の送信側取消、macOS→Android の受信側取消を DERP relay 上でそれぞれ実行した。取消後は両端が接続待機へ戻り、受信先に確定ファイルも `.part` も残らないことを確認した。通常転送では Android から macOS へ 4,096 byte の `small.bin`（SHA-256 `2dba0b4d9372f74682a66cb4eb7edfb620d6b4b151ea25b68f115ff82979a3f0`）と 98,321 byte の日本語名ファイル（SHA-256 `2e1b363da4361f817a79751077a6930d34e0d7e4766e98b82522ab74900e8937`）を保存し、既存名との衝突時は `(1)` を付けることを確認した。
 
 同じ接続で `open-test.txt` (27 bytes) を受信し、WebViewの「開く」からmacOS TextEditで本文を表示した。「保存先をコピー」は `/Users/kenichim/Downloads/Ponlet/open-test.txt` をクリップボードへ渡し、受信テキストの「コピー」と「保存」（`/tmp/ponlet-message.txt`）も確認した。共有はmacOS共有シートの起動と取消を確認したが、共有先を選択した完了判定は残している。
