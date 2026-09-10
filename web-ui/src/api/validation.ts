@@ -9,5 +9,8 @@ export function validateSnapshot(snapshot: BackendSnapshot): BackendSnapshot {
   if (!Number.isSafeInteger(snapshot.sequence) || snapshot.sequence < 0) {
     throw new Error("Invalid Ponlet event sequence");
   }
+  if (!new Set(["direct-udp", "webrtc", "derp", "unknown"]).has(snapshot.transport)) {
+    throw new Error("Invalid Ponlet transport path");
+  }
   return snapshot;
 }

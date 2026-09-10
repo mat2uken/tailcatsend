@@ -78,6 +78,10 @@ button:disabled {
 .status {
   color: #9ed7ff;
 }
+.transport-path {
+  color: #8ee0b4;
+  font-size: 0.85rem;
+}
 .peer-name {
   color: #b7c2d4;
 }

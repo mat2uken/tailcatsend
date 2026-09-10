@@ -6,6 +6,7 @@ use futures::lock::Mutex as AsyncMutex;
 use futures::StreamExt;
 use tailsend_transport_api::{
     DuplexStream, IncomingStream, ListenOptions, Listener, TailcatTransport, TransportError,
+    TransportPath,
 };
 
 pub struct MockStream {
@@ -13,6 +14,7 @@ pub struct MockStream {
     rx: UnboundedReceiver<Vec<u8>>,
     current_read_buf: Vec<u8>,
     is_closed: bool,
+    path: TransportPath,
 }
 
 impl MockStream {
@@ -25,12 +27,14 @@ impl MockStream {
             rx: rx1,
             current_read_buf: Vec::new(),
             is_closed: false,
+            path: TransportPath::DirectUdp,
         };
         let s2 = Self {
             tx: tx1,
             rx: rx2,
             current_read_buf: Vec::new(),
             is_closed: false,
+            path: TransportPath::DirectUdp,
         };
         (s1, s2)
     }
@@ -39,6 +43,10 @@ impl MockStream {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl DuplexStream for MockStream {
+    fn transport_path(&self) -> TransportPath {
+        self.path
+    }
+
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, TransportError> {
         if self.is_closed {
             return Ok(0);

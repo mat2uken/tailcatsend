@@ -14,6 +14,7 @@ use futures::channel::mpsc::{channel, Receiver, Sender};
 use serde::{Deserialize, Serialize};
 
 use crate::{AppEvent, AppSnapshot, SessionState};
+use tailsend_transport_api::TransportPath;
 
 const DEFAULT_EVENT_QUEUE: usize = 64;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(200);
@@ -255,11 +256,17 @@ impl BackendService {
 }
 
 fn refresh_capabilities(snapshot: &mut AppSnapshot, state: &SessionState) {
+    let previous_transport_path = snapshot.transport_path;
     snapshot.can_send = false;
     snapshot.can_disconnect = false;
     snapshot.pending_offer = None;
     snapshot.invite_qr_url = None;
     snapshot.invite_expires_in_secs = 0;
+    snapshot.transport_path = match state {
+        SessionState::ConnectedIdle { transport_path, .. } => *transport_path,
+        SessionState::Transferring { .. } => previous_transport_path,
+        _ => TransportPath::Unknown,
+    };
     match state {
         SessionState::AwaitingPeer { invite_url, .. } => {
             snapshot.invite_qr_url = Some(invite_url.clone());

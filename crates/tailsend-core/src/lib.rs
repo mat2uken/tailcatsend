@@ -31,6 +31,7 @@ mod tests {
         receive_file_item_stream, receive_text_stream, send_file_item_stream, send_text_stream,
     };
     use tailsend_transport_api::{ListenOptions, TailcatTransport};
+    use tailsend_transport_api::TransportPath;
 
     use crate::mock_transport::MockNetworkHub;
     use crate::session::{
@@ -174,6 +175,8 @@ mod tests {
 
         assert_eq!(host_handshake.peer_info.display_name, "Joiner Node");
         assert_eq!(joiner_handshake.peer_info.display_name, "Host Node");
+        assert_eq!(host_handshake.transport_path, TransportPath::DirectUdp);
+        assert_eq!(joiner_handshake.transport_path, TransportPath::DirectUdp);
 
         // Test text data stream on TEXT_PORT (101)
         let mut transfer_id = [0u8; 16];

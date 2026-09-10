@@ -15,6 +15,7 @@ use tailsend_native_bridge::{
 };
 use tailsend_transport_api::{
     DuplexStream, IncomingStream, ListenOptions, Listener, TailcatTransport, TransportError,
+    TransportPath,
 };
 
 const IO_TIMEOUT_MS: u32 = 30_000;
@@ -53,6 +54,16 @@ fn copy_listener_address(handle: TcHandle) -> Result<String, TransportError> {
     bytes.truncate(length);
     String::from_utf8(bytes)
         .map_err(|error| TransportError::Protocol(format!("invalid Tailcat address: {error}")))
+}
+
+fn stream_transport_path(handle: TcHandle) -> TransportPath {
+    let mut code = tailsend_native_bridge::TC_TRANSPORT_UNKNOWN;
+    let status = unsafe { tailsend_native_bridge::tc_stream_transport(handle, &mut code) };
+    if status == TC_OK {
+        TransportPath::from_code(code)
+    } else {
+        TransportPath::Unknown
+    }
 }
 
 /// A process-wide Go bridge owner. Calling `tc_shutdown` from an arbitrary
@@ -283,6 +294,7 @@ impl Drop for NativeListener {
 struct NativeStream {
     handle: TcHandle,
     closed: Arc<AtomicBool>,
+    transport_path: TransportPath,
 }
 
 impl NativeStream {
@@ -290,12 +302,17 @@ impl NativeStream {
         Self {
             handle,
             closed: Arc::new(AtomicBool::new(false)),
+            transport_path: stream_transport_path(handle),
         }
     }
 }
 
 #[async_trait::async_trait]
 impl DuplexStream for NativeStream {
+    fn transport_path(&self) -> TransportPath {
+        self.transport_path
+    }
+
     async fn read(&mut self, buffer: &mut [u8]) -> Result<usize, TransportError> {
         if buffer.is_empty() {
             return Ok(0);

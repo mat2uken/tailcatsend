@@ -1,6 +1,6 @@
 import van from "vanjs-core";
 import { createBackend, initializeBrowserBackend } from "@backend";
-import { initialSnapshot, type PonletBackend } from "./api/application-api";
+import { initialSnapshot, type PonletBackend, type TransportPath } from "./api/application-api";
 import { Session, type Message } from "./session";
 import { placeAnchor } from "./lib/position";
 import "./style.css";
@@ -126,6 +126,7 @@ window.addEventListener("pagehide", (event) => {
 });
 
 const status = span({ class: "status" });
+const transport = span({ class: "transport-path" });
 const peer = span({ class: "peer-name" });
 const invite = a({ class: "invite-link", target: "_blank", rel: "noreferrer" });
 const log = div({ class: "message-log", role: "log" });
@@ -174,6 +175,19 @@ function closeSettings(): void {
   settingsReturnFocus = null;
 }
 
+function transportLabel(path: TransportPath): string {
+  if (path === "direct-udp") {
+    return isJapanese ? "WireGuard UDP" : "WireGuard UDP";
+  }
+  if (path === "webrtc") {
+    return isJapanese ? "WebRTC DataChannel" : "WebRTC DataChannel";
+  }
+  if (path === "derp") {
+    return "DERP relay";
+  }
+  return "";
+}
+
 van.derive(() => {
   const value = snapshot.val;
   status.textContent =
@@ -184,7 +198,8 @@ van.derive(() => {
         ? uiText.connected
         : value.state === "awaiting-peer"
           ? uiText.waiting
-          : uiText.preparing);
+        : uiText.preparing);
+  transport.textContent = transportLabel(value.transport);
   peer.textContent = value.peerName || uiText.app;
   invite.textContent = value.inviteUrl ? uiText.saved : "";
   invite.href = "#";
@@ -327,6 +342,7 @@ document.body.append(
     section(
       { class: "connection-card" },
       status,
+      transport,
       div(
         { class: "connection-actions" },
         joinInput,

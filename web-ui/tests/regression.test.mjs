@@ -102,6 +102,22 @@ it("unsupported API version and unavailable clipboard reject", async () => {
   await expect(backend.copyText("hello")).rejects.toThrow(/Clipboard is unavailable/);
 });
 
+it("accepts the four transport path values exposed by native and browser adapters", async () => {
+  const backend = createBackend(
+    bridge({
+      snapshot: async () => ({ ...initialSnapshot(), state: "connected", transport: "derp" }),
+    }),
+  );
+  await expect(backend.snapshot()).resolves.toMatchObject({
+    state: "connected",
+    transport: "derp",
+  });
+  const invalid = createBackend(
+    bridge({ snapshot: async () => ({ ...initialSnapshot(), transport: "quic" }) }),
+  );
+  await expect(invalid.snapshot()).rejects.toThrow(/transport path/);
+});
+
 it("late initial snapshot cannot overwrite newer subscription state", async () => {
   const first = deferred();
   let listener;

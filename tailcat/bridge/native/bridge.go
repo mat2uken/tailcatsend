@@ -40,6 +40,7 @@ import (
 	"io"
 	"net"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -70,6 +71,11 @@ const (
 	TC_EVENT_LISTENER_ERROR  = 2
 	TC_EVENT_STREAM_ERROR    = 3
 	TC_EVENT_LOG             = 4
+
+	TC_TRANSPORT_DIRECT_UDP = 0
+	TC_TRANSPORT_WEBRTC     = 1
+	TC_TRANSPORT_DERP       = 2
+	TC_TRANSPORT_UNKNOWN    = 255
 )
 
 // bridgeVersion is overridden by release builds with -ldflags=-X. Keeping a
@@ -90,6 +96,65 @@ func (staticDERPCache) Put(url string, data []byte, etag string) error {
 
 func init() {
 	netmon.RegisterInterfaceGetter(interfacesViaGetifaddrs)
+}
+
+func transportFromEndpoint(endpoint string) uint8 {
+	endpoint = strings.TrimSpace(endpoint)
+	if idx := strings.Index(endpoint, " ("); idx >= 0 {
+		endpoint = endpoint[:idx]
+	}
+	if endpoint == "" {
+		return TC_TRANSPORT_UNKNOWN
+	}
+	if strings.HasPrefix(endpoint, tailcfg.WebRTCMagicIP+":") {
+		return TC_TRANSPORT_WEBRTC
+	}
+	return TC_TRANSPORT_DIRECT_UDP
+}
+
+func transportFromPing(endpoint, peerRelay string, usedDERP bool) uint8 {
+	if path := transportFromEndpoint(endpoint); path != TC_TRANSPORT_UNKNOWN {
+		return path
+	}
+	if peerRelay != "" || usedDERP {
+		return TC_TRANSPORT_DERP
+	}
+	return TC_TRANSPORT_UNKNOWN
+}
+
+func transportFromServer(server *tailcat.Server) uint8 {
+	if server == nil {
+		return TC_TRANSPORT_UNKNOWN
+	}
+	status := server.Status()
+	if status == nil {
+		return TC_TRANSPORT_UNKNOWN
+	}
+	for _, peer := range status.Peer {
+		if peer == nil {
+			continue
+		}
+		if path := transportFromEndpoint(peer.CurAddr); path != TC_TRANSPORT_UNKNOWN {
+			return path
+		}
+		if peer.PeerRelay != "" || peer.Relay != "" {
+			return TC_TRANSPORT_DERP
+		}
+	}
+	return TC_TRANSPORT_UNKNOWN
+}
+
+func transportFromClient(client *tailcat.Client) uint8 {
+	if client == nil {
+		return TC_TRANSPORT_UNKNOWN
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	result, err := client.DiscoPing(ctx)
+	if err != nil || result == nil {
+		return TC_TRANSPORT_UNKNOWN
+	}
+	return transportFromPing(result.Endpoint, result.PeerRelay, result.DERPRegionID != 0)
 }
 
 func tcLogf(format string, args ...any) {
@@ -122,13 +187,27 @@ type listenerEntry struct {
 }
 
 type streamEntry struct {
-	handle    uint64
-	owner     uint64
-	conn      net.Conn
-	client    *tailcat.Client
-	clientKey string
-	closed    atomic.Bool
-	cancelled atomic.Bool
+	handle      uint64
+	owner       uint64
+	conn        net.Conn
+	client      *tailcat.Client
+	clientKey   string
+	transportMu sync.Mutex
+	transport   uint8
+	closed      atomic.Bool
+	cancelled   atomic.Bool
+}
+
+func (s *streamEntry) transportPath() uint8 {
+	s.transportMu.Lock()
+	defer s.transportMu.Unlock()
+	return s.transport
+}
+
+func (s *streamEntry) setTransport(path uint8) {
+	s.transportMu.Lock()
+	s.transport = path
+	s.transportMu.Unlock()
 }
 
 type bridgeClientEntry struct {
@@ -462,9 +541,10 @@ func tc_listener_create(
 			}
 			sHandle := nextHandleLocked()
 			sEntry := &streamEntry{
-				handle: sHandle,
-				owner:  handle,
-				conn:   c,
+				handle:    sHandle,
+				owner:     handle,
+				conn:      c,
+				transport: transportFromServer(lEntry.server),
 			}
 			state.streams[sHandle] = sEntry
 			state.mu.Unlock()
@@ -475,6 +555,7 @@ func tc_listener_create(
 			ev.owner_handle = C.tc_handle_t(handle)
 			ev.object_handle = C.tc_handle_t(sHandle)
 			ev.port = C.uint16_t(port)
+			ev.reserved = C.uint16_t(transportFromServer(lEntry.server))
 
 			enqueueEvent(ev, sHandle)
 		}
@@ -712,6 +793,7 @@ func dialBridge(ctx context.Context, addr, derpURL string, port uint16, generati
 		releaseBridgeClient(clientKey, client, false)
 		return 0, TC_CANCELLED, context.Canceled
 	}
+	transport := transportFromClient(client)
 
 	state.mu.Lock()
 	if state.shuttingDown.Load() || state.generation != generation {
@@ -726,6 +808,7 @@ func dialBridge(ctx context.Context, addr, derpURL string, port uint16, generati
 		conn:      c,
 		client:    client,
 		clientKey: clientKey,
+		transport: transport,
 	}
 	state.mu.Unlock()
 	return handle, TC_OK, nil
@@ -1140,6 +1223,37 @@ func tc_stream_close(stream C.tc_handle_t) C.int32_t {
 		return TC_INVALID_HANDLE_ERROR
 	}
 	closeStreamEntry(s)
+	return TC_OK
+}
+
+//export tc_stream_transport
+func tc_stream_transport(stream C.tc_handle_t, outTransport *C.uint8_t) C.int32_t {
+	if outTransport == nil {
+		return TC_INVALID_ARGUMENT
+	}
+	state.mu.Lock()
+	s, ok := state.streams[uint64(stream)]
+	state.mu.Unlock()
+	if !ok || s.closed.Load() {
+		return TC_INVALID_HANDLE_ERROR
+	}
+	path := s.transportPath()
+	if path == TC_TRANSPORT_UNKNOWN {
+		if s.client != nil {
+			path = transportFromClient(s.client)
+		} else {
+			state.mu.Lock()
+			listener := state.listeners[s.owner]
+			state.mu.Unlock()
+			if listener != nil {
+				path = transportFromServer(listener.server)
+			}
+		}
+		if path != TC_TRANSPORT_UNKNOWN {
+			s.setTransport(path)
+		}
+	}
+	*outTransport = C.uint8_t(path)
 	return TC_OK
 }
 

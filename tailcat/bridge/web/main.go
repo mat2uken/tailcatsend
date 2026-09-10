@@ -9,12 +9,14 @@ import (
 	"io"
 	"log"
 	"net"
+	"strings"
 	"sync"
 	"syscall/js"
 	"time"
 
 	"github.com/tailscale/tailcat"
 	_ "tailscale.com/feature/webrtc"
+	"tailscale.com/tailcfg"
 	"tailscale.com/types/key"
 	"tailscale.com/types/logger"
 )
@@ -23,6 +25,13 @@ var (
 	clientsMu     sync.Mutex
 	cachedClients = make(map[string]*tailcat.Client)
 	currentServer *tailcat.Server
+)
+
+const (
+	transportDirectUDP uint8 = iota
+	transportWebRTC
+	transportDERP
+	transportUnknown uint8 = 255
 )
 
 func main() {
@@ -104,7 +113,7 @@ func tailcatListen(this js.Value, args []js.Value) any {
 		}
 		srv.OnTCP = func(port uint16) (handler func(net.Conn)) {
 			return func(c net.Conn) {
-				onConnection.Invoke(makeJSConn(c, port, nil))
+				onConnection.Invoke(makeJSConn(c, port, transportFromServer(srv), nil))
 			}
 		}
 		if err := srv.Start(); err != nil {
@@ -202,7 +211,7 @@ func tailcatDial(this js.Value, args []js.Value) any {
 			cl.Close()
 			return nil, fmt.Errorf("DialTCPPort: %w", err)
 		}
-		return makeJSConn(c, port, nil), nil
+		return makeJSConn(c, port, transportFromClient(cl), nil), nil
 	})
 }
 
@@ -225,13 +234,21 @@ func pingUntil(ctx context.Context, cl *tailcat.Client) error {
 	}
 }
 
-func makeJSConn(c net.Conn, port uint16, onClose func()) js.Value {
+func makeJSConn(c net.Conn, port uint16, transport uint8, onClose func()) js.Value {
 	buf := make([]byte, 64<<10)
 	return js.ValueOf(map[string]any{
-		"port": int(port),
+		"port":          int(port),
+		"transportType": int(transport),
 		"read": js.FuncOf(func(this js.Value, args []js.Value) any {
 			return makePromise(func() (any, error) {
-				n, err := c.Read(buf)
+				limit := len(buf)
+				if len(args) > 0 && args[0].Type() == js.TypeNumber {
+					requested := args[0].Int()
+					if requested > 0 && requested < limit {
+						limit = requested
+					}
+				}
+				n, err := c.Read(buf[:limit])
 				if n > 0 {
 					u8 := js.Global().Get("Uint8Array").New(n)
 					js.CopyBytesToJS(u8, buf[:n])
@@ -311,6 +328,65 @@ func rejectedPromise(err error) js.Value {
 	return js.Global().Get("Promise").Call("reject", js.Global().Get("Error").New(err.Error()))
 }
 
+func transportFromEndpoint(endpoint string) uint8 {
+	endpoint = strings.TrimSpace(endpoint)
+	if idx := strings.Index(endpoint, " ("); idx >= 0 {
+		endpoint = endpoint[:idx]
+	}
+	if endpoint == "" {
+		return transportUnknown
+	}
+	if strings.HasPrefix(endpoint, tailcfg.WebRTCMagicIP+":") {
+		return transportWebRTC
+	}
+	return transportDirectUDP
+}
+
+func transportFromPing(endpoint, peerRelay string, usedDERP bool) uint8 {
+	if path := transportFromEndpoint(endpoint); path != transportUnknown {
+		return path
+	}
+	if peerRelay != "" || usedDERP {
+		return transportDERP
+	}
+	return transportUnknown
+}
+
+func transportFromClient(client *tailcat.Client) uint8 {
+	if client == nil {
+		return transportUnknown
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	result, err := client.DiscoPing(ctx)
+	if err != nil || result == nil {
+		return transportUnknown
+	}
+	return transportFromPing(result.Endpoint, result.PeerRelay, result.DERPRegionID != 0)
+}
+
+func transportFromServer(server *tailcat.Server) uint8 {
+	if server == nil {
+		return transportUnknown
+	}
+	status := server.Status()
+	if status == nil {
+		return transportUnknown
+	}
+	for _, peer := range status.Peer {
+		if peer == nil {
+			continue
+		}
+		if path := transportFromEndpoint(peer.CurAddr); path != transportUnknown {
+			return path
+		}
+		if peer.PeerRelay != "" || peer.Relay != "" {
+			return transportDERP
+		}
+	}
+	return transportUnknown
+}
+
 func tailcatGetTransport(this js.Value, args []js.Value) any {
 	addr := ""
 	if len(args) > 0 && args[0].Type() == js.TypeString {
@@ -318,34 +394,19 @@ func tailcatGetTransport(this js.Value, args []js.Value) any {
 	}
 
 	return makePromise(func() (any, error) {
-		// Return 1 for WebRTC P2P (DataChannel), 2 for DERP Relay
 		clientsMu.Lock()
 		cl, hasClient := cachedClients[addr]
 		srv := currentServer
 		clientsMu.Unlock()
 
 		if hasClient && cl != nil {
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			res, err := cl.DiscoPing(ctx)
-			if err == nil && res != nil && res.Endpoint != "" {
-				return 1, nil // WebRTC P2P (DataChannel)
-			}
-			return 2, nil // DERP Relay
+			return int(transportFromClient(cl)), nil
 		}
 
 		if srv != nil {
-			st := srv.Status()
-			if st != nil {
-				for _, ps := range st.Peer {
-					if ps != nil && ps.CurAddr != "" {
-						return 1, nil // WebRTC P2P (DataChannel)
-					}
-				}
-			}
-			return 2, nil
+			return int(transportFromServer(srv)), nil
 		}
 
-		return 2, nil
+		return int(transportUnknown), nil
 	})
 }

@@ -4,7 +4,9 @@ use tailsend_protocol::auth::*;
 use tailsend_protocol::control::*;
 use tailsend_protocol::invitation::InvitationV1;
 use tailsend_protocol::limits::*;
-use tailsend_transport_api::{DuplexStream, IncomingStream, ListenOptions, Listener, TailcatTransport};
+use tailsend_transport_api::{
+    DuplexStream, IncomingStream, ListenOptions, Listener, TailcatTransport, TransportPath,
+};
 
 pub async fn read_framed_control(stream: &mut Box<dyn DuplexStream>) -> Result<ControlMessage, String> {
     let mut len_buf = [0u8; 4];
@@ -47,6 +49,7 @@ pub struct HandshakeResult {
     pub peer_address: String,
     pub peer_info: PeerInfo,
     pub peer_capabilities: Capabilities,
+    pub transport_path: TransportPath,
 }
 
 pub async fn run_host_handshake(
@@ -62,6 +65,7 @@ pub async fn run_host_handshake(
     }
 
     let mut stream = incoming.stream;
+    let transport_path = stream.transport_path();
     let client_hello_msg = read_framed_control(&mut stream).await?;
 
     if client_hello_msg.message_type != MessageType::ClientHello as u32 {
@@ -141,6 +145,7 @@ pub async fn run_host_handshake(
         peer_address: body.tailcat_address,
         peer_info: body.peer_info,
         peer_capabilities: body.capabilities,
+        transport_path,
     })
 }
 
@@ -166,6 +171,7 @@ pub async fn run_joiner_handshake(
         .await;
 
     let mut stream: Box<dyn DuplexStream> = dial_result.map_err(|e| e.to_string())?;
+    let transport_path = stream.transport_path();
 
     let mut joiner_nonce = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut joiner_nonce);
@@ -245,5 +251,6 @@ pub async fn run_joiner_handshake(
         peer_address: invitation.host_address.clone(),
         peer_info: body.peer_info,
         peer_capabilities: body.capabilities,
+        transport_path,
     })
 }

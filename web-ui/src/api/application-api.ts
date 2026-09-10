@@ -9,6 +9,8 @@ export type SessionState =
   | "transferring"
   | "error";
 
+export type TransportPath = "direct-udp" | "webrtc" | "derp" | "unknown";
+
 export interface BackendSnapshot {
   apiVersion: number;
   canDisconnect: boolean;
@@ -19,6 +21,7 @@ export interface BackendSnapshot {
   peerName: string;
   sequence: number;
   state: SessionState;
+  transport: TransportPath;
   transfer: {
     id: string;
     name: string;
@@ -61,6 +64,7 @@ export function initialSnapshot(): BackendSnapshot {
     apiVersion: 1,
     sequence: 0,
     state: "booting",
+    transport: "unknown",
     peerName: "",
     inviteUrl: null,
     inviteExpiresInSecs: 0,

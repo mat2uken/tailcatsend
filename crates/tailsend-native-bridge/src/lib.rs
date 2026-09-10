@@ -27,6 +27,11 @@ pub const TC_EVENT_LISTENER_ERROR: u32 = 2;
 pub const TC_EVENT_STREAM_ERROR: u32 = 3;
 pub const TC_EVENT_LOG: u32 = 4;
 
+pub const TC_TRANSPORT_DIRECT_UDP: u8 = 0;
+pub const TC_TRANSPORT_WEBRTC: u8 = 1;
+pub const TC_TRANSPORT_DERP: u8 = 2;
+pub const TC_TRANSPORT_UNKNOWN: u8 = 255;
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct TcEvent {
@@ -129,6 +134,7 @@ extern "C" {
     ) -> i32;
     pub fn tc_stream_close_write(stream: TcHandle) -> i32;
     pub fn tc_stream_close(stream: TcHandle) -> i32;
+    pub fn tc_stream_transport(stream: TcHandle, out_transport: *mut u8) -> i32;
     pub fn tc_cancel(handle: TcHandle) -> i32;
     pub fn tc_last_error(buffer: *mut u8, capacity: usize, out_length: *mut usize) -> i32;
     pub fn tc_bridge_version(buffer: *mut u8, capacity: usize, out_length: *mut usize) -> i32;

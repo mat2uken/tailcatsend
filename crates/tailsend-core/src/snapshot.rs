@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use crate::state::{PendingOffer, SessionState};
+use tailsend_transport_api::TransportPath;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppSnapshot {
@@ -10,6 +11,7 @@ pub struct AppSnapshot {
     pub can_disconnect: bool,
     pub can_send: bool,
     pub pending_offer: Option<PendingOffer>,
+    pub transport_path: TransportPath,
 }
 
 impl Default for AppSnapshot {
@@ -22,6 +24,7 @@ impl Default for AppSnapshot {
             can_disconnect: false,
             can_send: false,
             pending_offer: None,
+            transport_path: TransportPath::Unknown,
         }
     }
 }

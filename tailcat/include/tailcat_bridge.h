@@ -34,6 +34,13 @@ typedef enum tc_event_type {
     TC_EVENT_LOG = 4
 } tc_event_type_t;
 
+typedef enum tc_transport_type {
+    TC_TRANSPORT_DIRECT_UDP = 0,
+    TC_TRANSPORT_WEBRTC = 1,
+    TC_TRANSPORT_DERP = 2,
+    TC_TRANSPORT_UNKNOWN = 255
+} tc_transport_type_t;
+
 typedef struct tc_event {
     uint32_t struct_size;
     uint32_t event_type;
@@ -135,6 +142,9 @@ tc_result_t tc_stream_write_all(
 
 tc_result_t tc_stream_close_write(tc_handle_t stream);
 tc_result_t tc_stream_close(tc_handle_t stream);
+
+/* Return the currently selected path for an established stream. */
+tc_result_t tc_stream_transport(tc_handle_t stream, uint8_t *out_transport);
 
 /*
  * Best-effort cancellation for a blocking operation on a handle.

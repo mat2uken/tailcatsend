@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 /// Native streams can cross I/O threads.  Browser streams stay inside one
@@ -37,11 +38,56 @@ pub enum TransportError {
     Internal(String),
 }
 
+/// The path currently carrying a Tailcat stream.
+///
+/// The numeric values are kept aligned with the existing daemon telemetry:
+/// direct UDP is `0`, WebRTC DataChannel is `1`, and DERP is `2`.  Unknown is
+/// represented by `255` so an adapter can keep working when an older bridge
+/// does not expose path information.
+#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TransportPath {
+    DirectUdp = 0,
+    #[serde(rename = "webrtc")]
+    WebRtc = 1,
+    Derp = 2,
+    #[serde(other)]
+    Unknown = 255,
+}
+
+impl Default for TransportPath {
+    fn default() -> Self {
+        Self::Unknown
+    }
+}
+
+impl TransportPath {
+    pub const fn from_code(code: u8) -> Self {
+        match code {
+            0 => Self::DirectUdp,
+            1 => Self::WebRtc,
+            2 => Self::Derp,
+            _ => Self::Unknown,
+        }
+    }
+
+    pub const fn code(self) -> u8 {
+        self as u8
+    }
+}
+
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 pub trait DuplexStream: TransportThreadSafety {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, TransportError>;
     async fn write_all(&mut self, buf: &[u8]) -> Result<(), TransportError>;
+
+    /// Report the path selected by the underlying Tailcat stack.  Adapters
+    /// that predate path reporting return `Unknown` without affecting I/O.
+    fn transport_path(&self) -> TransportPath {
+        TransportPath::Unknown
+    }
 
     /// Write a portion of a buffer and return the number of bytes accepted.
     ///
@@ -90,4 +136,25 @@ pub trait TailcatTransport: TransportThreadSafety {
         port: u16,
         options: ListenOptions,
     ) -> Result<Box<dyn DuplexStream>, TransportError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TransportPath;
+
+    #[test]
+    fn transport_codes_are_stable() {
+        assert_eq!(TransportPath::from_code(0), TransportPath::DirectUdp);
+        assert_eq!(TransportPath::from_code(1), TransportPath::WebRtc);
+        assert_eq!(TransportPath::from_code(2), TransportPath::Derp);
+        assert_eq!(TransportPath::from_code(200), TransportPath::Unknown);
+        assert_eq!(TransportPath::Unknown.code(), 255);
+    }
+
+    #[test]
+    fn transport_path_json_names_are_small_and_stable() {
+        assert_eq!(serde_json::to_string(&TransportPath::DirectUdp).unwrap(), "\"direct-udp\"");
+        assert_eq!(serde_json::to_string(&TransportPath::WebRtc).unwrap(), "\"webrtc\"");
+        assert_eq!(serde_json::from_str::<TransportPath>("\"future-path\"").unwrap(), TransportPath::Unknown);
+    }
 }

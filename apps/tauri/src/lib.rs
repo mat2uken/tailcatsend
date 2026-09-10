@@ -28,7 +28,9 @@ use tailsend_transfer::{
     receive_live_text_stream, receive_named_file_stream_with_factory, send_live_text_stream,
     send_named_file_stream, ProgressCallback, ProgressUpdate, TransferError,
 };
-use tailsend_transport_api::{DuplexStream, ListenOptions, Listener, TailcatTransport};
+use tailsend_transport_api::{
+    DuplexStream, ListenOptions, Listener, TailcatTransport, TransportPath,
+};
 
 const APP_EVENT: &str = "ponlet:event";
 const DERP_MAP_URL: &str = "https://tailcat.dev/derpmap.json";
@@ -49,6 +51,7 @@ struct UiSnapshot {
     can_disconnect: bool,
     transfer: Option<UiTransfer>,
     error: Option<String>,
+    transport: TransportPath,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -101,6 +104,7 @@ struct PeerSession {
     listener: Arc<Box<dyn Listener>>,
     peer_address: Mutex<String>,
     cancel: Arc<AtomicBool>,
+    transport_path: Mutex<TransportPath>,
 }
 
 struct RuntimeState {
@@ -233,6 +237,7 @@ impl TauriRuntime {
             can_disconnect,
             transfer,
             error,
+            transport: app.transport_path,
         }
     }
 
@@ -392,6 +397,7 @@ async fn ponlet_create_invite_impl(
         listener: listener.clone(),
         peer_address: Mutex::new(String::new()),
         cancel: Arc::new(AtomicBool::new(false)),
+        transport_path: Mutex::new(TransportPath::Unknown),
     });
     runtime.set_session(session.clone());
     runtime.set_state(
@@ -423,12 +429,17 @@ async fn ponlet_create_invite_impl(
                 }
                 *session.peer_address.lock().expect("session mutex poisoned") =
                     handshake.peer_address.clone();
+                *session
+                    .transport_path
+                    .lock()
+                    .expect("session mutex poisoned") = handshake.transport_path;
                 backend.set_state(
                     &app,
                     SessionState::ConnectedIdle {
                         peer_info: handshake.peer_info,
                         peer_capabilities: handshake.peer_capabilities,
                         peer_address: handshake.peer_address,
+                        transport_path: handshake.transport_path,
                     },
                 );
                 accept_loop(backend, app, session).await;
@@ -472,6 +483,7 @@ async fn ponlet_join_impl(
         listener: listener.clone(),
         peer_address: Mutex::new(invitation.host_address.clone()),
         cancel: Arc::new(AtomicBool::new(false)),
+        transport_path: Mutex::new(TransportPath::Unknown),
     });
     runtime.set_session(session.clone());
     let transport: Arc<dyn TailcatTransport> = runtime.transport.clone();
@@ -488,12 +500,17 @@ async fn ponlet_join_impl(
     .await
     {
         Ok(handshake) => {
+            *session
+                .transport_path
+                .lock()
+                .expect("session mutex poisoned") = handshake.transport_path;
             runtime.set_state(
                 &app,
                 SessionState::ConnectedIdle {
                     peer_info: handshake.peer_info,
                     peer_capabilities: handshake.peer_capabilities,
                     peer_address: handshake.peer_address,
+                    transport_path: handshake.transport_path,
                 },
             );
             let backend = runtime.clone_state();
@@ -910,6 +927,7 @@ fn set_idle_from_backend(backend: &BackendService, app: &AppHandle) {
         ),
         peer_capabilities: Capabilities::default(),
         peer_address: String::new(),
+        transport_path: backend.snapshot().app.transport_path,
     });
     let _ = app.emit(
         APP_EVENT,
@@ -1199,6 +1217,7 @@ fn snapshot_from_backend(backend: &BackendService) -> UiSnapshot {
         can_disconnect,
         transfer,
         error,
+        transport: app.transport_path,
     }
 }
 

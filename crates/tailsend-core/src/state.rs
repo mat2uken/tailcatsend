@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use tailsend_protocol::control::{Capabilities, FileOffer, PeerInfo, TextOffer};
+use tailsend_transport_api::TransportPath;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SessionState {
@@ -17,6 +18,7 @@ pub enum SessionState {
         peer_info: PeerInfo,
         peer_capabilities: Capabilities,
         peer_address: String,
+        transport_path: TransportPath,
     },
     AwaitingAcceptance {
         transfer_id: [u8; 16],

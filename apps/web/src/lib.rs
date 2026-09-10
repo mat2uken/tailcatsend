@@ -35,6 +35,7 @@ use tailsend_transfer::{
 };
 use tailsend_transport_api::{
     DuplexStream, IncomingStream, ListenOptions, Listener, TailcatTransport, TransportError,
+    TransportPath,
 };
 
 const DERP_MAP_URL: &str = "https://tailcat.dev/derpmap.json";
@@ -54,6 +55,7 @@ struct UiSnapshot {
     can_disconnect: bool,
     transfer: Option<UiTransfer>,
     error: Option<String>,
+    transport: TransportPath,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -131,16 +133,24 @@ struct WebTransport;
 struct WebStream {
     connection: JsValue,
     closed: bool,
+    transport_path: TransportPath,
 }
 
 #[async_trait(?Send)]
 impl DuplexStream for WebStream {
+    fn transport_path(&self) -> TransportPath {
+        self.transport_path
+    }
+
     async fn read(&mut self, buffer: &mut [u8]) -> Result<usize, TransportError> {
         if self.closed {
             return Err(TransportError::Closed);
         }
         let read = function(&self.connection, "read")?
-            .call0(&self.connection)
+            .call1(
+                &self.connection,
+                &JsValue::from_f64(buffer.len() as f64),
+            )
             .map_err(js_error)?;
         let value = promise(read).await?;
         if value.is_null() || value.is_undefined() {
@@ -223,10 +233,16 @@ impl Listener for WebListener {
             .as_f64()
             .ok_or_else(|| TransportError::Protocol("incoming stream has no port".into()))?
             as u16;
+        let transport_path = property(&value, "transportType")
+            .ok()
+            .and_then(|value| value.as_f64())
+            .map(|code| TransportPath::from_code(code as u8))
+            .unwrap_or_default();
         Ok(IncomingStream {
             stream: Box::new(WebStream {
                 connection: value,
                 closed: false,
+                transport_path,
             }),
             port,
         })
@@ -305,9 +321,15 @@ impl TailcatTransport for WebTransport {
             .call1(&bridge, &opts)
             .map_err(js_error)?;
         let connection = promise(dial).await?;
+        let transport_path = property(&connection, "transportType")
+            .ok()
+            .and_then(|value| value.as_f64())
+            .map(|code| TransportPath::from_code(code as u8))
+            .unwrap_or_default();
         Ok(Box::new(WebStream {
             connection,
             closed: false,
+            transport_path,
         }))
     }
 }
@@ -479,6 +501,7 @@ struct WebSession {
     peer_address: RefCell<String>,
     peer_info: RefCell<Option<PeerInfo>>,
     peer_capabilities: RefCell<Option<Capabilities>>,
+    transport_path: RefCell<TransportPath>,
     cancel: Arc<AtomicBool>,
 }
 
@@ -619,6 +642,7 @@ impl WebBackend {
             peer_address: RefCell::new(String::new()),
             peer_info: RefCell::new(None),
             peer_capabilities: RefCell::new(None),
+            transport_path: RefCell::new(TransportPath::Unknown),
             cancel: Arc::new(AtomicBool::new(false)),
         });
         *self.session.borrow_mut() = Some(session.clone());
@@ -644,10 +668,12 @@ impl WebBackend {
                     *session.peer_info.borrow_mut() = Some(handshake.peer_info.clone());
                     *session.peer_capabilities.borrow_mut() =
                         Some(handshake.peer_capabilities.clone());
+                    *session.transport_path.borrow_mut() = handshake.transport_path;
                     backend.state(SessionState::ConnectedIdle {
                         peer_info: handshake.peer_info,
                         peer_capabilities: handshake.peer_capabilities,
                         peer_address: handshake.peer_address,
+                        transport_path: handshake.transport_path,
                     });
                     accept_loop(backend, session).await;
                 }
@@ -678,6 +704,7 @@ impl WebBackend {
             peer_address: RefCell::new(invitation.host_address.clone()),
             peer_info: RefCell::new(None),
             peer_capabilities: RefCell::new(None),
+            transport_path: RefCell::new(TransportPath::Unknown),
             cancel: Arc::new(AtomicBool::new(false)),
         });
         *self.session.borrow_mut() = Some(session.clone());
@@ -696,10 +723,12 @@ impl WebBackend {
                 *session.peer_info.borrow_mut() = Some(handshake.peer_info.clone());
                 *session.peer_capabilities.borrow_mut() = Some(handshake.peer_capabilities.clone());
                 *session.peer_address.borrow_mut() = handshake.peer_address.clone();
+                *session.transport_path.borrow_mut() = handshake.transport_path;
                 self.state(SessionState::ConnectedIdle {
                     peer_info: handshake.peer_info,
                     peer_capabilities: handshake.peer_capabilities,
                     peer_address: handshake.peer_address,
+                    transport_path: handshake.transport_path,
                 });
                 let backend = self.clone();
                 spawn_local(async move { accept_loop(backend, session).await });
@@ -855,10 +884,12 @@ impl WebBackend {
             return;
         };
         let peer_address = session.peer_address.borrow().clone();
+        let transport_path = *session.transport_path.borrow();
         self.state(SessionState::ConnectedIdle {
             peer_info,
             peer_capabilities,
             peer_address,
+            transport_path,
         });
     }
 }
@@ -1168,6 +1199,7 @@ fn snapshot_from_service(service: &BackendService) -> UiSnapshot {
         can_disconnect,
         transfer,
         error,
+        transport: app.transport_path,
     }
 }
 
