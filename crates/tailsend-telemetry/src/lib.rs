@@ -208,9 +208,11 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 
+    type RecordedEvent = (String, Vec<(String, String)>);
+
     static EVENT_COUNT: AtomicUsize = AtomicUsize::new(0);
     static PROPERTY_COUNT: AtomicUsize = AtomicUsize::new(0);
-    static LAST_PARAMS: Mutex<Option<(String, Vec<(String, String)>)>> = Mutex::new(None);
+    static LAST_PARAMS: Mutex<Option<RecordedEvent>> = Mutex::new(None);
     static REMOTE_VALUE: Mutex<Option<String>> = Mutex::new(None);
 
     struct CountingBackend;

@@ -204,6 +204,7 @@ pub async fn send_file_item_stream(
     Ok(offset)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn receive_file_item_stream(
     stream: &mut Box<dyn DuplexStream>,
     expected_session_id: [u8; 16],

@@ -30,9 +30,8 @@ pub fn sanitize_filename(raw_name: &str) -> Result<String, FilenameError> {
 
     // Extract basename using both forward and backward slashes
     let basename = without_drive
-        .split(|c| c == '/' || c == '\\')
-        .filter(|s| !s.is_empty())
-        .last()
+        .split(['/', '\\'])
+        .rfind(|s| !s.is_empty())
         .unwrap_or(without_drive);
 
     if basename == "." || basename == ".." {

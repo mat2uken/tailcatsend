@@ -83,6 +83,10 @@ pub fn verify_joiner_proof(
     }
 }
 
+// The argument list mirrors the authenticated wire fields and keeps the
+// hashing call sites explicit; bundling them would make accidental field
+// omission easier when the protocol evolves.
+#[allow(clippy::too_many_arguments)]
 pub fn compute_host_proof(
     invite_secret: &[u8],
     session_id: &[u8; 16],
@@ -127,6 +131,7 @@ pub fn compute_host_proof(
     Ok(out)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn verify_host_proof(
     invite_secret: &[u8],
     session_id: &[u8; 16],

@@ -143,7 +143,7 @@ mod tests {
             let host_caps = host_caps.clone();
             tokio::spawn(async move {
                 run_host_handshake(
-                    &host_listener,
+                    &*host_listener,
                     session_id,
                     invite_secret,
                     &host_info,
@@ -160,7 +160,7 @@ mod tests {
             tokio::spawn(async move {
                 run_joiner_handshake(
                     &joiner_transport,
-                    &joiner_listener,
+                    &*joiner_listener,
                     &invitation,
                     &joiner_info,
                     &joiner_caps,
@@ -390,11 +390,11 @@ mod tests {
         let joiner_transport: Arc<dyn TailcatTransport> = hub.clone();
 
         let host_task = tokio::spawn(async move {
-            run_host_handshake(&host_listener, session_id, correct_secret, &host_info, &host_caps).await
+            run_host_handshake(&*host_listener, session_id, correct_secret, &host_info, &host_caps).await
         });
 
         let joiner_task = tokio::spawn(async move {
-            run_joiner_handshake(&joiner_transport, &joiner_listener, &invitation, &joiner_info, &joiner_caps).await
+            run_joiner_handshake(&joiner_transport, &*joiner_listener, &invitation, &joiner_info, &joiner_caps).await
         });
 
         let (host_res, joiner_res) = tokio::join!(host_task, joiner_task);

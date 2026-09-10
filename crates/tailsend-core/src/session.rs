@@ -53,7 +53,7 @@ pub struct HandshakeResult {
 }
 
 pub async fn run_host_handshake(
-    listener: &Box<dyn Listener>,
+    listener: &dyn Listener,
     session_id: [u8; 16],
     invite_secret: [u8; 32],
     host_info: &PeerInfo,
@@ -151,7 +151,7 @@ pub async fn run_host_handshake(
 
 pub async fn run_joiner_handshake(
     transport: &Arc<dyn TailcatTransport>,
-    joiner_listener: &Box<dyn Listener>,
+    joiner_listener: &dyn Listener,
     invitation: &InvitationV1,
     joiner_info: &PeerInfo,
     joiner_caps: &Capabilities,

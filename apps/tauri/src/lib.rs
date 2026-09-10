@@ -505,7 +505,7 @@ async fn ponlet_create_invite_impl(
     let host_caps = Capabilities::default();
     tokio::spawn(async move {
         let result = run_host_handshake(
-            &session.listener,
+            &**session.listener,
             session_id,
             invite_secret,
             &host_info,
@@ -589,7 +589,7 @@ async fn ponlet_join_impl(
     runtime.set_state(&app, SessionState::Authenticating);
     match run_joiner_handshake(
         &transport,
-        &session.listener,
+        &**session.listener,
         &invitation,
         &joiner_info,
         &joiner_caps,

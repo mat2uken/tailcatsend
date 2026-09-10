@@ -19,7 +19,7 @@ pub fn generate_qr_rgba(url: &str, target_size_px: u32) -> Result<QrRgbaImage, Q
     let quiet_zone = 4;
     let total_modules = qr_size + quiet_zone * 2;
 
-    let scale = (target_size_px + total_modules as u32 - 1) / total_modules as u32;
+    let scale = target_size_px.div_ceil(total_modules as u32);
     let scale = scale.max(1);
     let final_size = (total_modules as u32) * scale;
 

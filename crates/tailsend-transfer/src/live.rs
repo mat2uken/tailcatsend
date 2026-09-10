@@ -57,7 +57,7 @@ pub fn parse_name_header(bytes: &[u8]) -> Result<NamedFileHeader, TransferError>
         .map_err(|_| TransferError::InvalidNameHeader("invalid file size".to_string()))?;
     let name = sanitize_filename(raw_name)
         .map_err(|error| TransferError::InvalidNameHeader(error.to_string()))?;
-    if name.as_bytes().len() > MAX_FILENAME_BYTES {
+    if name.len() > MAX_FILENAME_BYTES {
         return Err(TransferError::InvalidNameHeader(
             "sanitized filename is too long".to_string(),
         ));
@@ -73,7 +73,7 @@ pub fn encode_name_header(
     let name = sanitize_filename(&metadata.name)
         .map_err(|error| TransferError::InvalidNameHeader(error.to_string()))?;
     let header = format!("NAME:{}:{}\n", name, metadata.size);
-    if header.as_bytes().len() > MAX_FILE_NAME_HEADER_BYTES {
+    if header.len() > MAX_FILE_NAME_HEADER_BYTES {
         return Err(TransferError::NameHeaderTooLarge);
     }
     Ok(header.into_bytes())
@@ -399,7 +399,7 @@ pub async fn send_live_text_stream(
     text: &str,
     cancel_flag: Arc<AtomicBool>,
 ) -> Result<(), TransferError> {
-    if text.as_bytes().len() > MAX_TEXT_PAYLOAD_SIZE as usize {
+    if text.len() > MAX_TEXT_PAYLOAD_SIZE as usize {
         return Err(TransferError::TextTooLarge);
     }
     if cancel_flag.load(Ordering::Relaxed) {

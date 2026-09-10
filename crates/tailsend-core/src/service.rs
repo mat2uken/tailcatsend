@@ -48,7 +48,7 @@ pub struct BackendEvent {
 /// A cursor outside the retained window must be replaced by a new snapshot.
 #[derive(Debug, Clone)]
 pub struct EventHistoryGap {
-    pub snapshot: BackendSnapshot,
+    pub snapshot: Box<BackendSnapshot>,
 }
 
 #[derive(Debug, Clone)]
@@ -283,7 +283,7 @@ impl BackendService {
         if sequence > inner.snapshot.sequence || sequence < oldest.saturating_sub(1) {
             refresh_invite_expiry(&mut inner.snapshot.app);
             return Err(EventHistoryGap {
-                snapshot: inner.snapshot.clone(),
+                snapshot: Box::new(inner.snapshot.clone()),
             });
         }
         Ok(inner

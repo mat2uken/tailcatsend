@@ -888,7 +888,7 @@ impl WebBackend {
         spawn_local(async move {
             let info = local_peer_info();
             let result = run_host_handshake(
-                &session.listener,
+                &**session.listener,
                 session_id,
                 invite_secret,
                 &info,
@@ -945,7 +945,7 @@ impl WebBackend {
         let transport: Arc<dyn TailcatTransport> = self.transport.clone();
         let result = run_joiner_handshake(
             &transport,
-            &session.listener,
+            &**session.listener,
             &invitation,
             &local_peer_info(),
             &Capabilities::default(),

@@ -57,21 +57,16 @@ pub enum TransportError {
 /// represented by `255` so an adapter can keep working when an older bridge
 /// does not expose path information.
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum TransportPath {
     DirectUdp = 0,
     #[serde(rename = "webrtc")]
     WebRtc = 1,
     Derp = 2,
+    #[default]
     #[serde(other)]
     Unknown = 255,
-}
-
-impl Default for TransportPath {
-    fn default() -> Self {
-        Self::Unknown
-    }
 }
 
 impl TransportPath {

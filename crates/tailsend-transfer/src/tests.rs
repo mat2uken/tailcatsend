@@ -282,7 +282,7 @@ fn test_live_name_header_uses_last_colon_and_sanitizes_name() {
 #[test]
 fn test_live_name_header_rejects_unbounded_input() {
     let mut oversized = b"NAME:".to_vec();
-    oversized.extend(std::iter::repeat(b'a').take(MAX_FILE_NAME_HEADER_BYTES));
+    oversized.extend(std::iter::repeat_n(b'a', MAX_FILE_NAME_HEADER_BYTES));
     assert!(matches!(
         parse_name_header(&oversized),
         Err(TransferError::NameHeaderTooLarge)
