@@ -161,3 +161,40 @@ it("does not contact an update endpoint in a Tauri WebView", async () => {
     window.__TAURI_INTERNALS__ = originalTauri;
   }
 });
+
+it("returns timeout when service worker registration does not settle", async () => {
+  const originalCaches = globalThis.caches;
+  const originalConfig = window.__PONLET_UPDATE_CONFIG__;
+  const originalWorker = window.navigator.serviceWorker;
+  vi.stubGlobal("caches", memoryCacheStorage());
+  Object.defineProperty(window.navigator, "serviceWorker", {
+    configurable: true,
+    value: {
+      ready: new Promise(() => {}),
+      register: vi.fn(() => new Promise(() => {})),
+    },
+  });
+  window.__PONLET_UPDATE_CONFIG__ = {
+    apiVersion: 1,
+    currentRevision: 1,
+    distribution: "web",
+    manifestUrl: "https://updates.example/manifest.json",
+    publicKey: { kty: "EC", crv: "P-256", x: "x", y: "y" },
+    signatureUrl: "https://updates.example/manifest.sig",
+    target: "browser",
+    timeoutMs: 10,
+  };
+  try {
+    await expect(checkForUpdate()).resolves.toEqual({
+      error: "update check timed out",
+      status: "timeout",
+    });
+  } finally {
+    globalThis.caches = originalCaches;
+    window.__PONLET_UPDATE_CONFIG__ = originalConfig;
+    Object.defineProperty(window.navigator, "serviceWorker", {
+      configurable: true,
+      value: originalWorker,
+    });
+  }
+});

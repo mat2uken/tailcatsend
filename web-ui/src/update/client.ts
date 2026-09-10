@@ -143,6 +143,34 @@ function contentLength(response: Response): number | undefined {
   return Number.isSafeInteger(length) && length >= 0 ? length : undefined;
 }
 
+function abortError(): DOMException {
+  return new DOMException("update check timed out", "AbortError");
+}
+
+function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(abortError());
+  }
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const cleanup = (): void => signal.removeEventListener("abort", onAbort);
+    const settle = (action: () => void): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      action();
+    };
+    const onAbort = (): void => settle(() => reject(abortError()));
+    signal.addEventListener("abort", onAbort, { once: true });
+    void promise.then(
+      (value) => settle(() => resolve(value)),
+      (error: unknown) => settle(() => reject(error)),
+    );
+  });
+}
+
 async function fetchBytes(url: string, maxBytes: number, signal: AbortSignal): Promise<Uint8Array> {
   const response = await fetch(url, { cache: "no-store", signal });
   if (!response.ok) {
@@ -203,7 +231,7 @@ async function stageFiles(
       if ((await sha256Hex(bytes)) !== file.sha256) {
         throw new ManifestError(`update file hash mismatch: ${file.path}`);
       }
-      await cache.put(appUrl.toString(), response);
+      await withAbort(cache.put(appUrl.toString(), response), signal);
     }
   } catch (error) {
     await caches.delete(releaseCacheName(manifest.release_id));
@@ -211,13 +239,13 @@ async function stageFiles(
   }
 }
 
-async function markPendingRelease(releaseId: string): Promise<void> {
+async function markPendingRelease(releaseId: string, signal: AbortSignal): Promise<void> {
   const control = await caches.open(CONTROL_CACHE_NAME);
   await control.put(
     PENDING_RELEASE_KEY,
     new Response(releaseId, { headers: { "content-type": "text/plain" } }),
   );
-  const registration = await navigator.serviceWorker.ready;
+  const registration = await withAbort(navigator.serviceWorker.ready, signal);
   registration.active?.postMessage({ releaseId, type: "stage" });
 }
 
@@ -238,7 +266,7 @@ async function checkAndStage(config: UpdateConfig, signal: AbortSignal): Promise
     throw error;
   }
   await stageFiles(manifest, config, signal);
-  await markPendingRelease(manifest.release_id);
+  await markPendingRelease(manifest.release_id, signal);
   return { releaseId: manifest.release_id, status: "staged" };
 }
 
@@ -254,7 +282,10 @@ export async function checkForUpdate(): Promise<UpdateResult> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), config.timeoutMs);
   try {
-    await navigator.serviceWorker.register("./ponlet-sw.js", { scope: "./" });
+    await withAbort(
+      navigator.serviceWorker.register("./ponlet-sw.js", { scope: "./" }),
+      controller.signal,
+    );
     const result = await checkAndStage(config, controller.signal);
     return controller.signal.aborted
       ? { error: "update check timed out", status: "timeout" }
