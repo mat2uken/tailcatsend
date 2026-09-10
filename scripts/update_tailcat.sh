@@ -67,7 +67,7 @@ fi
 echo -e "\n\033[0;33m[3/5] Compiling native tailcat daemon...\033[0m"
 mkdir -p "$PROJECT_ROOT/target/release"
 OUT_DAEMON="$PROJECT_ROOT/target/release/tailcat_daemon"
-go build -ldflags "-s -w" -o "$OUT_DAEMON" ./bridge/native/daemon.go
+go build -tags tailcat_daemon -ldflags "-s -w" -o "$OUT_DAEMON" ./bridge/native
 echo -e "\033[0;32m✓ Built native tailcat_daemon\033[0m"
 
 # 4. Build Web WASM Bridge, Optimize with wasm-opt, and Gzip

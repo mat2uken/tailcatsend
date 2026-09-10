@@ -39,7 +39,7 @@ chmod +x scripts/build_macos.sh
 ```bash
 # 1. Tailcat デーモンのビルド
 cd tailcat
-go build -o ../tailcat_daemon ./bridge/native/daemon.go
+go build -tags tailcat_daemon -o ../tailcat_daemon ./bridge/native
 cd ..
 
 # 2. Rust デスクトップアプリのビルド＆起動
@@ -63,6 +63,8 @@ cargo run -p tailsend-desktop
 
 ## 5. macOS 実機検証結果 (2026-09-02)
 
+以下は当時の旧Slint構成での結果。現在の未コミット変更やWebView構成の検証結果ではない。
+
 | 検証項目 | 検証内容 | 結果 | 備考 |
 |---|---|---|---|
 | **Go Tailcat デーモン ビルド** | `bridge/native/daemon.go` (darwin/arm64) | ✅ **PASS** | `tailcat_daemon` (26MB) 生成 |
@@ -71,4 +73,3 @@ cargo run -p tailsend-desktop
 | **テキスト・クリップボード送受信** | `Paste & Send` / 双方向リアルタイムログ | ✅ **PASS** | `arboard` + `NSPasteboard` 連携 |
 | **5MB / 50MB / 100MB ファイル転送** | 64 KiB チャンクストリーミング + Base64 | ✅ **PASS** | **SHA-256 100% 完全一致** |
 | **macOS Finder 連携** | `~/Downloads/TailSend/` への自動保存 & `open` | ✅ **PASS** | Finder でのフォルダ表示・確認完了 |
-

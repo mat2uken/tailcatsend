@@ -17,3 +17,6 @@ tokio = { workspace = true, optional = true }
 [features]
 default = []
 tokio-runtime = ["dep:tokio"]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+tokio = { workspace = true }

@@ -23,7 +23,7 @@ fi
 echo "=== 1. Building Tailcat Go C-ABI for Android arm64 ==="
 export CC=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android33-clang
 export CXX=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/darwin-x86_64/bin/aarch64-linux-android33-clang++
-(cd tailcat/bridge/native && CGO_ENABLED=1 GOOS=android GOARCH=arm64 go build -ldflags="-checklinkname=0" -buildmode=c-shared -o ../../../target/libtailcat_android.so bridge.go)
+(cd tailcat && CGO_ENABLED=1 GOOS=android GOARCH=arm64 go build -ldflags="-checklinkname=0" -buildmode=c-shared -o ../target/libtailcat_android.so ./bridge/native)
 mkdir -p target/aarch64-linux-android/debug
 cp -f target/libtailcat_android.so target/aarch64-linux-android/debug/libtailcat_android.so
 

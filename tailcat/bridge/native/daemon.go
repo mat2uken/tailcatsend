@@ -1,3 +1,5 @@
+//go:build tailcat_daemon
+
 package main
 
 import (

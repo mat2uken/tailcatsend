@@ -14,7 +14,7 @@ killall tailsend tailcat_daemon 2>/dev/null || true
 sleep 1
 
 # Ensure fresh tailcat_daemon binary
-(cd tailcat && go build -o ../tailcat_daemon ./bridge/native/daemon.go && cp ../tailcat_daemon ../target/release/tailcat_daemon)
+(cd tailcat && go build -tags tailcat_daemon -o ../tailcat_daemon ./bridge/native && cp ../tailcat_daemon ../target/release/tailcat_daemon)
 
 MAC_LOG="/tmp/tailsend_macos_e2e.log"
 rm -f "$MAC_LOG"

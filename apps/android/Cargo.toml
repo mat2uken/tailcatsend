@@ -43,6 +43,7 @@ tailsend-protocol = { workspace = true }
 tailsend-qr = { workspace = true }
 tailsend-ui-controller = { workspace = true }
 tailsend-telemetry = { workspace = true }
+tailsend-native-bridge = { workspace = true }
 ciborium = { workspace = true }
 
 slint = { workspace = true, features = ["backend-android-activity-06", "renderer-femtovg", "compat-1-2"] }

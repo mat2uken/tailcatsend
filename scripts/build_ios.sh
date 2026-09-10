@@ -73,7 +73,7 @@ elif [ "$MODE" = "device-install" ]; then
         exit 1
     fi
     echo "🔨 [1/4] Compiling Go Tailcat library for physical iOS Device..."
-    (cd tailcat && CGO_ENABLED=1 CC="$(xcrun --sdk iphoneos --find clang) -isysroot $(xcrun --sdk iphoneos --show-sdk-path) -arch arm64 -miphoneos-version-min=17.0" GOOS=ios GOARCH=arm64 go build -buildmode=c-archive -o ../libtailcat_ios.a bridge/native/bridge.go)
+    (cd tailcat && CGO_ENABLED=1 CC="$(xcrun --sdk iphoneos --find clang) -isysroot $(xcrun --sdk iphoneos --show-sdk-path) -arch arm64 -miphoneos-version-min=17.0" GOOS=ios GOARCH=arm64 go build -buildmode=c-archive -o ../libtailcat_ios.a ./bridge/native)
 
     echo "🔨 [2/4] Compiling Rust library for physical iOS Device (aarch64-apple-ios)..."
     cargo build -p tailsend-ios --target aarch64-apple-ios --release

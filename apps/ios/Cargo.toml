@@ -15,6 +15,7 @@ tailsend-core = { workspace = true }
 tailsend-qr = { workspace = true }
 tailsend-telemetry = { workspace = true }
 tailsend-ui-controller = { workspace = true }
+tailsend-native-bridge = { workspace = true }
 
 [target.'cfg(target_os = "ios")'.dependencies]
 slint = { workspace = true, features = ["backend-winit", "renderer-skia", "compat-1-2"] }

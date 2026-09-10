@@ -122,7 +122,7 @@ jobs:
         run: |
           cd tailcat
           CGO_ENABLED=1 CC="$(xcrun --sdk iphoneos --find clang) -isysroot $(xcrun --sdk iphoneos --show-sdk-path) -arch arm64 -miphoneos-version-min=17.0" \
-          GOOS=ios GOARCH=arm64 go build -buildmode=c-archive -o ../libtailcat_ios.a bridge/native/bridge.go
+          GOOS=ios GOARCH=arm64 go build -buildmode=c-archive -o ../libtailcat_ios.a ./bridge/native
           cd ..
 
       - name: Build Rust iOS Static Library

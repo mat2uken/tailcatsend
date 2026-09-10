@@ -44,7 +44,7 @@ typedef struct tc_event {
     int32_t status_code;
 } tc_event_t;
 
-/* Initialize bridge-global resources. Safe to call once. */
+/* Initialize bridge-global resources. Idempotent; may follow tc_shutdown. */
 tc_result_t tc_init(void);
 
 /* Close all handles and stop bridge resources. Intended for process teardown. */
@@ -89,6 +89,25 @@ tc_result_t tc_stream_dial(
     tc_handle_t *out_stream);
 
 /*
+ * Start a cancellable dial and wait for its result separately. After cancel,
+ * wait again to consume the terminal result. One waiter consumes a result;
+ * further waits return TC_INVALID_HANDLE_ERROR. A timeout does not consume it.
+ */
+tc_result_t tc_stream_dial_start(
+    const uint8_t *address,
+    size_t address_len,
+    const uint8_t *derp_map_url,
+    size_t derp_map_url_len,
+    uint16_t port,
+    uint32_t timeout_ms,
+    tc_handle_t *out_operation);
+
+tc_result_t tc_stream_dial_wait(
+    tc_handle_t operation,
+    uint32_t timeout_ms,
+    tc_handle_t *out_stream);
+
+/*
  * Read up to capacity bytes. TC_OK with out_read>0 means data.
  * TC_EOF means orderly peer half-close. Only one concurrent read per stream.
  */
@@ -99,7 +118,15 @@ tc_result_t tc_stream_read(
     size_t *out_read,
     uint32_t timeout_ms);
 
-/* Writes the complete buffer or returns an error. */
+/* Write one buffer and preserve partial progress on an error. */
+tc_result_t tc_stream_write(
+    tc_handle_t stream,
+    const uint8_t *buffer,
+    size_t length,
+    size_t *out_written,
+    uint32_t timeout_ms);
+
+/* Compatibility wrapper that writes the complete buffer or returns an error. */
 tc_result_t tc_stream_write_all(
     tc_handle_t stream,
     const uint8_t *buffer,
@@ -115,8 +142,8 @@ tc_result_t tc_stream_close(tc_handle_t stream);
 tc_result_t tc_cancel(tc_handle_t handle);
 
 /*
- * Copy the most recent user-safe diagnostic for the current calling thread or
- * bridge operation. Must never contain keys, full ConnBlob, or payload data.
+ * Copy the most recent user-safe bridge diagnostic. Must never contain keys,
+ * full ConnBlob, or payload data.
  */
 tc_result_t tc_last_error(
     uint8_t *buffer,

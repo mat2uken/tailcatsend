@@ -9,6 +9,8 @@ members = [
     "crates/tailsend-qr",
     "crates/tailsend-ui-controller",
     "crates/tailsend-telemetry",
+    "crates/tailsend-updates",
+    "crates/tailsend-native-bridge",
     "apps/desktop",
     "apps/web",
     "apps/ios",
@@ -32,6 +34,8 @@ tailsend-core = { path = "crates/tailsend-core" }
 tailsend-qr = { path = "crates/tailsend-qr" }
 tailsend-ui-controller = { path = "crates/tailsend-ui-controller" }
 tailsend-telemetry = { path = "crates/tailsend-telemetry" }
+tailsend-updates = { path = "crates/tailsend-updates" }
+tailsend-native-bridge = { path = "crates/tailsend-native-bridge" }
 
 # Slint
 slint = { version = "1.17.1", default-features = false }

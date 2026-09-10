@@ -11,6 +11,11 @@ use rand::RngCore;
 use slint::{Image, SharedPixelBuffer};
 use tailsend_protocol::filename::{generate_unique_filename, sanitize_filename};
 use tailsend_protocol::invitation::InvitationV1;
+use tailsend_native_bridge::{
+    tc_init, tc_listener_address, tc_listener_close, tc_listener_create, tc_stream_close,
+    tc_stream_close_write, tc_stream_dial, tc_stream_read, tc_stream_write_all, tc_wait_event,
+    TcEvent, TcHandle,
+};
 use tailsend_qr::generate_qr_rgba;
 use tokio::sync::mpsc;
 
@@ -18,61 +23,7 @@ slint::include_modules!();
 
 mod telemetry;
 
-// C-ABI Types & Bindings from tailcat_bridge.h
-type TcHandle = u64;
-
-#[repr(C)]
-struct TcEvent {
-    struct_size: u32,
-    event_type: u32,
-    owner_handle: TcHandle,
-    object_handle: TcHandle,
-    port: u16,
-    reserved: u16,
-    status_code: i32,
-}
-
 extern "C" {
-    fn tc_init() -> i32;
-    fn tc_listener_create(
-        derp_map_url: *const u8,
-        derp_map_url_len: usize,
-        verbose: u8,
-        out_listener: *mut TcHandle,
-    ) -> i32;
-    fn tc_listener_address(
-        listener: TcHandle,
-        buffer: *mut u8,
-        capacity: usize,
-        out_length: *mut usize,
-    ) -> i32;
-    fn tc_listener_close(listener: TcHandle) -> i32;
-    fn tc_wait_event(timeout_ms: u32, out_event: *mut TcEvent) -> i32;
-    fn tc_stream_dial(
-        address: *const u8,
-        address_len: usize,
-        derp_map_url: *const u8,
-        derp_map_url_len: usize,
-        port: u16,
-        timeout_ms: u32,
-        out_stream: *mut TcHandle,
-    ) -> i32;
-    fn tc_stream_read(
-        stream: TcHandle,
-        buffer: *mut u8,
-        capacity: usize,
-        out_read: *mut usize,
-        timeout_ms: u32,
-    ) -> i32;
-    fn tc_stream_write_all(
-        stream: TcHandle,
-        buffer: *const u8,
-        length: usize,
-        timeout_ms: u32,
-    ) -> i32;
-    fn tc_stream_close(stream: TcHandle) -> i32;
-    fn tc_stream_close_write(stream: TcHandle) -> i32;
-
     fn tailsend_swift_open_camera_scanner();
     fn tailsend_swift_pick_file();
 }

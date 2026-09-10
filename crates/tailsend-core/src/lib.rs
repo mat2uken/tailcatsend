@@ -5,6 +5,7 @@ pub mod mock_transport;
 pub mod session;
 pub mod snapshot;
 pub mod state;
+pub mod service;
 
 pub use actor::*;
 pub use command::*;
@@ -13,6 +14,7 @@ pub use mock_transport::*;
 pub use session::*;
 pub use snapshot::*;
 pub use state::*;
+pub use service::*;
 
 #[cfg(test)]
 mod tests {

@@ -43,7 +43,7 @@ fi
 echo ""
 echo "[1/2] Building Go Tailcat WireGuard Daemon..."
 cd "$ROOT_DIR/tailcat"
-go build -o "$ROOT_DIR/tailcat_daemon" ./bridge/native/daemon.go
+go build -tags tailcat_daemon -o "$ROOT_DIR/tailcat_daemon" ./bridge/native
 cd "$ROOT_DIR"
 chmod +x "$ROOT_DIR/tailcat_daemon"
 echo "✓ Tailcat daemon built successfully at ./tailcat_daemon"

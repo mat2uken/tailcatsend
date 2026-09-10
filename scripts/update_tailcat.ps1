@@ -92,7 +92,7 @@ try {
     $outDaemonDir = Split-Path $outDaemon -Parent
     if (-not (Test-Path $outDaemonDir)) { New-Item -ItemType Directory -Path $outDaemonDir -Force | Out-Null }
 
-    & $goExe build -ldflags "-s -w" -o $outDaemon ./bridge/native/daemon.go
+    & $goExe build -tags tailcat_daemon -ldflags "-s -w" -o $outDaemon ./bridge/native
     if ($LASTEXITCODE -ne 0) { throw "Native daemon build failed" }
     $daemonSizeMB = [math]::Round((Get-Item $outDaemon).Length / 1MB, 2)
     Write-Host "✓ Built tailcat_daemon.exe ($daemonSizeMB MB)" -ForegroundColor Green

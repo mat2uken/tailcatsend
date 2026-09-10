@@ -36,7 +36,8 @@ impl MockStream {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl DuplexStream for MockStream {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, TransportError> {
         if self.is_closed {
@@ -90,7 +91,8 @@ pub struct MockListener {
     is_closed: Arc<AsyncMutex<bool>>,
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl Listener for MockListener {
     fn local_address(&self) -> &str {
         &self.address
@@ -125,7 +127,8 @@ impl MockNetworkHub {
     }
 }
 
-#[async_trait]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 impl TailcatTransport for MockNetworkHub {
     async fn listen(&self, _options: ListenOptions) -> Result<Box<dyn Listener>, TransportError> {
         let addr = format!("tc-mock-{}", rand::random::<u32>());

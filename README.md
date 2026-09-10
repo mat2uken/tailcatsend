@@ -58,7 +58,8 @@ tailcatsend/
 │   ├── tailsend-qr/          # Pure Rust RGBA pixel matrix QR generator
 │   ├── tailsend-platform-api/# Platform abstraction layer (storage, clipboard, sinks)
 │   ├── tailsend-transport-api# Transport abstractions (DuplexStream, Listener)
-│   └── tailsend-ui-controller# Slint UI adapter bridging core events to UI
+│   ├── tailsend-ui-controller# Slint UI adapter bridging core events to UI
+│   └── tailsend-native-bridge# Shared Tailcat C ABI declarations and status types
 ├── tailcat/                  # Go Tailcat submodule (WireGuard / DERP mesh engine)
 │   ├── pkg/tailcat           # Git submodule pointing to upstream tailscale/tailcat
 │   └── bridge/               # C-ABI and WebAssembly bridge adapters
@@ -88,7 +89,7 @@ cd tailcatsend
 ```bash
 # Build the Go Tailcat daemon
 cd tailcat
-go build -o ../tailcat_daemon ./bridge/native/daemon.go
+go build -tags tailcat_daemon -o ../tailcat_daemon ./bridge/native
 cd ..
 
 # Run the Rust desktop application
@@ -111,6 +112,16 @@ gzip -9 -c dist/pkg/tailsend_web_bg.wasm > dist/pkg/tailsend_web_bg.wasm.gz
 # Serve locally
 npx serve dist -l 8788
 ```
+
+### 4. WebView UI (移行中)
+
+VanJS UIの移行用ソースは [`web-ui/`](web-ui/) にある。ブラウザ用とTauri用を同じTypeScriptから生成する。
+
+```bash
+./scripts/build_web_ui.sh
+```
+
+現行の配布版は切替検証が終わるまで既存のSlint経路を使う。共通転送処理とWebView接続の実装状態は [`docs/WEBVIEW_MIGRATION.md`](docs/WEBVIEW_MIGRATION.md) を参照。
 
 ---
 

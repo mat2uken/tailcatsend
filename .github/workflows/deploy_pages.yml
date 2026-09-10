@@ -17,6 +17,8 @@ on:
       - 'dist/**'
       - 'functions/**'
       - 'cloudflare/**'
+      - 'web-ui/**'
+      - 'scripts/build_web_ui.sh'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/deploy_pages.yml'
@@ -59,6 +61,16 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
+
+      - name: Check WebView UI bundles
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.20.0'
+          cache: npm
+          cache-dependency-path: web-ui/package-lock.json
+
+      - name: Build VanJS WebView UI
+        run: ./scripts/build_web_ui.sh
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2

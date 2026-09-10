@@ -57,7 +57,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path target/release | Out-Null
           cd tailcat
-          go build -trimpath -ldflags="-s -w" -o ../target/release/tailcat_daemon.exe ./bridge/native/daemon.go
+          go build -tags tailcat_daemon -trimpath -ldflags="-s -w" -o ../target/release/tailcat_daemon.exe ./bridge/native
           cd ..
 
       - name: Build Rust Desktop Application
@@ -123,8 +123,8 @@ jobs:
       - name: Build Universal Go Tailcat Daemon
         run: |
           cd tailcat
-          GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o ../tailcat_daemon_arm64 ./bridge/native/daemon.go
-          GOOS=darwin GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o ../tailcat_daemon_x86_64 ./bridge/native/daemon.go
+          GOOS=darwin GOARCH=arm64 go build -tags tailcat_daemon -trimpath -ldflags="-s -w" -o ../tailcat_daemon_arm64 ./bridge/native
+          GOOS=darwin GOARCH=amd64 go build -tags tailcat_daemon -trimpath -ldflags="-s -w" -o ../tailcat_daemon_x86_64 ./bridge/native
           cd ..
           mkdir -p target/release
           lipo -create -output target/release/tailcat_daemon tailcat_daemon_arm64 tailcat_daemon_x86_64
@@ -213,7 +213,7 @@ jobs:
           export CC=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android33-clang
           export CXX=$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android33-clang++
           mkdir -p target target/aarch64-linux-android/release
-          (cd tailcat/bridge/native && CGO_ENABLED=1 GOOS=android GOARCH=arm64 go build -ldflags="-checklinkname=0" -buildmode=c-shared -o ../../../target/libtailcat_android.so bridge.go)
+          (cd tailcat && CGO_ENABLED=1 GOOS=android GOARCH=arm64 go build -ldflags="-checklinkname=0" -buildmode=c-shared -o ../target/libtailcat_android.so ./bridge/native)
           cp target/libtailcat_android.so target/aarch64-linux-android/release/libtailcat_android.so
 
       - name: Generate Release Keystore
@@ -290,8 +290,8 @@ jobs:
 
       - name: Build Go Tailcat iOS Archives
         run: |
-          (cd tailcat && CGO_ENABLED=1 CC="$(xcrun --sdk iphoneos --find clang) -isysroot $(xcrun --sdk iphoneos --show-sdk-path) -arch arm64 -miphoneos-version-min=17.0" GOOS=ios GOARCH=arm64 go build -buildmode=c-archive -o ../libtailcat_ios.a bridge/native/bridge.go)
-          (cd tailcat && CGO_ENABLED=1 CC="$(xcrun --sdk iphonesimulator --find clang) -isysroot $(xcrun --sdk iphonesimulator --show-sdk-path) -arch arm64 -miphoneos-version-min=17.0" GOOS=ios GOARCH=arm64 go build -buildmode=c-archive -o ../libtailcat_ios_sim.a bridge/native/bridge.go)
+          (cd tailcat && CGO_ENABLED=1 CC="$(xcrun --sdk iphoneos --find clang) -isysroot $(xcrun --sdk iphoneos --show-sdk-path) -arch arm64 -miphoneos-version-min=17.0" GOOS=ios GOARCH=arm64 go build -buildmode=c-archive -o ../libtailcat_ios.a ./bridge/native)
+          (cd tailcat && CGO_ENABLED=1 CC="$(xcrun --sdk iphonesimulator --find clang) -isysroot $(xcrun --sdk iphonesimulator --show-sdk-path) -arch arm64 -miphoneos-version-min=17.0" GOOS=ios GOARCH=arm64 go build -buildmode=c-archive -o ../libtailcat_ios_sim.a ./bridge/native)
 
       - name: Build Rust iOS Static Library
         run: |
