@@ -19,6 +19,7 @@
 - Tailcat の状態取得では peer 情報を要求し、受信側のデータ stream でも WebRTC／WireGuard UDP／DERP の表示を接続後に更新する。修正は `tailcat/patches/0003-tailcat-status-peer-report.patch` としてビルド時に適用する。
 - `d1c3473` で受信保存の衝突候補をディレクトリ全走査から上限付き存在確認へ変更し、宣言サイズを受け取った後に遅延する half-close を待たず保存を確定する。iCloud／Files provider での待機と、100%表示後に止まる受信を避ける。
 - `adb7b65` で取消時に native／Web の stream を実際に閉じる callback を共通 service へ登録した。callback は状態 mutex の外で一度だけ呼び出し、Go の read/write 待ちも close で解除する。
+- 最新の native adapter では、multi-thread Tokio の read/write を `block_in_place` で実行し、Go C ABIへRustのチャンクバッファを呼出し中だけ借用する。チャンクごとの `spawn_blocking` と一時 `Vec` を使わず、current-thread runtimeでは同期呼出しへ切り替える。
 
 ## ローカルで通過させる確認
 

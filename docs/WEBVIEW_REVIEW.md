@@ -4,7 +4,7 @@
 
 ## 判断
 
-UI と転送処理の責務は分かれ、ファイル本文を UI の JSON、Base64、Tauri invoke に載せない構成になっている。現行の通信形式は維持し、`tailsend-transfer` がヘッダー解析、部分 I/O、進捗、取消、保存確定を共通に実行する。Web は `wasm32` 用に `Send + Sync` を要求せず、native は専用 I/O 実行枠で安全に stream を扱う。
+UI と転送処理の責務は分かれ、ファイル本文を UI の JSON、Base64、Tauri invoke に載せない構成になっている。現行の通信形式は維持し、`tailsend-transfer` がヘッダー解析、部分 I/O、進捗、取消、保存確定を共通に実行する。Web は `wasm32` 用に `Send + Sync` を要求せず、native は専用 I/O 実行枠で安全に stream を扱い、read/writeのチャンクバッファをC ABI呼出し中だけ借用する。
 
 `web-ui` は `vanjslitetemplate` と同じ Vite 8、Vitest、Oxlint、Oxfmt、`@nkzw/oxlint-config` を基礎にし、Tauri と Web の bundle だけを mode で切り替える。旧 UI、旧 mobile shell、Slint 依存は workspace から除去した。
 

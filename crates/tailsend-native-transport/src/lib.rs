@@ -2,12 +2,14 @@
 //!
 //! The adapter owns no protocol state. It only turns the handle based C API
 //! into the async stream/listener traits consumed by the common Rust session
-//! and transfer code. Payloads are copied once into a blocking task because
-//! the C ABI call must keep the caller's pointer alive until it returns.
+//! and transfer code. Read/write payloads are borrowed only for the duration
+//! of the C ABI call; lifecycle operations still use a blocking task because
+//! they do not carry a caller buffer.
 
 use std::sync::atomic::AtomicU8;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tokio::runtime::{Handle, RuntimeFlavor};
 
 use tailsend_native_bridge::{
     status, TcEvent, TcHandle, TC_BUFFER_TOO_SMALL, TC_CANCELLED, TC_EOF, TC_EVENT_INCOMING_STREAM,
@@ -64,6 +66,23 @@ fn stream_transport_path(handle: TcHandle) -> TransportPath {
         TransportPath::from_code(code)
     } else {
         TransportPath::Unknown
+    }
+}
+
+/// Run one short native bridge call while the borrowed caller buffer is still
+/// valid.  The Tauri runtime is multi-threaded, so `block_in_place` yields its
+/// worker to the blocking pool without allocating a task for every chunk.
+/// A current-thread runtime cannot yield a worker; keep the same call inline
+/// there so tests and embedders retain correct behavior.
+fn call_native<F, R>(call: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    match Handle::try_current() {
+        Ok(handle) if handle.runtime_flavor() == RuntimeFlavor::MultiThread => {
+            tokio::task::block_in_place(call)
+        }
+        _ => call(),
     }
 }
 
@@ -362,23 +381,19 @@ impl DuplexStream for NativeStream {
             };
         }
         let handle = self.handle;
-        let capacity = buffer.len();
-        let (code, read, bytes) = tokio::task::spawn_blocking(move || {
-            let mut bytes = vec![0u8; capacity];
+        let (code, read) = call_native(|| {
             let mut read = 0usize;
             let code = unsafe {
                 tailsend_native_bridge::tc_stream_read(
                     handle,
-                    bytes.as_mut_ptr(),
-                    bytes.len(),
+                    buffer.as_mut_ptr(),
+                    buffer.len(),
                     &mut read,
                     IO_TIMEOUT_MS,
                 )
             };
-            (code, read, bytes)
-        })
-        .await
-        .map_err(|error| TransportError::Internal(format!("read task failed: {error}")))?;
+            (code, read)
+        });
         if read > buffer.len() {
             return Err(TransportError::Internal(format!(
                 "Tailcat read overrun: {} > {}",
@@ -386,7 +401,6 @@ impl DuplexStream for NativeStream {
                 buffer.len()
             )));
         }
-        buffer[..read].copy_from_slice(&bytes[..read]);
         if code == TC_OK {
             Ok(read)
         } else if read > 0 {
@@ -425,22 +439,19 @@ impl DuplexStream for NativeStream {
             return Err(TransportError::Closed);
         }
         let handle = self.handle;
-        let bytes = buffer.to_vec();
-        let (code, written) = tokio::task::spawn_blocking(move || {
+        let (code, written) = call_native(|| {
             let mut written = 0usize;
             let code = unsafe {
                 tailsend_native_bridge::tc_stream_write(
                     handle,
-                    bytes.as_ptr(),
-                    bytes.len(),
+                    buffer.as_ptr(),
+                    buffer.len(),
                     &mut written,
                     IO_TIMEOUT_MS,
                 )
             };
             (code, written)
-        })
-        .await
-        .map_err(|error| TransportError::Internal(format!("write task failed: {error}")))?;
+        });
         if written > buffer.len() {
             return Err(TransportError::Internal(format!(
                 "Tailcat write overrun: {} > {}",

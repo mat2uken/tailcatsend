@@ -25,6 +25,7 @@
 - 旧 Slint workspace crate、font/icon、winit patch、NativeActivity/UIKit shell、旧生成 Pages entry を削除した。
 - `d1c3473` で保存先の確認を上限付き存在確認へ変更し、宣言サイズを受信した時点で保存を確定するようにした。遅延する half-close を待たないため、Files provider と大きなファイルでの停止を避ける。
 - `adb7b65` で共通 Rust service から native／Web の stream close を呼ぶ取消 callback を追加した。callback は状態 mutex の外で一度だけ実行し、I/O 待ちを解除する。
+- native read/write は `block_in_place` 内でC ABIへ入力バッファを直接渡し、チャンクごとの `spawn_blocking` と一時 `Vec` をなくした。buffer pointerは各呼出しの終了前にGo側が使い終える前提を保つ。
 
 ## 確認済み
 
