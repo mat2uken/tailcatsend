@@ -740,7 +740,8 @@ fn pick_file_requests(app: &AppHandle) -> Result<Vec<FileRequest>, String> {
         .into_iter()
         .enumerate()
         .map(|(index, path)| {
-            let name = picker_file_name(&path, index);
+            let resolved_name = app.path().file_name(&path.to_string());
+            let name = picker_file_name(&path, index, resolved_name.as_deref());
             let mut options = OpenOptions::new();
             options.read(true);
             let file = app
@@ -761,22 +762,68 @@ fn pick_file_requests(app: &AppHandle) -> Result<Vec<FileRequest>, String> {
         .collect()
 }
 
-fn picker_file_name(path: &FilePath, index: usize) -> String {
-    let candidate = path
-        .as_path()
-        .and_then(Path::file_name)
-        .and_then(|value| value.to_str())
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned)
+fn picker_file_name(path: &FilePath, index: usize, resolved_name: Option<&str>) -> String {
+    let candidate = resolved_name
+        .and_then(normalize_picker_name)
         .or_else(|| {
-            path.to_string()
-                .split(['/', '\\'])
-                .next_back()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-                .map(|value| value.split('?').next().unwrap_or(value).to_owned())
+            path.as_path()
+                .and_then(Path::file_name)
+                .and_then(|value| value.to_str())
+                .and_then(normalize_picker_name)
+        })
+        .or_else(|| {
+            let encoded = path.to_string();
+            normalize_picker_name_with_scheme(&encoded, encoded.starts_with("content://"))
         });
-    candidate.unwrap_or_else(|| format!("selected-file-{}", index + 1))
+    candidate
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| format!("selected-file-{}", index + 1))
+}
+
+fn normalize_picker_name(value: &str) -> Option<String> {
+    normalize_picker_name_with_scheme(value, false)
+}
+
+fn normalize_picker_name_with_scheme(value: &str, content_uri: bool) -> Option<String> {
+    let decoded = percent_decode(value);
+    let value = decoded.strip_prefix("raw:").unwrap_or(&decoded);
+    let value = value.rsplit(['/', '\\']).next()?.split('?').next()?.trim();
+    let value = if content_uri {
+        value.rsplit_once(':').map(|(_, name)| name).unwrap_or(value)
+    } else {
+        value
+    };
+    (!value.is_empty()).then(|| value.to_owned())
+}
+
+fn percent_decode(value: &str) -> String {
+    fn hex_digit(byte: u8) -> Option<u8> {
+        match byte {
+            b'0'..=b'9' => Some(byte - b'0'),
+            b'a'..=b'f' => Some(byte - b'a' + 10),
+            b'A'..=b'F' => Some(byte - b'A' + 10),
+            _ => None,
+        }
+    }
+
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            if let (Some(high), Some(low)) = (
+                hex_digit(bytes[index + 1]),
+                hex_digit(bytes[index + 2]),
+            ) {
+                decoded.push(high * 16 + low);
+                index += 3;
+                continue;
+            }
+        }
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&decoded).into_owned()
 }
 
 async fn ponlet_save_text_impl(app: AppHandle, text: String) -> Result<(), String> {
@@ -1591,17 +1638,26 @@ mod tests {
         let path = "/tmp/report.txt"
             .parse::<FilePath>()
             .expect("FilePath parsing is infallible");
-        assert_eq!(picker_file_name(&path, 0), "report.txt");
+        assert_eq!(picker_file_name(&path, 0, None), "report.txt");
+        assert_eq!(
+            picker_file_name(&path, 0, Some("android-real.bin")),
+            "android-real.bin"
+        );
 
         let uri = "content://com.example.documents/document/primary%3Areport.txt"
             .parse::<FilePath>()
             .expect("FilePath parsing is infallible");
-        assert_eq!(picker_file_name(&uri, 1), "primary%3Areport.txt");
+        assert_eq!(picker_file_name(&uri, 1, None), "report.txt");
+
+        let raw = "raw%3A%2Fstorage%2Femulated%2F0%2FDownload%2Fandroid-real.bin"
+            .parse::<FilePath>()
+            .expect("FilePath parsing is infallible");
+        assert_eq!(picker_file_name(&raw, 2, None), "android-real.bin");
 
         let opaque = "content://picker/"
             .parse::<FilePath>()
             .expect("FilePath parsing is infallible");
-        assert_eq!(picker_file_name(&opaque, 2), "selected-file-3");
+        assert_eq!(picker_file_name(&opaque, 3, None), "selected-file-4");
     }
 
     #[test]
