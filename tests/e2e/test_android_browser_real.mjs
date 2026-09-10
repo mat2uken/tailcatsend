@@ -12,6 +12,7 @@ const uiDist = resolve(root, "web-ui/dist/web");
 const serial = process.env.PONLET_ANDROID_SERIAL ?? "";
 const cdpPort = Number(process.env.PONLET_ANDROID_CDP_PORT ?? "9223");
 const transportOverride = process.env.PONLET_TEST_TRANSPORT;
+const knownTransportPaths = new Set(["direct-udp", "webrtc", "derp"]);
 
 if (transportOverride && transportOverride !== "derp") {
   throw new Error(`unsupported PONLET_TEST_TRANSPORT: ${transportOverride}`);
@@ -108,6 +109,15 @@ async function waitForAndroidSnapshot(page, predicate, description, timeout = 90
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+function assertTransport(snapshotValue, label) {
+  if (!knownTransportPaths.has(snapshotValue.transport)) {
+    throw new Error(`${label} reported an unknown transport: ${snapshotValue.transport}`);
+  }
+  if (transportOverride === "derp" && snapshotValue.transport !== "derp") {
+    throw new Error(`${label} did not use DERP: ${snapshotValue.transport}`);
+  }
 }
 
 async function main() {
@@ -214,11 +224,14 @@ async function main() {
     if (actualHash !== expectedHash) {
       throw new Error(`Android file hash mismatch: ${actualHash} != ${expectedHash}`);
     }
+    const browserFinal = await snapshot(host);
+    assertTransport(browserFinal, "browser");
+    assertTransport(androidAfter, "android");
 
     console.log(
       JSON.stringify(
         {
-          browser: { state: browserConnected.state, transport: browserConnected.transport },
+          browser: { state: browserFinal.state, transport: browserFinal.transport },
           android: { state: androidAfter.state, transport: androidAfter.transport },
           text,
           reverseText,

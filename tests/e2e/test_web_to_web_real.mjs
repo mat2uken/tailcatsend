@@ -10,6 +10,7 @@ const root = resolve(new URL("../..", import.meta.url).pathname);
 const dist = resolve(root, "dist");
 const uiDist = resolve(root, "web-ui/dist/web");
 const transportOverride = process.env.PONLET_TEST_TRANSPORT;
+const knownTransportPaths = new Set(["direct-udp", "webrtc", "derp"]);
 
 if (transportOverride && !["webrtc", "derp"].includes(transportOverride)) {
   throw new Error(`unsupported PONLET_TEST_TRANSPORT: ${transportOverride}`);
@@ -79,6 +80,15 @@ async function snapshot(page) {
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
+}
+
+function assertTransport(snapshotValue, label) {
+  if (!knownTransportPaths.has(snapshotValue.transport)) {
+    throw new Error(`${label} reported an unknown transport: ${snapshotValue.transport}`);
+  }
+  if (transportOverride === "derp" && snapshotValue.transport !== "derp") {
+    throw new Error(`${label} did not use DERP: ${snapshotValue.transport}`);
+  }
 }
 
 async function main() {
@@ -191,11 +201,8 @@ async function main() {
 
     const hostFinal = await snapshot(host);
     const joinerFinal = await snapshot(joiner);
-    if (hostFinal.transport === "unknown" || joinerFinal.transport === "unknown") {
-      throw new Error(
-        `transport path was not reported: host=${hostFinal.transport}, joiner=${joinerFinal.transport}`,
-      );
-    }
+    assertTransport(hostFinal, "host");
+    assertTransport(joinerFinal, "joiner");
     console.log(
       JSON.stringify(
         {
