@@ -16,6 +16,9 @@ if (-not (Test-Path "tailcat\pkg\tailcat\go.mod")) {
     if (Test-Path "tailcat\patches\0001-android-selinux-netmon-fallback.patch") {
         git -C tailcat/pkg/tailcat apply ../../patches/0001-android-selinux-netmon-fallback.patch
     }
+    if (Test-Path "tailcat\patches\0003-tailcat-status-peer-report.patch") {
+        git -C tailcat/pkg/tailcat apply ../../patches/0003-tailcat-status-peer-report.patch
+    }
 }
 
 Write-Host "==========================================================" -ForegroundColor Cyan

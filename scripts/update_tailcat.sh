@@ -21,6 +21,7 @@ echo -e "\033[0;33mTarget: github.com/tailscale/tailcat@${TARGET}\033[0m"
 echo -e "\n\033[0;33m[1/5] Updating Tailcat git submodule...\033[0m"
 SUBMODULE_DIR="$TAILCAT_DIR/pkg/tailcat"
 PATCH_FILE="$TAILCAT_DIR/patches/0001-android-selinux-netmon-fallback.patch"
+STATUS_PATCH_FILE="$TAILCAT_DIR/patches/0003-tailcat-status-peer-report.patch"
 
 git submodule sync --quiet
 git submodule update --init --recursive --quiet
@@ -40,6 +41,10 @@ echo -e "\033[0;32m✓ Checked out submodule commit: ${COMMIT_HASH}\033[0m"
 if [ -f "$PATCH_FILE" ]; then
     git apply "$PATCH_FILE"
     echo -e "\033[0;32m✓ Applied local patch: $(basename "$PATCH_FILE")\033[0m"
+fi
+if [ -f "$STATUS_PATCH_FILE" ]; then
+    git apply "$STATUS_PATCH_FILE"
+    echo -e "\033[0;32m✓ Applied local patch: $(basename "$STATUS_PATCH_FILE")\033[0m"
 fi
 
 # 2. Update Go Module and Metadata

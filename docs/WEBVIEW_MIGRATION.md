@@ -18,6 +18,7 @@
 - `NAME` ヘッダーの分割受信、ヘッダーと本文の同時受信、部分 read/write、0 byte、早期 EOF、取消、保存確定を共通 Rust へ移した。
 - Tauri の送信 picker、受信保存、QR bitmap、受信一覧を Rust command/event と VanJS に接続した。ファイル本文は invoke JSON に載せない。
 - Browser adapter は Go bridge の接続後に Rust WASM service を起動し、snapshot/event/API version を検証してから UI に渡す。
+- Go bridge の server status は peer 情報を明示的に取得する。接続通知時の値だけでなく、Rust stream がデータ開始時に再取得するため、受信側も実際の経路へ追随する。
 - `vanjslitetemplate` の Vite 8、Vitest、Oxlint、Oxfmt、`@nkzw/oxlint-config`、`vanjs-core` 構成を採用した。mode ごとの outDir と ES2018 target は維持する。
 - 旧 Slint workspace crate、font/icon、winit patch、NativeActivity/UIKit shell、旧生成 Pages entry を削除した。
 
@@ -28,6 +29,7 @@
 - Tauri Android debug/release、iOS Simulator/device bundle の生成。
 - Android debug APK の実機起動と招待待受画面。
 - Chrome 2 タブの招待、WebRTC DataChannel 接続、テキスト送受信。
+- `cd web-ui && npm run test:e2e:real` で、招待、接続、テキスト、131,089 byte ファイル、OPFSからの開く操作、SHA-256、両端の経路表示を一括確認する。
 
 ## 残っている検証
 

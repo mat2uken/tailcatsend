@@ -1,0 +1,7 @@
+diff --git a/tailcat.go b/tailcat.go
+index 41cd966fef..3780c37cca 100644
+--- a/tailcat.go
++++ b/tailcat.go
+@@ -1668 +1668 @@
+-	var sb ipnstate.StatusBuilder
++	sb := ipnstate.StatusBuilder{WantPeers: true}

@@ -160,10 +160,26 @@ struct WebStream {
     transport_path: TransportPath,
 }
 
+impl WebStream {
+    fn current_transport_path(&self) -> TransportPath {
+        let Ok(get_transport) = function(&self.connection, "getTransport") else {
+            return self.transport_path;
+        };
+        let Ok(value) = get_transport.call0(&self.connection) else {
+            return self.transport_path;
+        };
+        value
+            .as_f64()
+            .map(|code| TransportPath::from_code(code as u8))
+            .filter(|path| *path != TransportPath::Unknown)
+            .unwrap_or(self.transport_path)
+    }
+}
+
 #[async_trait(?Send)]
 impl DuplexStream for WebStream {
     fn transport_path(&self) -> TransportPath {
-        self.transport_path
+        self.current_transport_path()
     }
 
     async fn read(&mut self, buffer: &mut [u8]) -> Result<usize, TransportError> {

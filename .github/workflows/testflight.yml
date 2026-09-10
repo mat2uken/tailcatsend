@@ -20,6 +20,7 @@ jobs:
       - name: Apply Tailcat patches
         run: |
           git -C tailcat/pkg/tailcat apply --ignore-space-change --ignore-whitespace ../../patches/0001-android-selinux-netmon-fallback.patch || true
+          git -C tailcat/pkg/tailcat apply --ignore-space-change --ignore-whitespace ../../patches/0003-tailcat-status-peer-report.patch || true
           git -C tailcat/pkg/tailscale.com apply --ignore-space-change --ignore-whitespace ../../patches/0002-tailscale-webrtc-transport.patch || true
 
       - name: Setup Go and Rust

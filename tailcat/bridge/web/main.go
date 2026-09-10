@@ -9,29 +9,29 @@ import (
 	"io"
 	"log"
 	"net"
-	"strings"
 	"sync"
 	"syscall/js"
 	"time"
 
 	"github.com/tailscale/tailcat"
+	"github.com/tailsend/tailcat-bridge/bridge/transportpath"
 	_ "tailscale.com/feature/webrtc"
-	"tailscale.com/tailcfg"
 	"tailscale.com/types/key"
 	"tailscale.com/types/logger"
 )
 
 var (
-	clientsMu     sync.Mutex
-	cachedClients = make(map[string]*tailcat.Client)
-	currentServer *tailcat.Server
+	clientsMu        sync.Mutex
+	cachedClients    = make(map[string]*tailcat.Client)
+	clientTransports = make(map[string]uint8)
+	currentServer    *tailcat.Server
 )
 
 const (
-	transportDirectUDP uint8 = iota
-	transportWebRTC
-	transportDERP
-	transportUnknown uint8 = 255
+	transportDirectUDP = transportpath.DirectUDP
+	transportWebRTC    = transportpath.WebRTC
+	transportDERP      = transportpath.DERP
+	transportUnknown   = transportpath.Unknown
 )
 
 func main() {
@@ -113,7 +113,9 @@ func tailcatListen(this js.Value, args []js.Value) any {
 		}
 		srv.OnTCP = func(port uint16) (handler func(net.Conn)) {
 			return func(c net.Conn) {
-				onConnection.Invoke(makeJSConn(c, port, transportFromServer(srv), nil))
+				onConnection.Invoke(makeJSConn(c, port, transportFromServer(srv), func() uint8 {
+					return transportFromServer(srv)
+				}, nil))
 			}
 		}
 		if err := srv.Start(); err != nil {
@@ -198,6 +200,7 @@ func tailcatDial(this js.Value, args []js.Value) any {
 			if err := pingUntil(ctx, cl); err != nil {
 				clientsMu.Lock()
 				delete(cachedClients, addr)
+				delete(clientTransports, addr)
 				clientsMu.Unlock()
 				cl.Close()
 				return nil, err
@@ -207,12 +210,30 @@ func tailcatDial(this js.Value, args []js.Value) any {
 		if err != nil {
 			clientsMu.Lock()
 			delete(cachedClients, addr)
+			delete(clientTransports, addr)
 			clientsMu.Unlock()
 			cl.Close()
 			return nil, fmt.Errorf("DialTCPPort: %w", err)
 		}
-		return makeJSConn(c, port, transportFromClient(cl), nil), nil
+		path := rememberClientTransport(addr, transportFromClient(cl))
+		return makeJSConn(c, port, path, func() uint8 {
+			return rememberClientTransport(addr, transportUnknown)
+		}, nil), nil
 	})
+}
+
+func rememberClientTransport(addr string, path uint8) uint8 {
+	clientsMu.Lock()
+	defer clientsMu.Unlock()
+	if path != transportUnknown {
+		clientTransports[addr] = path
+	}
+	if path == transportUnknown {
+		if cached, ok := clientTransports[addr]; ok {
+			return cached
+		}
+	}
+	return path
 }
 
 func pingUntil(ctx context.Context, cl *tailcat.Client) error {
@@ -234,11 +255,17 @@ func pingUntil(ctx context.Context, cl *tailcat.Client) error {
 	}
 }
 
-func makeJSConn(c net.Conn, port uint16, transport uint8, onClose func()) js.Value {
+func makeJSConn(c net.Conn, port uint16, transport uint8, currentTransport func() uint8, onClose func()) js.Value {
 	buf := make([]byte, 64<<10)
 	return js.ValueOf(map[string]any{
 		"port":          int(port),
 		"transportType": int(transport),
+		"getTransport": js.FuncOf(func(this js.Value, args []js.Value) any {
+			if currentTransport == nil {
+				return int(transport)
+			}
+			return int(currentTransport())
+		}),
 		"read": js.FuncOf(func(this js.Value, args []js.Value) any {
 			return makePromise(func() (any, error) {
 				limit := len(buf)
@@ -329,27 +356,11 @@ func rejectedPromise(err error) js.Value {
 }
 
 func transportFromEndpoint(endpoint string) uint8 {
-	endpoint = strings.TrimSpace(endpoint)
-	if idx := strings.Index(endpoint, " ("); idx >= 0 {
-		endpoint = endpoint[:idx]
-	}
-	if endpoint == "" {
-		return transportUnknown
-	}
-	if strings.HasPrefix(endpoint, tailcfg.WebRTCMagicIP+":") {
-		return transportWebRTC
-	}
-	return transportDirectUDP
+	return transportpath.FromEndpoint(endpoint)
 }
 
 func transportFromPing(endpoint, peerRelay string, usedDERP bool) uint8 {
-	if path := transportFromEndpoint(endpoint); path != transportUnknown {
-		return path
-	}
-	if peerRelay != "" || usedDERP {
-		return transportDERP
-	}
-	return transportUnknown
+	return transportpath.FromPing(endpoint, peerRelay, usedDERP)
 }
 
 func transportFromClient(client *tailcat.Client) uint8 {
@@ -400,7 +411,7 @@ func tailcatGetTransport(this js.Value, args []js.Value) any {
 		clientsMu.Unlock()
 
 		if hasClient && cl != nil {
-			return int(transportFromClient(cl)), nil
+			return int(rememberClientTransport(addr, transportFromClient(cl))), nil
 		}
 
 		if srv != nil {

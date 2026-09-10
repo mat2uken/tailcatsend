@@ -26,6 +26,11 @@ fi
 
 "${repo_dir}/scripts/build_web_ui.sh"
 
+status_patch="${repo_dir}/tailcat/patches/0003-tailcat-status-peer-report.patch"
+if [[ -f "${status_patch}" ]]; then
+  git -C "${repo_dir}/tailcat/pkg/tailcat" apply "${status_patch}" || true
+fi
+
 mobile_target=""
 lib_dir=""
 lib_name="tailcat"

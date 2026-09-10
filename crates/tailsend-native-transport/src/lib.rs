@@ -6,6 +6,7 @@
 //! the C ABI call must keep the caller's pointer alive until it returns.
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicU8;
 use std::sync::Arc;
 
 use tailsend_native_bridge::{
@@ -294,7 +295,7 @@ impl Drop for NativeListener {
 struct NativeStream {
     handle: TcHandle,
     closed: Arc<AtomicBool>,
-    transport_path: TransportPath,
+    transport_path: AtomicU8,
 }
 
 impl NativeStream {
@@ -302,7 +303,7 @@ impl NativeStream {
         Self {
             handle,
             closed: Arc::new(AtomicBool::new(false)),
-            transport_path: stream_transport_path(handle),
+            transport_path: AtomicU8::new(stream_transport_path(handle).code()),
         }
     }
 }
@@ -310,7 +311,17 @@ impl NativeStream {
 #[async_trait::async_trait]
 impl DuplexStream for NativeStream {
     fn transport_path(&self) -> TransportPath {
-        self.transport_path
+        let cached = TransportPath::from_code(self.transport_path.load(Ordering::Acquire));
+        if cached != TransportPath::Unknown {
+            return cached;
+        }
+        let refreshed = stream_transport_path(self.handle);
+        if refreshed != TransportPath::Unknown {
+            self.transport_path
+                .store(refreshed.code(), Ordering::Release);
+            return refreshed;
+        }
+        cached
     }
 
     async fn read(&mut self, buffer: &mut [u8]) -> Result<usize, TransportError> {

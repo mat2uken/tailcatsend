@@ -4,6 +4,10 @@ set -euo pipefail
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd -- "${script_dir}/.." && pwd)"
 out_dir="${repo_dir}/target/native/tailcat"
+status_patch="${repo_dir}/tailcat/patches/0003-tailcat-status-peer-report.patch"
+if [[ -f "${status_patch}" ]]; then
+  git -C "${repo_dir}/tailcat/pkg/tailcat" apply "${status_patch}" || true
+fi
 mkdir -p "${out_dir}"
 
 host_os="$(uname -s | tr '[:upper:]' '[:lower:]')"

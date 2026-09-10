@@ -28,6 +28,7 @@ if (Test-Path "C:\Program Files\Go\bin\go.exe") {
 Write-Host "`n[1/5] Updating Tailcat git submodule..." -ForegroundColor Yellow
 $submoduleDir = Join-Path $TailcatDir "pkg\tailcat"
 $patchFile = Join-Path $TailcatDir "patches\0001-android-selinux-netmon-fallback.patch"
+$statusPatchFile = Join-Path $TailcatDir "patches\0003-tailcat-status-peer-report.patch"
 
 git submodule sync --quiet
 git submodule update --init --recursive --quiet
@@ -50,6 +51,10 @@ try {
     if (Test-Path $patchFile) {
         git apply $patchFile
         Write-Host "✓ Applied local patch: $(Split-Path $patchFile -Leaf)" -ForegroundColor Green
+    }
+    if (Test-Path $statusPatchFile) {
+        git apply $statusPatchFile
+        Write-Host "✓ Applied local patch: $(Split-Path $statusPatchFile -Leaf)" -ForegroundColor Green
     }
 }
 finally {

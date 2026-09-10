@@ -38,6 +38,9 @@ fi
 if [ -f "$ROOT_DIR/tailcat/patches/0001-android-selinux-netmon-fallback.patch" ]; then
     git -C "$ROOT_DIR/tailcat/pkg/tailcat" apply "$ROOT_DIR/tailcat/patches/0001-android-selinux-netmon-fallback.patch" || true
 fi
+if [ -f "$ROOT_DIR/tailcat/patches/0003-tailcat-status-peer-report.patch" ]; then
+    git -C "$ROOT_DIR/tailcat/pkg/tailcat" apply "$ROOT_DIR/tailcat/patches/0003-tailcat-status-peer-report.patch" || true
+fi
 
 # 2. Build the Go C archive, VanJS UI, and Tauri shell
 echo ""

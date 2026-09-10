@@ -14,6 +14,7 @@
 - 招待 URL、QR 表示／カメラ読取、テキスト送受信、ファイル選択、受信結果、取消、経路表示、設定表示を UI に接続した。
 - Slint の workspace crate、旧 mobile shell、旧 UI 定義、winit patch を削除し、製品入口を Tauri WebView に統一した。
 - Pages workflow は Go Tailcat WASM と Rust service WASM を別ファイルとして生成し、Web UI bundle と合わせて配布する。
+- Tailcat の状態取得では peer 情報を要求し、受信側のデータ stream でも WebRTC／WireGuard UDP／DERP の表示を接続後に更新する。修正は `tailcat/patches/0003-tailcat-status-peer-report.patch` としてビルド時に適用する。
 
 ## ローカルで通過させる確認
 
@@ -25,6 +26,8 @@ cargo check -p tailsend-tauri -p tailsend-desktop
 ```
 
 現在の unit test は Rust workspace と Web UI の回帰ケースを対象にし、ヘッダー分割、本文同時受信、部分 I/O、取消、保存失敗、イベント順序、QR、受信一覧、Tauri picker forwarding を含める。
+
+Chrome 2 タブの実通信では、日本語テキスト、131,089 byte ファイル、OPFSからの開く操作、SHA-256一致、両端の `webrtc` 表示を確認した。再現コマンドは `cd web-ui && npm run test:e2e:real`。
 
 ## まだ実機で証明していない項目
 
