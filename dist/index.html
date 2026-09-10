@@ -646,12 +646,20 @@
             try {
                 if (conn.port === 101) {
                     let buffer = "";
+                    let bufferOverflowed = false;
                     const decoder = new TextDecoder();
                     try {
                         while (true) {
                             const chunk = await conn.read();
                             if (!chunk || chunk.length === 0) break;
+                            if (bufferOverflowed) continue;
                             buffer += decoder.decode(chunk, { stream: true });
+                            if (buffer.length > 1048576) {
+                                console.warn("[Ponlet Web] Port 101 line buffer exceeded 1 MiB, discarding rest of stream");
+                                buffer = "";
+                                bufferOverflowed = true;
+                                break;
+                            }
                             let newlineIdx;
                             while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
                                 const line = buffer.slice(0, newlineIdx);
@@ -661,9 +669,11 @@
                                 }
                             }
                         }
-                        buffer += decoder.decode();
-                        if (buffer.trim().length > 0) {
-                            dispatchIncomingTextMessage(buffer.trim());
+                        if (!bufferOverflowed) {
+                            buffer += decoder.decode();
+                            if (buffer.trim().length > 0) {
+                                dispatchIncomingTextMessage(buffer.trim());
+                            }
                         }
                     } finally {
                         try { conn.close(); } catch (_) {}
@@ -725,18 +735,29 @@
             let receivedBytes = 0;
             let fileData = [];
 
-            let headerBuffer = "";
-            const decoder = new TextDecoder();
+            let headerAcc = new Uint8Array(0);
             let headerParsed = false;
             let startTime = performance.now();
+            let lastProgressTs = 0;
 
             if (window.onPeerConnectedSlint) {
                 window.onPeerConnectedSlint("Remote Peer (P2P)");
             }
 
+            const showReceiveError = (progress) => {
+                console.error(`[Ponlet Web] File receive failed: ${receivedBytes}/${totalBytes} bytes`);
+                window.telemetryEvent("error", { category: "transport" });
+                if (window.updateSlintTransferState) {
+                    window.updateSlintTransferState(false, false, false, "受信エラー: 転送が中断されました", filename, `${(receivedBytes / 1048576).toFixed(1)} MB / ${(totalBytes / 1048576).toFixed(1)} MB`, progress, "エラー");
+                }
+                if (window.updateSlintStatusText) {
+                    window.updateSlintStatusText(`受信エラー: 転送が中断されました (${filename})`);
+                }
+            };
+
             try {
                 while (true) {
-                    if (totalBytes > 0 && receivedBytes >= totalBytes) {
+                    if (headerParsed && totalBytes > 0 && receivedBytes >= totalBytes) {
                         console.log(`⚡ [Ponlet Web] Reached totalBytes (${receivedBytes}/${totalBytes}), completing read loop.`);
                         break;
                     }
@@ -748,48 +769,69 @@
                     }
 
                     if (!headerParsed) {
-                        headerBuffer += decoder.decode(chunk, { stream: true });
-                        const newlineIdx = headerBuffer.indexOf("\n");
-                        if (newlineIdx !== -1) {
-                            const headerLine = headerBuffer.substring(0, newlineIdx).trim();
-                            const parts = headerLine.split(":");
-                            if (parts.length >= 3 && parts[0] === "NAME") {
-                                filename = parts[1];
-                                totalBytes = parseInt(parts[2], 10) || 0;
-                            }
-                            headerParsed = true;
-                            console.log(`⚡ [Ponlet Web] Incoming file: ${filename} (${totalBytes} bytes)`);
+                        const merged = new Uint8Array(headerAcc.length + chunk.length);
+                        merged.set(headerAcc);
+                        merged.set(chunk, headerAcc.length);
+                        headerAcc = merged;
 
-                            const totalMB = (totalBytes / 1048576).toFixed(1);
-                            window.telemetryEvent("transfer_started", { file_count: 1, transport: "direct", direction: "receive" });
-                            if (window.updateSlintTransferState) {
-                                window.updateSlintTransferState(true, false, false, "ファイル受信中…", filename, `0.0 MB / ${totalMB} MB`, 0.0, "受信中…");
-                            }
+                        const newlineIdx = headerAcc.indexOf(0x0a);
+                        if (newlineIdx === -1) {
+                            continue;
+                        }
 
-                            const headerByteLen = new TextEncoder().encode(headerBuffer.substring(0, newlineIdx + 1)).length;
-                            const bodySlice = chunk.slice(headerByteLen);
-                            if (bodySlice.length > 0) {
-                                fileData.push(bodySlice);
-                                receivedBytes += bodySlice.length;
-                            }
+                        const decoder = new TextDecoder();
+                        const headerLine = decoder.decode(headerAcc.slice(0, newlineIdx)).trim();
+                        const body = headerAcc.slice(newlineIdx + 1);
+                        headerAcc = null;
 
-                            if (totalBytes > 0 && receivedBytes >= totalBytes) {
-                                console.log(`⚡ [Ponlet Web] Entire file received in header chunk (${receivedBytes}/${totalBytes})`);
-                                break;
-                            }
+                        const lastColon = headerLine.lastIndexOf(":");
+                        if (!headerLine.startsWith("NAME:") || lastColon <= 5) {
+                            console.error("[Ponlet Web] Invalid file header:", headerLine);
+                            showReceiveError(0.0);
+                            try { conn.close(); } catch (_) {}
+                            return;
+                        }
+                        filename = headerLine.substring(5, lastColon).replace(/[\/\\:\r\n]/g, "_") || "received_file.bin";
+                        totalBytes = parseInt(headerLine.substring(lastColon + 1), 10);
+                        if (!Number.isFinite(totalBytes) || totalBytes < 0) {
+                            console.error("[Ponlet Web] Invalid file size in header:", headerLine);
+                            showReceiveError(0.0);
+                            try { conn.close(); } catch (_) {}
+                            return;
+                        }
+                        headerParsed = true;
+                        console.log(`⚡ [Ponlet Web] Incoming file: ${filename} (${totalBytes} bytes)`);
+
+                        const totalMB = (totalBytes / 1048576).toFixed(1);
+                        window.telemetryEvent("transfer_started", { file_count: 1, transport: "direct", direction: "receive" });
+                        if (window.updateSlintTransferState) {
+                            window.updateSlintTransferState(true, false, false, "ファイル受信中…", filename, `0.0 MB / ${totalMB} MB`, 0.0, "受信中…");
+                        }
+
+                        if (body.length > 0) {
+                            fileData.push(body);
+                            receivedBytes += body.length;
+                        }
+
+                        if (totalBytes > 0 && receivedBytes >= totalBytes) {
+                            console.log(`⚡ [Ponlet Web] Entire file received in header chunk (${receivedBytes}/${totalBytes})`);
+                            break;
                         }
                     } else {
                         fileData.push(chunk);
                         receivedBytes += chunk.length;
 
-                        const progress = totalBytes > 0 ? Math.min(1.0, receivedBytes / totalBytes) : 0.5;
-                        const elapsedSec = (performance.now() - startTime) / 1000;
-                        const speed = elapsedSec > 0 ? ((receivedBytes / 1048576) / elapsedSec).toFixed(1) + " MB/s" : "計算中…";
-                        const totalMB = (totalBytes / 1048576).toFixed(1);
-                        const bytesText = `${(receivedBytes / 1048576).toFixed(1)} MB / ${totalMB} MB`;
+                        const now = performance.now();
+                        if (now - lastProgressTs >= 200) {
+                            lastProgressTs = now;
+                            const progress = totalBytes > 0 ? Math.min(1.0, receivedBytes / totalBytes) : 0.5;
+                            const elapsedSec = (now - startTime) / 1000;
+                            const speed = elapsedSec > 0 ? ((receivedBytes / 1048576) / elapsedSec).toFixed(1) + " MB/s" : "計算中…";
+                            const bytesText = `${(receivedBytes / 1048576).toFixed(1)} MB / ${(totalBytes / 1048576).toFixed(1)} MB`;
 
-                        if (window.updateSlintTransferState) {
-                            window.updateSlintTransferState(true, false, false, "ファイル受信中…", filename, bytesText, progress, speed);
+                            if (window.updateSlintTransferState) {
+                                window.updateSlintTransferState(true, false, false, "ファイル受信中…", filename, bytesText, progress, speed);
+                            }
                         }
 
                         if (totalBytes > 0 && receivedBytes >= totalBytes) {
@@ -800,56 +842,68 @@
                 }
             } catch (err) {
                 console.warn("[Ponlet Web] Stream read interrupted:", err);
-                if (totalBytes > 0 && receivedBytes < totalBytes) {
-                    console.error(`[Ponlet Web] Incomplete file transfer: ${receivedBytes}/${totalBytes} bytes`);
-                    window.telemetryEvent("error", { category: "transport" });
-                    if (window.updateSlintTransferState) {
-                        window.updateSlintTransferState(false, false, false, "受信エラー: 転送が中断されました", filename, `${(receivedBytes / 1048576).toFixed(1)} MB / ${(totalBytes / 1048576).toFixed(1)} MB`, receivedBytes / totalBytes, "エラー");
-                    }
-                    if (window.updateSlintStatusText) {
-                        window.updateSlintStatusText(`受信エラー: 転送が中断されました (${filename})`);
-                    }
+                if (!headerParsed || (totalBytes > 0 && receivedBytes < totalBytes)) {
+                    showReceiveError(totalBytes > 0 ? Math.min(1.0, receivedBytes / totalBytes) : 0.0);
                     try { conn.close(); } catch (_) {}
                     return;
                 }
+            }
+
+            if (!headerParsed) {
+                console.error("[Ponlet Web] No file header received on Port 102");
+                window.telemetryEvent("error", { category: "transport" });
+                if (window.updateSlintTransferState) {
+                    window.updateSlintTransferState(false, false, false, "受信エラー: 転送が中断されました", filename, "0.0 MB", 0.0, "エラー");
+                }
+                if (window.updateSlintStatusText) {
+                    window.updateSlintStatusText(`受信エラー: 転送が中断されました (${filename})`);
+                }
+                try { conn.close(); } catch (_) {}
+                return;
+            }
+
+            if (receivedBytes !== totalBytes) {
+                showReceiveError(totalBytes > 0 ? Math.min(1.0, receivedBytes / totalBytes) : 0.0);
+                try { await conn.closeWrite(); } catch (_) {}
+                try { conn.close(); } catch (_) {}
+                return;
             }
 
             try { await conn.closeWrite(); } catch (_) {}
             try { conn.close(); } catch (_) {}
 
             // Trigger browser file download
-            if (fileData.length > 0 && receivedBytes > 0) {
-                const blob = new Blob(fileData, { type: "application/octet-stream" });
-                const downloadUrl = URL.createObjectURL(blob);
-                const a = document.createElement("a");
-                a.href = downloadUrl;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                setTimeout(() => {
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(downloadUrl);
-                }, 1500);
+            const blob = new Blob(fileData, { type: "application/octet-stream" });
+            const downloadUrl = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = downloadUrl;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(downloadUrl);
+            }, 1500);
+            fileData = null;
 
-                const finalMB = (receivedBytes / 1048576).toFixed(1);
-                window.telemetryEvent("transfer_completed", {
-                    file_count: 1,
-                    total_bytes: receivedBytes,
-                    duration_ms: Math.round(performance.now() - startTime),
-                    transport: "direct",
-                    direction: "receive"
-                });
-                if (window.updateSlintTransferState) {
-                    window.updateSlintTransferState(false, true, false, "ファイル受信完了", filename, `${finalMB} MB`, 1.0, "保存完了");
-                }
-                if (window.onFileReceivedCompleteSlint) {
-                    window.onFileReceivedCompleteSlint(filename, receivedBytes);
-                }
-                if (window.updateSlintStatusText) {
-                    window.updateSlintStatusText(`${filename} (${finalMB} MB) の受信が完了しました！`);
-                }
-                console.log(`✅ [Ponlet Web] File saved to downloads: ${filename} (${receivedBytes} bytes)`);
+            const finalMB = (receivedBytes / 1048576).toFixed(1);
+            window.telemetryEvent("transfer_completed", {
+                file_count: 1,
+                total_bytes: receivedBytes,
+                duration_ms: Math.round(performance.now() - startTime),
+                transport: "direct",
+                direction: "receive"
+            });
+            if (window.updateSlintTransferState) {
+                window.updateSlintTransferState(false, true, false, "ファイル受信完了", filename, `${finalMB} MB`, 1.0, "保存完了");
             }
+            if (window.onFileReceivedCompleteSlint) {
+                window.onFileReceivedCompleteSlint(filename, receivedBytes);
+            }
+            if (window.updateSlintStatusText) {
+                window.updateSlintStatusText(`${filename} (${finalMB} MB) の受信が完了しました！`);
+            }
+            console.log(`✅ [Ponlet Web] File saved to downloads: ${filename} (${receivedBytes} bytes)`);
         }
         window.handleIncomingFileStream = handleIncomingFileStream;
 
@@ -1064,6 +1118,7 @@
             }
 
             let conn = null;
+            let transferredBytes = 0;
             try {
                 conn = await window.tailcatDial({
                     addr: addr,
@@ -1079,18 +1134,19 @@
                 }
                 
                 // 1. Send filename and size header
-                const header = new TextEncoder().encode(`NAME:${file.name}:${file.size}\n`);
+                const headerName = file.name.replace(/[:\n\r]/g, "_");
+                const header = new TextEncoder().encode(`NAME:${headerName}:${file.size}\n`);
                 await conn.write(header);
 
                 // 2. Stream file content in chunks
                 const startTime = performance.now();
                 const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-                let transferredBytes = 0;
+                let cancelled = false;
 
                 for (let chunkIdx = 0; chunkIdx < totalChunks; chunkIdx++) {
                     if (window.isTransferCancelled) {
+                        cancelled = true;
                         console.log("[Ponlet Web] File transfer cancelled by user");
-                        window.telemetryEvent("transfer_cancelled", { reason: "user" });
                         break;
                     }
 
@@ -1100,7 +1156,14 @@
                     const arrayBuffer = await blobSlice.arrayBuffer();
                     const bytes = new Uint8Array(arrayBuffer);
 
-                    await conn.write(bytes);
+                    await Promise.race([
+                        conn.write(bytes),
+                        new Promise((_, reject) => setTimeout(() => {
+                            const err = new Error("送信が30秒以上停止しました");
+                            err.isWriteTimeout = true;
+                            reject(err);
+                        }, 30000))
+                    ]);
 
                     transferredBytes = end;
                     const progress = transferredBytes / file.size;
@@ -1118,47 +1181,60 @@
                     }
                 }
 
-                // Ensure the last chunk has cleared the browser network socket buffer
-                await new Promise(r => setTimeout(r, 150));
+                if (!cancelled) {
+                    // Ensure the last chunk has cleared the browser network socket buffer
+                    await new Promise(r => setTimeout(r, 150));
 
-                try {
-                    await conn.closeWrite();
-                } catch (e) {
-                    console.warn("[Ponlet Web] closeWrite warning:", e);
+                    try {
+                        await conn.closeWrite();
+                    } catch (e) {
+                        console.warn("[Ponlet Web] closeWrite warning:", e);
+                    }
+
+                    // Wait for receiver to read remaining bytes and close its side (or 3-sec timeout)
+                    try {
+                        const readEOF = conn.read();
+                        const timeout = new Promise(r => setTimeout(r, 3000));
+                        await Promise.race([readEOF.catch(() => {}), timeout]);
+                    } catch (_) {}
+
+                    // Small delay before tearing down client
+                    await new Promise(r => setTimeout(r, 200));
                 }
-
-                // Wait for receiver to read remaining bytes and close its side (or 3-sec timeout)
-                try {
-                    const readEOF = conn.read();
-                    const timeout = new Promise(r => setTimeout(r, 3000));
-                    await Promise.race([readEOF, timeout]);
-                } catch (_) {}
-
-                // Small delay before tearing down client
-                await new Promise(r => setTimeout(r, 200));
                 try {
                     conn.close();
                 } catch (_) {}
 
-                if (window.updateSlintTransferState) {
-                    window.updateSlintTransferState(false, true, true, "ファイル送信完了", file.name, `${totalMB} MB`, 1.0, "送信完了");
-                }
-                window.telemetryEvent("transfer_completed", {
-                    file_count: 1,
-                    total_bytes: file.size,
-                    duration_ms: Math.round(performance.now() - transferStartTs),
-                    transport: "direct",
-                    direction: "send"
-                });
-                if (window.updateSlintStatusText) {
-                    window.updateSlintStatusText(`${file.name} (${totalMB} MB) の送信が完了しました！`);
+                if (cancelled) {
+                    window.telemetryEvent("transfer_cancelled", { reason: "user" });
+                    if (window.updateSlintStatusText) {
+                        window.updateSlintStatusText("ファイル送信をキャンセルしました");
+                    }
+                } else {
+                    if (window.updateSlintTransferState) {
+                        window.updateSlintTransferState(false, true, true, "ファイル送信完了", file.name, `${totalMB} MB`, 1.0, "送信完了");
+                    }
+                    window.telemetryEvent("transfer_completed", {
+                        file_count: 1,
+                        total_bytes: file.size,
+                        duration_ms: Math.round(performance.now() - transferStartTs),
+                        transport: "direct",
+                        direction: "send"
+                    });
+                    if (window.updateSlintStatusText) {
+                        window.updateSlintStatusText(`${file.name} (${totalMB} MB) の送信が完了しました！`);
+                    }
                 }
             } catch (err) {
                 console.error("[Ponlet Web] Failed to send file via Tailcat P2P:", err);
                 window.telemetryEvent("error", { category: "transport" });
                 alert("ファイル送信エラー: " + (err.message || err));
                 if (window.updateSlintTransferState) {
-                    window.updateSlintTransferState(false, false, true, "送信エラー", file.name, "0.0 MB", 0.0, "エラー");
+                    if (err.isWriteTimeout) {
+                        window.updateSlintTransferState(false, false, true, "送信エラー(タイムアウト)", file.name, `${(transferredBytes / 1048576).toFixed(1)} MB`, transferredBytes / file.size, "エラー");
+                    } else {
+                        window.updateSlintTransferState(false, false, true, "送信エラー", file.name, "0.0 MB", 0.0, "エラー");
+                    }
                 }
                 if (window.updateSlintStatusText) {
                     window.updateSlintStatusText("送信エラー: " + (err.message || err));

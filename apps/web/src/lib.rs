@@ -593,6 +593,13 @@ pub fn run_app() -> Result<(), JsValue> {
     // Cancel Transfer Callback
     let app_weak_cancel = app.as_weak();
     app.on_cancel_transfer(move || {
+        if let Some(window) = web_sys::window() {
+            let _ = js_sys::Reflect::set(
+                &window,
+                &JsValue::from_str("isTransferCancelled"),
+                &JsValue::from_bool(true),
+            );
+        }
         if let Some(app) = app_weak_cancel.upgrade() {
             let is_ja = app.get_current_language() == "ja";
             app.set_is_transferring(false);
