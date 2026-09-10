@@ -14,6 +14,7 @@
 - 招待 URL、QR 表示／カメラ読取、テキスト送受信、ファイル選択、受信結果、取消、経路表示、設定表示を UI に接続した。
 - Slint の workspace crate、旧 mobile shell、旧 UI 定義、winit patch を削除し、製品入口を Tauri WebView に統一した。
 - Pages workflow は Go Tailcat WASM と Rust service WASM を別ファイルとして生成し、Web UI bundle と合わせて配布する。
+- ブラウザ側にも署名対象の manifest bytes、P-256 ECDSA `r || s`、ファイルサイズ／SHA-256、配布先・API・revision の検査を追加し、native の `tailsend-updates` と同じ拒否条件を unit test で確認する。取得・Cache Storage 切替は未接続のままにする。
 - BrowserではGo Tailcat WASMをWindowに置き、Rust service WASMとOPFSをDedicated Workerへ置く。Workerとのstream I/OはMessagePortで中継し、本文バッファはTransferableなArrayBufferを使う。Workerを使えないWebViewには同一Window adapterの切替を残す。
 - ブラウザのFileSourceは再利用バッファへ直接読み出す`read_into`を使い、64 KiBごとの一時`Bytes`割当を追加しない。
 - Tailcat の状態取得では peer 情報を要求し、受信側のデータ stream でも WebRTC／WireGuard UDP／DERP の表示を接続後に更新する。修正は `tailcat/patches/0003-tailcat-status-peer-report.patch` としてビルド時に適用する。
@@ -31,7 +32,7 @@ cargo check -p tailsend-tauri -p tailsend-desktop
 (cd web-ui && npm ci && npm run lint && npm run typecheck && npm test && npm run build -- --mode web && npm run build -- --mode tauri)
 ```
 
-現在の unit test は Rust workspace 54件（core 14、transfer 17を含む）と Web UI 21件を対象にし、ヘッダー分割、本文同時受信、部分 I/O、取消、保存失敗、イベント順序、QR、受信一覧、Tauri picker forwarding、署名付き更新 manifest を含める。
+現在の unit test は Rust workspace 55件（core 14、transfer 17を含む）と Web UI 26件を対象にし、ヘッダー分割、本文同時受信、部分 I/O、取消、保存失敗、イベント順序、QR、受信一覧、Tauri picker forwarding、署名付き更新 manifest を含める。
 
 Chrome 2 タブの実通信では、日本語テキスト、131,089 byte ファイル、OPFSからの開く操作、SHA-256一致、両端の `webrtc` 表示を確認した。再現コマンドは `cd web-ui && npm run test:e2e:real`。
 
