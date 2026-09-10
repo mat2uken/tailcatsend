@@ -8,7 +8,7 @@ slint::include_modules!();
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_name = sendTailcatTextMessage)]
-    fn send_tailcat_text_message(text: &str);
+    fn send_tailcat_text_message(text: &str, from_slint: bool);
 
     #[wasm_bindgen(js_name = triggerFilePicker)]
     fn trigger_file_picker();
@@ -109,6 +109,18 @@ impl I18nWeb {
             "Camera scanning is available in mobile native app. Please use 'Paste & Join' instead."
         }
     }
+}
+
+// Appends a sent-by-me text entry to the shared message log.
+fn append_me_message_log(app: &AppWindow, text: &str) {
+    let is_ja = app.get_current_language() == "ja";
+    let log_text = format!(
+        "{}: {}\n{}",
+        I18nWeb::label_me(is_ja),
+        text,
+        app.get_received_message_log()
+    );
+    app.set_received_message_log(log_text.into());
 }
 
 #[wasm_bindgen]
@@ -289,10 +301,7 @@ pub fn run_app() -> Result<(), JsValue> {
     let app_weak_sent = app.as_weak();
     let on_text_sent = Closure::wrap(Box::new(move |text: String| {
         if let Some(app) = app_weak_sent.upgrade() {
-            let is_ja = app.get_current_language() == "ja";
-            let me_label = I18nWeb::label_me(is_ja);
-            let log_text = format!("{}: {}\n{}", me_label, text, app.get_received_message_log());
-            app.set_received_message_log(log_text.into());
+            append_me_message_log(&app, &text);
         }
     }) as Box<dyn FnMut(String)>);
     let _ = js_sys::Reflect::set(&window, &JsValue::from_str("onTextSentSlint"), on_text_sent.as_ref().unchecked_ref());
@@ -351,14 +360,13 @@ pub fn run_app() -> Result<(), JsValue> {
                 let current = app.get_message_input().to_string();
                 trigger_open_composer(&current);
             } else {
-                send_tailcat_text_message(&text_to_send);
+                // fromSlint=true tells the JS bridge the caller already logged
+                // this message, preventing a duplicate [Me] entry via onTextSentSlint.
+                send_tailcat_text_message(&text_to_send, true);
                 tailsend_telemetry::events::text_message_sent(tailsend_telemetry::length_bucket(
                     text_to_send.chars().count(),
                 ));
-                let is_ja = app.get_current_language() == "ja";
-                let me_label = I18nWeb::label_me(is_ja);
-                let log_text = format!("{}: {}\n{}", me_label, text_to_send, app.get_received_message_log());
-                app.set_received_message_log(log_text.into());
+                append_me_message_log(&app, &text_to_send);
                 app.set_message_input("".into());
             }
         }
