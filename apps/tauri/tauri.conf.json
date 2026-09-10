@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "jp.yasagure.ponlet",
   "build": {
-    "beforeDevCommand": "npm --prefix ../../web-ui run dev -- --mode tauri --port 1420 --strictPort",
+    "beforeDevCommand": "npm --prefix ../web-ui run dev -- --mode tauri --port 1420 --strictPort",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm --prefix ../../web-ui run build -- --mode tauri",
+    "beforeBuildCommand": "npm --prefix ../web-ui run build -- --mode tauri",
     "frontendDist": "../../web-ui/dist/native"
   },
   "app": {
