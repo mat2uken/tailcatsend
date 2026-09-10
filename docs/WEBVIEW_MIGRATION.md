@@ -19,6 +19,7 @@
 - Tauri の送信 picker、受信保存、QR bitmap、受信一覧を Rust command/event と VanJS に接続した。ファイル本文は invoke JSON に載せない。
 - Browser adapter は Go bridge の接続後に Rust WASM service を起動し、snapshot/event/API version を検証してから UI に渡す。
 - Browser adapter は Go bridge を Window に残し、Rust WASM service と OPFS を Dedicated Workerで起動する。WorkerとのI/Oは MessagePortを使い、stream本文は TransferableなArrayBufferで受け渡す。Workerを作成できないWebViewだけは同一Window adapterへ切り替える。
+- Webの送信FileSourceは共通Rustの再利用バッファへ直接読み出す`read_into`を実装し、本文チャンクの一時`Bytes`割当を避ける。
 - Go bridge の server status は peer 情報を明示的に取得する。接続通知時の値だけでなく、Rust stream がデータ開始時に再取得するため、受信側も実際の経路へ追随する。
 - `vanjslitetemplate` の Vite 8、Vitest、Oxlint、Oxfmt、`@nkzw/oxlint-config`、`vanjs-core` 構成を採用した。mode ごとの outDir と ES2018 target は維持する。
 - 旧 Slint workspace crate、font/icon、winit patch、NativeActivity/UIKit shell、旧生成 Pages entry を削除した。

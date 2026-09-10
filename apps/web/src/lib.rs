@@ -386,6 +386,42 @@ impl FileSource for WebFileSource {
         self.metadata.clone()
     }
 
+    async fn read_into(
+        &mut self,
+        offset: u64,
+        destination: &mut [u8],
+    ) -> Result<usize, StorageError> {
+        if destination.is_empty() {
+            return Ok(0);
+        }
+        let end = offset.saturating_add(destination.len() as u64);
+        let slice = function(&self.file, "slice")
+            .map_err(|error| StorageError::Io(error.to_string()))?
+            .call2(
+                &self.file,
+                &JsValue::from_f64(offset as f64),
+                &JsValue::from_f64(end as f64),
+            )
+            .map_err(|error| StorageError::Io(format!("{error:?}")))?;
+        let buffer = function(&slice, "arrayBuffer")
+            .map_err(|error| StorageError::Io(error.to_string()))?
+            .call0(&slice)
+            .map_err(|error| StorageError::Io(format!("{error:?}")))?;
+        let buffer = promise(buffer)
+            .await
+            .map_err(|error| StorageError::Io(error.to_string()))?;
+        let bytes = Uint8Array::new(&buffer);
+        let count = bytes.length() as usize;
+        if count > destination.len() {
+            return Err(StorageError::Io(format!(
+                "file source returned {count} bytes for a {} byte buffer",
+                destination.len()
+            )));
+        }
+        bytes.copy_to(&mut destination[..count]);
+        Ok(count)
+    }
+
     async fn read_at(&mut self, offset: u64, max_len: usize) -> Result<Bytes, StorageError> {
         let end = offset.saturating_add(max_len as u64);
         let slice = function(&self.file, "slice")
