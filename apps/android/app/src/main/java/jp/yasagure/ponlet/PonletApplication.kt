@@ -17,10 +17,12 @@ class PonletApplication : Application() {
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityResumed(activity: Activity) {
                 FilePickerBridge.onActivityResumed(activity)
+                QRScannerBridge.onActivityResumed(activity)
             }
 
             override fun onActivityPaused(activity: Activity) {
                 FilePickerBridge.onActivityPaused(activity)
+                QRScannerBridge.onActivityPaused(activity)
             }
 
             override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}

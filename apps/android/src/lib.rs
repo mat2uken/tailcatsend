@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -81,26 +82,25 @@ extern "C" {
 // Global channel for external join session triggers (e.g. from ADB / Intent)
 static GLOBAL_JOIN_TX: std::sync::OnceLock<mpsc::UnboundedSender<String>> = std::sync::OnceLock::new();
 
-// JNI handles for the SAF file picker bridge (FilePickerBridge.kt)
-static PICK_JVM: OnceLock<JavaVM> = OnceLock::new();
+// JNI handles for the Kotlin bridges (FilePickerBridge.kt / QRScannerBridge.kt)
+static BRIDGE_JVM: OnceLock<JavaVM> = OnceLock::new();
 static PICKER_CLASS: OnceLock<Global<JClass<'static>>> = OnceLock::new();
+static SCANNER_CLASS: OnceLock<Global<JClass<'static>>> = OnceLock::new();
 
-// Resolves `jp.yasagure.ponlet.FilePickerBridge` through the activity's
+// Set while a scanner poll thread is waiting for the camera result, so a
+// second tap cannot start a competing poll loop that would steal the result.
+static SCANNER_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+// Resolves a `jp.yasagure.ponlet.*` bridge class through the activity's
 // classloader (the system classloader cannot see APK classes from a native
-// thread) and caches it, together with the JavaVM, for later pick/poll calls.
-fn init_picker_jni(app: &android_activity::AndroidApp) -> bool {
-    if PICK_JVM.get().is_none() {
-        // Safety: `vm_as_ptr` is a valid JavaVM pointer for the process lifetime.
-        let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) };
-        let _ = PICK_JVM.set(vm);
-    }
-    if PICKER_CLASS.get().is_some() {
-        return true;
-    }
-    let Some(vm) = PICK_JVM.get() else { return false };
-    let activity_raw = app.activity_as_ptr() as jni::sys::jobject;
-    let result: Result<(), jni::errors::Error> = vm.attach_current_thread(
-        |env: &mut Env| -> jni::errors::Result<()> {
+// thread) and returns a global reference for later calls.
+fn resolve_bridge_class(
+    vm: &JavaVM,
+    activity_raw: jni::sys::jobject,
+    class_name: &str,
+) -> Result<Global<JClass<'static>>, jni::errors::Error> {
+    vm.attach_current_thread(
+        |env: &mut Env| -> jni::errors::Result<Global<JClass<'static>>> {
             let activity = unsafe { JObject::from_raw(env, activity_raw) };
             let loader_obj = env
                 .call_method(
@@ -111,36 +111,64 @@ fn init_picker_jni(app: &android_activity::AndroidApp) -> bool {
                 )?
                 .l()?;
             let loader = unsafe { jni::objects::JClassLoader::from_raw(env, loader_obj.as_raw()) };
-            let name = env.new_string("jp.yasagure.ponlet.FilePickerBridge")?;
-            let class: JClass = match JClass::for_name_with_loader(env, name, true, &loader) {
-                Ok(class) => class,
-                Err(_) => {
+            let name = env.new_string(class_name)?;
+            let class: JClass = JClass::for_name_with_loader(env, name, true, &loader)?;
+            env.new_global_ref(class)
+        },
+    )
+}
+
+fn init_bridge_class(
+    app: &android_activity::AndroidApp,
+    slot: &OnceLock<Global<JClass<'static>>>,
+    class_name: &str,
+    tag: &str,
+) -> bool {
+    if BRIDGE_JVM.get().is_none() {
+        // Safety: `vm_as_ptr` is a valid JavaVM pointer for the process lifetime.
+        let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) };
+        let _ = BRIDGE_JVM.set(vm);
+    }
+    if slot.get().is_some() {
+        return true;
+    }
+    let Some(vm) = BRIDGE_JVM.get() else { return false };
+    let activity_raw = app.activity_as_ptr() as jni::sys::jobject;
+    match resolve_bridge_class(vm, activity_raw, class_name) {
+        Ok(global) => {
+            let _ = slot.set(global);
+            true
+        }
+        Err(e) => {
+            // Clear any pending Java exception (e.g. ClassNotFoundException)
+            // so later JNI calls on this thread are not poisoned.
+            let _ = vm.attach_current_thread(|env: &mut Env| -> jni::errors::Result<()> {
+                if env.exception_check() {
                     env.exception_describe();
                     env.exception_clear();
-                    return Err(jni::errors::Error::NoClassDefFound {
-                        requested: "jp.yasagure.ponlet.FilePickerBridge".to_string(),
-                        cause: None,
-                    });
                 }
-            };
-            let global = env.new_global_ref(class)?;
-            let _ = PICKER_CLASS.set(global);
-            Ok(())
-        },
-    );
-    match result {
-        Ok(()) => true,
-        Err(e) => {
-            log::warn!("[Picker] FilePickerBridge class lookup failed: {}", e);
+                Ok(())
+            });
+            log::warn!("[{}] {} class lookup failed: {}", tag, class_name, e);
             false
         }
     }
 }
 
+// Caches the JavaVM + FilePickerBridge class for later pick/poll calls.
+fn init_picker_jni(app: &android_activity::AndroidApp) -> bool {
+    init_bridge_class(app, &PICKER_CLASS, "jp.yasagure.ponlet.FilePickerBridge", "Picker")
+}
+
+// Caches the JavaVM + QRScannerBridge class for later start/poll calls.
+fn init_scanner_jni(app: &android_activity::AndroidApp) -> bool {
+    init_bridge_class(app, &SCANNER_CLASS, "jp.yasagure.ponlet.QRScannerBridge", "Scanner")
+}
+
 // Asks Kotlin to launch the ACTION_GET_CONTENT picker. Ok(true) means the
 // picker was launched, Ok(false) means no activity/class was available.
 fn picker_pick() -> Result<bool, String> {
-    let vm = PICK_JVM.get().ok_or_else(|| "JVM unavailable".to_string())?;
+    let vm = BRIDGE_JVM.get().ok_or_else(|| "JVM unavailable".to_string())?;
     let class = PICKER_CLASS
         .get()
         .ok_or_else(|| "FilePickerBridge unavailable".to_string())?;
@@ -156,11 +184,11 @@ fn picker_pick() -> Result<bool, String> {
     .map_err(|e| e.to_string())
 }
 
-// Polls Kotlin for the picker outcome. Kotlin stores a JSON string such as
-// {"status":"ok","path":"...","name":"..."} once onActivityResult ran.
-fn picker_poll() -> Option<String> {
-    let vm = PICK_JVM.get()?;
-    let class = PICKER_CLASS.get()?;
+// Polls Kotlin for a bridge outcome (picker result / QR scan result). The
+// Kotlin side stores a JSON string once the activity result arrived.
+fn bridge_poll(class: Option<&'static Global<JClass<'static>>>) -> Option<String> {
+    let vm = BRIDGE_JVM.get()?;
+    let class = class?;
     let result: Result<Option<String>, jni::errors::Error> =
         vm.attach_current_thread(|env: &mut Env| -> jni::errors::Result<Option<String>> {
             let ret = env.call_static_method(
@@ -172,6 +200,48 @@ fn picker_poll() -> Option<String> {
             Ok(jstring_from_value(env, ret))
         });
     result.ok().flatten()
+}
+
+// Polls Kotlin for the picker outcome. Kotlin stores a JSON string such as
+// {"status":"ok","path":"...","name":"..."} once onActivityResult ran.
+fn picker_poll() -> Option<String> {
+    bridge_poll(PICKER_CLASS.get())
+}
+
+// Polls Kotlin for the QR scan outcome. JSON such as
+// {"status":"ok","text":"..."} once the camera activity finished.
+fn scanner_poll() -> Option<String> {
+    bridge_poll(SCANNER_CLASS.get())
+}
+
+// Asks Kotlin to launch the camera QR scanner (zxing CaptureActivity).
+// Ok(true) means the scanner was launched, Ok(false) means no activity/class
+// was available.
+fn scanner_start() -> Result<bool, String> {
+    let vm = BRIDGE_JVM.get().ok_or_else(|| "JVM unavailable".to_string())?;
+    let class = SCANNER_CLASS
+        .get()
+        .ok_or_else(|| "QRScannerBridge unavailable".to_string())?;
+    vm.attach_current_thread(|env: &mut Env| -> jni::errors::Result<bool> {
+        let ret = env.call_static_method(
+            class,
+            jni_str!("startScan"),
+            jni_sig!("()Z"),
+            &[],
+        )?;
+        ret.z()
+    })
+    .map_err(|e| e.to_string())
+}
+
+// Updates the status text from a non-UI thread through the Slint event loop.
+fn set_status_from_thread(app_weak: &slint::Weak<AppWindow>, text: String) {
+    let w = app_weak.clone();
+    let _ = slint::invoke_from_event_loop(move || {
+        if let Some(app) = w.upgrade() {
+            app.set_status_text(text.into());
+        }
+    });
 }
 
 fn jstring_from_value(env: &mut Env<'_>, value: JValueOwned<'_>) -> Option<String> {
@@ -199,6 +269,8 @@ fn android_main(app: android_activity::AndroidApp) {
 
     // SAF file picker bridge: cache the JavaVM + FilePickerBridge class once
     init_picker_jni(&app);
+    // QR camera scanner bridge: cache the JavaVM + QRScannerBridge class once
+    init_scanner_jni(&app);
 
     slint::android::init(app).expect("Failed to initialize Slint Android backend");
 
@@ -1338,6 +1410,83 @@ fn run_android_app(telemetry_initial: bool) -> Result<(), Box<dyn std::error::Er
                 }
             }
         });
+    });
+
+    // 📷 Scan QR Camera Callback (Kotlin zxing CaptureActivity via JNI).
+    // Mirrors the iOS flow: the scanned QR text is pushed into the join flow
+    // (join_tx -> parse_tailcat_address -> tc_stream_dial handshake).
+    let app_weak_scan = app_weak.clone();
+    let join_tx_scan = join_tx_thread.clone();
+    app.on_scan_qr_camera(move || {
+        info!("📷 Launching Android native camera QR scanner...");
+        // Ignore taps while a scan is already in flight so a stale poll thread
+        // cannot steal the next scan's result.
+        if SCANNER_ACTIVE.swap(true, Ordering::SeqCst) {
+            set_status_from_thread(&app_weak_scan, "QR scanner is already running".into());
+            return;
+        }
+        match scanner_start() {
+            Ok(true) => {
+                set_status_from_thread(
+                    &app_weak_scan,
+                    "Scan the QR code on the Mac with the camera...".into(),
+                );
+
+                // Poll Kotlin for the scan result, then feed it into the join flow.
+                let w = app_weak_scan.clone();
+                let tx = join_tx_scan.clone();
+                std::thread::spawn(move || {
+                    let poll_start = Instant::now();
+                    let raw = loop {
+                        if let Some(json) = scanner_poll() {
+                            break Some(json);
+                        }
+                        if poll_start.elapsed() > Duration::from_secs(900) {
+                            break None;
+                        }
+                        std::thread::sleep(Duration::from_millis(300));
+                    };
+                    SCANNER_ACTIVE.store(false, Ordering::SeqCst);
+
+                    let Some(raw) = raw else {
+                        set_status_from_thread(&w, "QR scan timed out".into());
+                        return;
+                    };
+
+                    let parsed: serde_json::Value =
+                        serde_json::from_str(&raw).unwrap_or(serde_json::json!({}));
+                    match parsed["status"].as_str().unwrap_or_default() {
+                        "ok" => {
+                            let text = parsed["text"].as_str().unwrap_or_default().to_string();
+                            if text.is_empty() {
+                                set_status_from_thread(&w, "QR scan returned no data".into());
+                            } else {
+                                info!("📸 [Kotlin Camera] Scanned QR code raw text: {}", text);
+                                let _ = tx.send(text);
+                            }
+                        }
+                        "cancelled" => {
+                            set_status_from_thread(&w, "QR scan cancelled".into());
+                        }
+                        other => {
+                            let msg = parsed["msg"].as_str().unwrap_or(other).to_string();
+                            error!("❌ [Tailcat Android] QR scanner failed: {}", msg);
+                            set_status_from_thread(&w, format!("QR scan failed: {}", msg));
+                        }
+                    }
+                });
+            }
+            Ok(false) => {
+                warn!("📷 scanner_start returned false (no activity/class)");
+                SCANNER_ACTIVE.store(false, Ordering::SeqCst);
+                set_status_from_thread(&app_weak_scan, "QR scanner unavailable (no activity)".into());
+            }
+            Err(e) => {
+                SCANNER_ACTIVE.store(false, Ordering::SeqCst);
+                error!("❌ [Tailcat Android] camera scanner launch failed: {}", e);
+                set_status_from_thread(&app_weak_scan, format!("Camera scanner error: {}", e));
+            }
+        }
     });
 
     // 📋 Copy File Path Callback

@@ -61,14 +61,25 @@ object FilePickerBridge {
         resultJson = null
         val activity = activityRef?.get() ?: return false
         val fm = activity.fragmentManager ?: return false
-        val existing = fm.findFragmentByTag(FRAG_TAG) as? PickerFragment
         return try {
-            if (existing != null && existing.isAdded) {
-                existing.beginPick()
-            } else {
-                val frag = PickerFragment()
-                fm.beginTransaction().add(frag, FRAG_TAG).commitNowAllowingStateLoss()
-                frag.beginPick()
+            // Rust (android_main スレッド) から呼ばれるため、Fragment 操作と
+            // startActivityForResult はメインスレッドへ投稿する。
+            activity.runOnUiThread {
+                try {
+                    val existing = fm.findFragmentByTag(FRAG_TAG) as? PickerFragment
+                    if (existing != null && existing.isAdded) {
+                        existing.beginPick()
+                    } else {
+                        val frag = PickerFragment()
+                        fm.beginTransaction().add(frag, FRAG_TAG).commitNowAllowingStateLoss()
+                        frag.beginPick()
+                    }
+                } catch (t: Throwable) {
+                    setResult(
+                        JSONObject().put("status", "error")
+                            .put("msg", t.message ?: "picker launch failed").toString()
+                    )
+                }
             }
             true
         } catch (_: Throwable) {
