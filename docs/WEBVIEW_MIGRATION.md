@@ -1,6 +1,6 @@
 # WebView / Tauri / WASM 移行の実装状態
 
-共通Rust転送基盤とvanjslitetemplate準拠のWeb UIツールチェーンはコミット済みである。Tauriデスクトップ向けの実通信adapterと、ブラウザ向けのGo Tailcat WASM＋Rust WASM service adapterまで接続した。製品全体のUI置換、Dedicated Workerへの分離、起動時の更新取得は完了していない。`apps/desktop`、`apps/ios`、`apps/android` は、引き続きSlintと各アプリの転送処理を呼ぶ。
+共通Rust転送基盤とvanjslitetemplate準拠のWeb UIツールチェーンはコミット済みである。Tauriデスクトップ向けの実通信adapterと、ブラウザ向けのGo Tailcat WASM＋Rust WASM service adapterまで接続した。`apps/desktop` の製品入口はTauri WebViewへ切り替え、`apps/ios` と `apps/android` は引き続きSlintと各アプリの転送処理を呼ぶ。製品全体のUI置換、Dedicated Workerへの分離、起動時の更新取得は完了していない。
 
 元の要件は、機能・動作・操作感を保った共通Web UIと、TauriまたはWASMによるbackendである。画面をビルドできることと、同じ使い味で送受信できることは分けて確認する。
 
@@ -12,8 +12,9 @@
 | Application API | `web-ui/src/api/` の型と版確認 | Rustデータとの変換、未移植操作の追加 |
 | 表示状態 | `web-ui/src/session.ts` のイベント順序・購読・終了処理 | 実adapterからの再接続通知と履歴復元 |
 | backend選択 | `web-ui/src/backends/{browser,tauri}.ts` をVite modeで選択。BrowserはGo bridgeとRust WASMを起動、Tauriはcommand/eventを使用 | Dedicated Workerへの分離、再作成時の操作無効化 |
+| Native shell | `apps/desktop` は `tailsend-tauri` を起動し、`apps/tauri` のVanJS WebView・共通Rust service・Go C archiveを使う | iOS/AndroidのWebView shell、実機での再起動・終了・送受信 |
 | Rust状態管理 | `tailsend-core::BackendService` のsnapshot・イベント・取消トークン | OS/Webの操作を含む製品全体への接続 |
-| 共通転送 | `tailsend-transfer/src/live.rs` の現行NAME/改行形式、`lib.rs` の既存バイナリ形式、`io.rs` の部分I/O | 各アプリのfile/stream adapter |
+| 共通転送 | `tailsend-transfer/src/live.rs` の現行NAME/改行形式、`lib.rs` の既存バイナリ形式、`io.rs` の部分I/O | iOS/Androidを含む各OSのfile/stream adapter |
 | Native bridge | GoのC ABI、`tailsend-native-bridge` のRust宣言、`tailsend-native-transport` のstream/listener adapter | 各OSの実転送確認、配布物への組込み |
 | Browser保存 | Rust WASMがOPFSの途中保存・サイズ検査・確定・取消を実行。`web-ui/src/opfs.ts` はWorker向けの同等adapter | Workerへの移設、保存済みファイルの利用、起動時の途中ファイル回収 |
 | 更新検証 | `tailsend-updates` の署名・互換性・ファイル検査 | 配信manifest生成、ダウンロード、展開、切替、起動失敗時の復元 |
@@ -36,6 +37,7 @@
 - 共通転送のテストを通常の`cargo test`でも実行する設定にした。Web UIのビルドスクリプトでもテストと両modeのビルドを実行する。
 - `apps/tauri` を追加し、`ponlet_*` command、Tauri event、Go C ABI、共通handshake/NAME転送へ接続した。Tauriへのinvoke payloadはファイル本文ではなく、ファイル名・サイズ・パスだけを渡す。
 - Tauriのnative buildでは、`scripts/build_tauri.sh` が対象OS用Go bridgeを生成してからRustとVanJS bundleをビルドする。ローカルのTauri実行はこのbridge生成を通した成果物で確認する。
+- `apps/desktop` の旧Slint入口と専用daemon IPCを削除し、既存の製品名を保ったまま `tailsend-tauri::run` を呼ぶ薄い起動処理へ切り替えた。デスクトップのReleaseリンクは確認済みだが、2端末実転送は未確認である。
 - `apps/web` の旧Slintエントリを共通Rust転送serviceへ置き換えた。ブラウザ側はGo WASM bridgeを起動してからRust WASMを読み込み、`window.__ponletBackend`へsnapshot・購読・招待・送受信・取消・切断を公開する。
 - Pages workflowは、Viteの`web-ui/dist/web`、Go Tailcat WASM、`wasm-bindgen`で生成したRust service WASMを一つの配布物へ配置する構成へ変更した。旧Slint WASMを配信対象にしない。
 
