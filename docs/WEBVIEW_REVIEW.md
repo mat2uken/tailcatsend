@@ -23,6 +23,7 @@ UI と転送処理の責務は分かれ、ファイル本文を UI の JSON、Ba
 | 最新HEADの Browser 再検証 | WebRTC／DERP 双方向転送、131,089／98,321 byte と SHA-256一致 |
 | Tauri実機 smoke | macOS bundle と Sony XQ-DQ44 の direct-udp 表示、DERP転送、取消 |
 | `eb8b543` macOS bundle | update config の埋め込み先を含む Release bundle を再生成・起動し、WebViewの「接続待機中」を確認 |
+| `1f4030f` iOS Simulator | iPhone 16 simulator で最新UIを起動し、招待作成後の「相手を待機中」遷移を画面確認 |
 | Android/iOS bundle | Android APK と iOS 18.5 iPhone 16 simulator bundle を最新コードで再生成・起動 |
 | 招待の連続再生成 | macOS WebViewで取消済みaccept処理が新しい待機状態を上書きしないことを確認 |
 
