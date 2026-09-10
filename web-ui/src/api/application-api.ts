@@ -1,7 +1,13 @@
 /** Metadata and operations shared by browser and native adapters. */
 export const APPLICATION_API_VERSION = 1 as const;
 
-export type SessionState = "booting" | "awaiting-peer" | "connected" | "transferring" | "error";
+export type SessionState =
+  | "ready"
+  | "booting"
+  | "awaiting-peer"
+  | "connected"
+  | "transferring"
+  | "error";
 
 export interface BackendSnapshot {
   apiVersion: number;

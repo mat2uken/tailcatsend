@@ -7,7 +7,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -492,8 +491,12 @@ struct WebBackend {
 
 impl WebBackend {
     fn new() -> Rc<Self> {
+        let service = BackendService::default();
+        service.set_state(SessionState::Disconnected {
+            reason: "ready".into(),
+        });
         Rc::new(Self {
-            service: BackendService::default(),
+            service,
             transport: Arc::new(WebTransport),
             session: RefCell::new(None),
             subscribers: RefCell::new(Vec::new()),
@@ -1047,6 +1050,15 @@ pub fn install_backend() -> Result<(), JsValue> {
     };
     install_function(&object, "disconnect", disconnect.as_ref().unchecked_ref())?;
     disconnect.forget();
+    let dispose = {
+        let backend = backend.clone();
+        Closure::wrap(Box::new(move || {
+            let backend = backend.clone();
+            make_promise(async move { backend.disconnect().await })
+        }) as Box<dyn FnMut() -> Promise>)
+    };
+    install_function(&object, "dispose", dispose.as_ref().unchecked_ref())?;
+    dispose.forget();
 
     let window = web_sys::window().ok_or_else(|| JsValue::from_str("window is unavailable"))?;
     Reflect::set(&window, &JsValue::from_str("__ponletBackend"), &object).map(|_| ())
@@ -1121,15 +1133,15 @@ fn snapshot_from_service(service: &BackendService) -> UiSnapshot {
                 None,
                 Some(message),
             ),
-            SessionState::Disconnected { reason } => (
-                "error",
+            SessionState::Disconnected { .. } => (
+                "ready",
                 app.peer_display_name,
                 None,
                 0,
                 false,
                 false,
                 None,
-                Some(reason),
+                None,
             ),
             SessionState::DialingHost { .. }
             | SessionState::Authenticating
@@ -1183,10 +1195,7 @@ where
     wasm_bindgen_futures::spawn_local(future);
 }
 fn unix_seconds() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
+    (js_sys::Date::now() / 1_000.0).max(0.0) as u64
 }
 fn new_id() -> [u8; 16] {
     let mut id = [0; 16];

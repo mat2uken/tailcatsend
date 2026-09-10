@@ -89,6 +89,9 @@ export function initializeBrowserBackend(): Promise<void> {
     const wasm = await import(/* @vite-ignore */ moduleUrl);
     await wasm.default();
     wasm.install_backend();
+    if (!window.__ponletBackend) {
+      throw new Error("Rust WebAssembly service did not install the browser adapter");
+    }
   })();
   return initialization;
 }

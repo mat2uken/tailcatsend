@@ -44,6 +44,7 @@ const uiText = isJapanese
       transfer: "転送",
       messages: "メッセージ",
       preparing: "安全なP2P通信を準備中…",
+      ready: "接続待機中",
       connected: "接続済み",
       waiting: "相手を待機中",
       peer: "相手",
@@ -68,6 +69,7 @@ const uiText = isJapanese
       transfer: "Transfer",
       messages: "Messages",
       preparing: "Preparing secure P2P network…",
+      ready: "Ready to connect",
       connected: "Connected",
       waiting: "Waiting for peer",
       peer: "Peer",
@@ -176,22 +178,25 @@ van.derive(() => {
   const value = snapshot.val;
   status.textContent =
     value.error ??
-    (value.state === "connected"
-      ? uiText.connected
-      : value.state === "awaiting-peer"
-        ? uiText.waiting
-        : uiText.preparing);
+    (value.state === "ready"
+      ? uiText.ready
+      : value.state === "connected"
+        ? uiText.connected
+        : value.state === "awaiting-peer"
+          ? uiText.waiting
+          : uiText.preparing);
   peer.textContent = value.peerName || uiText.app;
   invite.textContent = value.inviteUrl ? uiText.saved : "";
   invite.href = "#";
   invite.hidden = !value.inviteUrl;
   disconnectButton.hidden = !value.canDisconnect;
-  const busy = operationBusy.val || value.transfer !== null;
+  const hasTransfer = value.transfer != null;
+  const busy = operationBusy.val || hasTransfer;
   connectButton.disabled = busy || value.state === "booting" || value.state === "error";
   createButton.disabled = busy || value.state === "booting" || value.state === "error";
   sendButton.disabled = busy || !value.canSend || !textDraft.val.trim();
   fileButton.disabled = busy || !value.canSend;
-  cancelButton.hidden = value.transfer === null;
+  cancelButton.hidden = !hasTransfer;
   copyTextButton.disabled =
     shareTextButton.disabled =
     saveTextButton.disabled =

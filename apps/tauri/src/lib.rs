@@ -198,15 +198,15 @@ impl TauriRuntime {
                     None,
                     Some(message),
                 ),
-                SessionState::Disconnected { reason } => (
-                    "error",
+                SessionState::Disconnected { .. } => (
+                    "ready",
                     app.peer_display_name,
                     None,
                     0,
                     false,
                     false,
                     None,
-                    Some(reason),
+                    None,
                 ),
                 SessionState::DialingHost { .. }
                 | SessionState::Authenticating
@@ -667,7 +667,7 @@ impl TauriRuntime {
         self.set_state(
             app,
             SessionState::Disconnected {
-                reason: "disconnected".to_string(),
+                reason: "ready".to_string(),
             },
         );
         Ok(())
@@ -1164,15 +1164,15 @@ fn snapshot_from_backend(backend: &BackendService) -> UiSnapshot {
                 None,
                 Some(message),
             ),
-            SessionState::Disconnected { reason } => (
-                "error",
+            SessionState::Disconnected { .. } => (
+                "ready",
                 app.peer_display_name,
                 None,
                 0,
                 false,
                 false,
                 None,
-                Some(reason),
+                None,
             ),
             SessionState::DialingHost { .. }
             | SessionState::Authenticating
@@ -1354,7 +1354,12 @@ pub fn run() {
         ])
         .setup(|app| {
             let state = app.state::<TauriRuntime>();
-            state.set_state(app.handle(), SessionState::Booting);
+            state.set_state(
+                app.handle(),
+                SessionState::Disconnected {
+                    reason: "ready".to_string(),
+                },
+            );
             Ok(())
         })
         .build(tauri::generate_context!())
