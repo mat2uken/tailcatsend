@@ -1,6 +1,8 @@
 package jp.yasagure.ponlet
 
+import android.app.Activity
 import android.app.Application
+import android.os.Bundle
 
 /**
  * Application クラス。NativeActivity のまま Kotlin コードを有効化し、
@@ -12,5 +14,20 @@ class PonletApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         TelemetryBridge.bootstrap(this)
+        registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+            override fun onActivityResumed(activity: Activity) {
+                FilePickerBridge.onActivityResumed(activity)
+            }
+
+            override fun onActivityPaused(activity: Activity) {
+                FilePickerBridge.onActivityPaused(activity)
+            }
+
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
+            override fun onActivityStarted(activity: Activity) {}
+            override fun onActivityStopped(activity: Activity) {}
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+            override fun onActivityDestroyed(activity: Activity) {}
+        })
     }
 }

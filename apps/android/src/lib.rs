@@ -1,12 +1,15 @@
 use std::collections::HashSet;
 use std::fs::{self, File};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
-use log::{error, info};
+use jni::objects::{Global, JClass, JObject, JString, JValueOwned};
+use jni::refs::Reference as _;
+use jni::{jni_sig, jni_str, Env, JavaVM};
+use log::{error, info, warn};
 use rand::RngCore;
 use slint::{Image, SharedPixelBuffer};
 use tailsend_protocol::filename::{generate_unique_filename, sanitize_filename};
@@ -71,11 +74,115 @@ extern "C" {
         timeout_ms: u32,
     ) -> i32;
     fn tc_stream_close(stream: TcHandle) -> i32;
+    fn tc_stream_close_write(stream: TcHandle) -> i32;
     fn tc_last_error(buffer: *mut u8, capacity: usize, out_length: *mut usize) -> i32;
 }
 
 // Global channel for external join session triggers (e.g. from ADB / Intent)
 static GLOBAL_JOIN_TX: std::sync::OnceLock<mpsc::UnboundedSender<String>> = std::sync::OnceLock::new();
+
+// JNI handles for the SAF file picker bridge (FilePickerBridge.kt)
+static PICK_JVM: OnceLock<JavaVM> = OnceLock::new();
+static PICKER_CLASS: OnceLock<Global<JClass<'static>>> = OnceLock::new();
+
+// Resolves `jp.yasagure.ponlet.FilePickerBridge` through the activity's
+// classloader (the system classloader cannot see APK classes from a native
+// thread) and caches it, together with the JavaVM, for later pick/poll calls.
+fn init_picker_jni(app: &android_activity::AndroidApp) -> bool {
+    if PICK_JVM.get().is_none() {
+        // Safety: `vm_as_ptr` is a valid JavaVM pointer for the process lifetime.
+        let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) };
+        let _ = PICK_JVM.set(vm);
+    }
+    if PICKER_CLASS.get().is_some() {
+        return true;
+    }
+    let Some(vm) = PICK_JVM.get() else { return false };
+    let activity_raw = app.activity_as_ptr() as jni::sys::jobject;
+    let result: Result<(), jni::errors::Error> = vm.attach_current_thread(
+        |env: &mut Env| -> jni::errors::Result<()> {
+            let activity = unsafe { JObject::from_raw(env, activity_raw) };
+            let loader_obj = env
+                .call_method(
+                    activity,
+                    jni_str!("getClassLoader"),
+                    jni_sig!("()Ljava/lang/ClassLoader;"),
+                    &[],
+                )?
+                .l()?;
+            let loader = unsafe { jni::objects::JClassLoader::from_raw(env, loader_obj.as_raw()) };
+            let name = env.new_string("jp.yasagure.ponlet.FilePickerBridge")?;
+            let class: JClass = match JClass::for_name_with_loader(env, name, true, &loader) {
+                Ok(class) => class,
+                Err(_) => {
+                    env.exception_describe();
+                    env.exception_clear();
+                    return Err(jni::errors::Error::NoClassDefFound {
+                        requested: "jp.yasagure.ponlet.FilePickerBridge".to_string(),
+                        cause: None,
+                    });
+                }
+            };
+            let global = env.new_global_ref(class)?;
+            let _ = PICKER_CLASS.set(global);
+            Ok(())
+        },
+    );
+    match result {
+        Ok(()) => true,
+        Err(e) => {
+            log::warn!("[Picker] FilePickerBridge class lookup failed: {}", e);
+            false
+        }
+    }
+}
+
+// Asks Kotlin to launch the ACTION_GET_CONTENT picker. Ok(true) means the
+// picker was launched, Ok(false) means no activity/class was available.
+fn picker_pick() -> Result<bool, String> {
+    let vm = PICK_JVM.get().ok_or_else(|| "JVM unavailable".to_string())?;
+    let class = PICKER_CLASS
+        .get()
+        .ok_or_else(|| "FilePickerBridge unavailable".to_string())?;
+    vm.attach_current_thread(|env: &mut Env| -> jni::errors::Result<bool> {
+        let ret = env.call_static_method(
+            class,
+            jni_str!("pick"),
+            jni_sig!("()Z"),
+            &[],
+        )?;
+        ret.z()
+    })
+    .map_err(|e| e.to_string())
+}
+
+// Polls Kotlin for the picker outcome. Kotlin stores a JSON string such as
+// {"status":"ok","path":"...","name":"..."} once onActivityResult ran.
+fn picker_poll() -> Option<String> {
+    let vm = PICK_JVM.get()?;
+    let class = PICKER_CLASS.get()?;
+    let result: Result<Option<String>, jni::errors::Error> =
+        vm.attach_current_thread(|env: &mut Env| -> jni::errors::Result<Option<String>> {
+            let ret = env.call_static_method(
+                class,
+                jni_str!("pollResult"),
+                jni_sig!("()Ljava/lang/String;"),
+                &[],
+            )?;
+            Ok(jstring_from_value(env, ret))
+        });
+    result.ok().flatten()
+}
+
+fn jstring_from_value(env: &mut Env<'_>, value: JValueOwned<'_>) -> Option<String> {
+    match value {
+        JValueOwned::Object(obj) if !obj.is_null() => {
+            let jstr = unsafe { JString::from_raw(env, obj.into_raw()) };
+            jstr.try_to_string(env).ok()
+        }
+        _ => None,
+    }
+}
 
 #[no_mangle]
 fn android_main(app: android_activity::AndroidApp) {
@@ -89,6 +196,9 @@ fn android_main(app: android_activity::AndroidApp) {
 
     // Telemetry: install the Firebase-backed backend (no-op without Firebase config)
     let telemetry_initial = telemetry::startup(&app);
+
+    // SAF file picker bridge: cache the JavaVM + FilePickerBridge class once
+    init_picker_jni(&app);
 
     slint::android::init(app).expect("Failed to initialize Slint Android backend");
 
@@ -454,6 +564,249 @@ fn receive_file_stream(stream: TcHandle, app_weak: slint::Weak<AppWindow>) {
     }
 }
 
+// set_sender_transfer_ui pushes sender-side transfer progress to the Slint UI.
+fn set_sender_transfer_ui(
+    app_weak: slint::Weak<AppWindow>,
+    status: &str,
+    bytes_text: String,
+    progress: f32,
+    speed: &str,
+) {
+    let status = status.to_string();
+    let speed = speed.to_string();
+    let _ = slint::invoke_from_event_loop(move || {
+        if let Some(app) = app_weak.upgrade() {
+            app.set_is_transferring(true);
+            app.set_transfer_completed(false);
+            app.set_is_sender_transfer(true);
+            app.set_transfer_status(status.into());
+            app.set_transfer_bytes_text(bytes_text.into());
+            app.set_transfer_progress(progress);
+            app.set_transfer_speed(speed.into());
+        }
+    });
+}
+
+// sender_transfer_finished shows the terminal UI state for a sender transfer.
+fn sender_transfer_finished(
+    app_weak: slint::Weak<AppWindow>,
+    success: bool,
+    detail: String,
+    name: String,
+    bytes_text: String,
+) {
+    let _ = slint::invoke_from_event_loop(move || {
+        if let Some(app) = app_weak.upgrade() {
+            app.set_is_transferring(false);
+            app.set_transfer_completed(success);
+            app.set_is_sender_transfer(true);
+            app.set_transfer_bytes_text(bytes_text.into());
+            if success {
+                app.set_transfer_filename(name.clone().into());
+                app.set_transfer_progress(1.0);
+                app.set_transfer_speed("送信完了".into());
+                app.set_transfer_status("ファイル送信完了".into());
+                app.set_status_text(format!("{} の送信が完了しました！", name).into());
+            } else {
+                app.set_transfer_progress(0.0);
+                app.set_transfer_status(detail.clone().into());
+                app.set_status_text(detail.into());
+            }
+        }
+    });
+}
+
+// sender_transfer_failed is the shared failure path: reports telemetry + UI.
+fn sender_transfer_failed(app_weak: slint::Weak<AppWindow>, msg: String) {
+    error!("❌ [Tailcat Android] File send failed: {}", msg);
+    tailsend_telemetry::events::error("transport");
+    sender_transfer_finished(app_weak, false, format!("Send failed: {}", msg), String::new(), String::new());
+}
+
+// send_file_streaming dials port 102 to the target peer and streams the file
+// from disk in 64KiB chunks (never loading it fully into memory):
+//   tc_stream_dial -> `NAME:<sanitized name>:<size>\n` -> chunks ->
+//   tc_stream_close_write -> wait EOF (<=3s) -> tc_stream_close
+// Progress is throttled to 200ms and pushed to the UI via
+// invoke_from_event_loop. With delete_after the (picker temp) file is removed
+// afterwards regardless of the outcome. Returns the number of bytes sent.
+fn send_file_streaming(
+    file_path: PathBuf,
+    display_name: &str,
+    target_addr: &str,
+    app_weak: slint::Weak<AppWindow>,
+    delete_after: bool,
+) -> Result<u64, String> {
+    let start = Instant::now();
+    let mut file = File::open(&file_path).map_err(|e| format!("Failed to open file: {}", e))?;
+    let size = file
+        .metadata()
+        .map_err(|e| format!("Failed to stat file: {}", e))?
+        .len();
+    // The receiver splits the header at the last ':', and sanitize_filename
+    // additionally replaces ':' with '_' and strips control chars such as '\n'.
+    let name = sanitize_filename(display_name).map_err(|e| format!("Invalid filename: {}", e))?;
+    let transport = if target_addr.contains("derp") { "relay" } else { "direct" };
+    tailsend_telemetry::events::transfer_started(1, transport, "send");
+
+    set_sender_transfer_ui(
+        app_weak.clone(),
+        "Sending file…",
+        format!("0.0 MB / {:.1} MB", size as f64 / 1048576.0),
+        0.0,
+        "Preparing…",
+    );
+
+    let derp_url = "https://tailcat.dev/derpmap.json";
+    let addr_bytes = target_addr.as_bytes();
+    let mut dial_handle: TcHandle = 0;
+    let dial_res = unsafe {
+        tc_stream_dial(
+            addr_bytes.as_ptr(),
+            addr_bytes.len(),
+            derp_url.as_ptr(),
+            derp_url.len(),
+            102,
+            30000,
+            &mut dial_handle,
+        )
+    };
+    if dial_res != 0 || dial_handle == 0 {
+        let mut err_buf = vec![0u8; 1024];
+        let mut err_len: usize = 0;
+        let _ = unsafe { tc_last_error(err_buf.as_mut_ptr(), err_buf.len(), &mut err_len) };
+        err_buf.truncate(err_len);
+        let msg = format!(
+            "tc_stream_dial failed (code {}): {}",
+            dial_res,
+            String::from_utf8_lossy(&err_buf)
+        );
+        if delete_after {
+            let _ = fs::remove_file(&file_path);
+        }
+        sender_transfer_failed(app_weak, msg.clone());
+        return Err(msg);
+    }
+
+    let result = (|| -> Result<(), String> {
+        let header = format!("NAME:{}:{}\n", name, size);
+        let wres = unsafe {
+            tc_stream_write_all(dial_handle, header.as_ptr(), header.len(), 30000)
+        };
+        if wres != 0 {
+            return Err(format!("Header write failed (status {})", wres));
+        }
+
+        let mut buf = vec![0u8; 65536];
+        let mut sent: u64 = 0;
+        let mut last_ui = Instant::now();
+        loop {
+            let n = file.read(&mut buf).map_err(|e| format!("File read failed: {}", e))?;
+            if n == 0 {
+                break;
+            }
+            let wres = unsafe {
+                tc_stream_write_all(dial_handle, buf.as_ptr(), n, 30000)
+            };
+            if wres != 0 {
+                return Err(format!("Chunk write failed (status {}) at {} bytes", wres, sent));
+            }
+            sent += n as u64;
+
+            let now = Instant::now();
+            if now.duration_since(last_ui) >= Duration::from_millis(200) {
+                last_ui = now;
+                let elapsed = now.duration_since(start).as_secs_f64();
+                let speed = if elapsed > 0.0 {
+                    format!("{:.1} MB/s", (sent as f64 / 1048576.0) / elapsed)
+                } else {
+                    "Calculating…".to_string()
+                };
+                set_sender_transfer_ui(
+                    app_weak.clone(),
+                    "Sending file…",
+                    format!(
+                        "{:.1} MB / {:.1} MB",
+                        sent as f64 / 1048576.0,
+                        size as f64 / 1048576.0
+                    ),
+                    if size > 0 { sent as f32 / size as f32 } else { 1.0 },
+                    &speed,
+                );
+            }
+        }
+
+        // Half-close so the receiver sees EOF after the payload.
+        let cw_res = unsafe { tc_stream_close_write(dial_handle) };
+        if cw_res != 0 {
+            warn!("⚠️ [Tailcat Android] tc_stream_close_write returned {}", cw_res);
+        }
+
+        // Give the receiver up to 3s to consume and observe EOF.
+        let eof_deadline = Instant::now() + Duration::from_millis(3000);
+        let mut rbuf = [0u8; 512];
+        loop {
+            let now = Instant::now();
+            if now >= eof_deadline {
+                break;
+            }
+            let mut rd: usize = 0;
+            let remaining_ms = (eof_deadline - now).as_millis() as u32;
+            let res = unsafe {
+                tc_stream_read(dial_handle, rbuf.as_mut_ptr(), rbuf.len(), &mut rd, remaining_ms)
+            };
+            match res {
+                1 | 2 => break, // TC_EOF (peer done) or TC_TIMEOUT (nothing pending)
+                0 => continue,
+                3 => break, // TC_CANCELLED
+                other => {
+                    warn!("⚠️ [Tailcat Android] EOF wait read status {}", other);
+                    break;
+                }
+            }
+        }
+        Ok(())
+    })();
+
+    unsafe { tc_stream_close(dial_handle); }
+
+    match result {
+        Ok(()) => {
+            tailsend_telemetry::events::transfer_completed(
+                1,
+                size,
+                start.elapsed().as_millis(),
+                transport,
+                "send",
+            );
+            if delete_after {
+                let _ = fs::remove_file(&file_path);
+            }
+            info!(
+                "✅ [Tailcat Android] File sent: {} ({:.1} MB) in {} ms",
+                name,
+                size as f64 / 1048576.0,
+                start.elapsed().as_millis()
+            );
+            sender_transfer_finished(
+                app_weak.clone(),
+                true,
+                String::new(),
+                name.clone(),
+                format!("{:.1} MB", size as f64 / 1048576.0),
+            );
+            Ok(size)
+        }
+        Err(msg) => {
+            if delete_after {
+                let _ = fs::remove_file(&file_path);
+            }
+            sender_transfer_failed(app_weak, msg.clone());
+            Err(msg)
+        }
+    }
+}
+
 fn run_android_app(telemetry_initial: bool) -> Result<(), Box<dyn std::error::Error>> {
     let started_at = Instant::now();
     let base_url = "https://ponlet.mat2uken.app".to_string();
@@ -713,6 +1066,7 @@ fn run_android_app(telemetry_initial: bool) -> Result<(), Box<dyn std::error::Er
     // File-based command loop on /data/local/tmp/tailsend_cmd.json for rock-solid ADB E2E automation
     let join_tx_file = join_tx_thread.clone();
     let target_addr_file = target_peer_addr_clone.clone();
+    let app_weak_ipc = app_weak.clone();
     std::thread::spawn(move || {
         let cmd_candidates = [
             PathBuf::from("/data/data/jp.yasagure.ponlet/files/tailsend_cmd.json"),
@@ -802,59 +1156,24 @@ fn run_android_app(telemetry_initial: bool) -> Result<(), Box<dyn std::error::Er
                                     if let Some(addr) = target {
                                         let p = PathBuf::from(path_str);
                                         let fname = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "sample.bin".to_string());
-                                        let data = fs::read(&p).unwrap_or_else(|_| b"Sample Payload".to_vec());
-                                        let fsize = data.len();
-                                        let file_started_at = Instant::now();
-                                        tailsend_telemetry::events::transfer_started(
-                                            1,
-                                            if addr.contains("derp") { "relay" } else { "direct" },
-                                            "send",
-                                        );
-
-                                        let derp_url = "https://tailcat.dev/derpmap.json";
-                                        let addr_bytes = addr.as_bytes();
-                                        let mut dial_handle: TcHandle = 0;
-                                        let dial_res = unsafe {
-                                            tc_stream_dial(
-                                                addr_bytes.as_ptr(),
-                                                addr_bytes.len(),
-                                                derp_url.as_ptr(),
-                                                derp_url.len(),
-                                                102,
-                                                30000,
-                                                &mut dial_handle,
-                                            )
+                                        // Streaming send (64KiB chunks), never a
+                                        // full-memory read. IPC-provided paths are
+                                        // not deleted afterwards.
+                                        let res_json = match send_file_streaming(
+                                            p,
+                                            &fname,
+                                            &addr,
+                                            app_weak_ipc.clone(),
+                                            false,
+                                        ) {
+                                            Ok(_) => "{\"status\":\"ok\",\"action\":\"send_file\"}\n".to_string(),
+                                            Err(e) => serde_json::json!({
+                                                "status": "error",
+                                                "msg": e,
+                                            })
+                                            .to_string(),
                                         };
-                                        if dial_res == 0 && dial_handle != 0 {
-                                            let header = format!("NAME:{}:{}\n", fname, fsize);
-                                            let _ = unsafe {
-                                                tc_stream_write_all(dial_handle, header.as_ptr(), header.len(), 10000)
-                                            };
-                                            let _ = unsafe {
-                                                tc_stream_write_all(dial_handle, data.as_ptr(), data.len(), 30000)
-                                            };
-                                            unsafe { tc_stream_close(dial_handle); }
-                                            tailsend_telemetry::events::transfer_completed(
-                                                1,
-                                                fsize as u64,
-                                                file_started_at.elapsed().as_millis(),
-                                                if addr.contains("derp") { "relay" } else { "direct" },
-                                                "send",
-                                            );
-                                            write_res("{\"status\":\"ok\",\"action\":\"send_file\"}\n");
-                                        } else {
-                                            tailsend_telemetry::record_error("transport");
-                                            let mut err_buf = vec![0u8; 1024];
-                                            let mut err_len: usize = 0;
-                                            let _ = unsafe { tc_last_error(err_buf.as_mut_ptr(), err_buf.len(), &mut err_len) };
-                                            let err_msg = if err_len > 0 {
-                                                String::from_utf8_lossy(&err_buf[..err_len]).to_string()
-                                            } else {
-                                                "unknown".to_string()
-                                            };
-                                            error!("❌ [Tailcat Android] send_file tc_stream_dial failed: {}", err_msg);
-                                            write_res(&format!("{{\"status\":\"error\",\"code\":{},\"msg\":\"{}\"}}\n", dial_res, err_msg));
-                                        }
+                                        write_res(&res_json);
                                     } else {
                                         write_res("{\"status\":\"error\",\"msg\":\"no_target\"}\n");
                                     }
@@ -927,84 +1246,97 @@ fn run_android_app(telemetry_initial: bool) -> Result<(), Box<dyn std::error::Er
         }
     });
 
-    // Send File from Android
-    let target_addr_file = target_peer_addr_clone.clone();
-    let app_weak_file = app_weak.clone();
+    // Send File from Android: SAF picker (Kotlin) -> temp copy in cacheDir ->
+    // streaming send over the Tailcat C-ABI (see send_file_streaming).
+    let target_addr_pick = target_peer_addr_clone.clone();
+    let app_weak_pick = app_weak.clone();
     app.on_pick_files(move || {
         let target = {
-            let lock = target_addr_file.lock().unwrap();
+            let lock = target_addr_pick.lock().unwrap();
             lock.clone()
         };
 
-        if let Some(addr) = target {
-            let sample_file = PathBuf::from("/sdcard/Download/xperia_sample.png");
-            if !sample_file.exists() {
-                let _ = fs::write(&sample_file, b"TAILSEND_XPERIA_SAMPLE_IMAGE_DATA_1234567890");
+        let Some(addr) = target else {
+            if let Some(app) = app_weak_pick.upgrade() {
+                app.set_status_text("相手未接続 — 先にペアリング（QR スキャンまたは招待URL）してください".into());
+                app.set_transfer_status("相手未接続".into());
             }
+            return;
+        };
 
-            let w = app_weak_file.clone();
-            std::thread::spawn(move || {
-                let derp_url = "https://tailcat.dev/derpmap.json";
-                let filename = "xperia_sample.png".to_string();
-                let file_data = fs::read(&sample_file).unwrap_or_else(|_| b"Xperia Sample File".to_vec());
-                let file_size = file_data.len() as i64;
-                let total_mb = file_size as f64 / 1048576.0;
-                let file_started_at = Instant::now();
-                tailsend_telemetry::events::transfer_started(
-                    1,
-                    if addr.contains("derp") { "relay" } else { "direct" },
-                    "send",
-                );
+        match picker_pick() {
+            Ok(true) => {
+                if let Some(app) = app_weak_pick.upgrade() {
+                    app.set_status_text("Select a file to send...".into());
+                    app.set_screen_index(3);
+                }
+            }
+            Ok(false) => {
+                if let Some(app) = app_weak_pick.upgrade() {
+                    app.set_status_text("File picker unavailable (no activity)".into());
+                }
+                return;
+            }
+            Err(e) => {
+                error!("❌ [Tailcat Android] picker launch failed: {}", e);
+                if let Some(app) = app_weak_pick.upgrade() {
+                    app.set_status_text(format!("File picker error: {}", e).into());
+                }
+                return;
+            }
+        }
 
-                let addr_bytes = addr.as_bytes();
-                let mut dial_handle: TcHandle = 0;
-                let dial_res = unsafe {
-                    tc_stream_dial(
-                        addr_bytes.as_ptr(),
-                        addr_bytes.len(),
-                        derp_url.as_ptr(),
-                        derp_url.len(),
-                        102,
-                        30000,
-                        &mut dial_handle,
-                    )
-                };
+        // Poll Kotlin for the picker result, then stream the picked file out.
+        let w = app_weak_pick.clone();
+        std::thread::spawn(move || {
+            let poll_start = Instant::now();
+            let raw = loop {
+                if let Some(json) = picker_poll() {
+                    break Some(json);
+                }
+                if poll_start.elapsed() > Duration::from_secs(900) {
+                    break None;
+                }
+                std::thread::sleep(Duration::from_millis(300));
+            };
 
-                if dial_res == 0 && dial_handle != 0 {
-                    let header = format!("NAME:{}:{}\n", filename, file_size);
-                    let _ = unsafe {
-                        tc_stream_write_all(dial_handle, header.as_ptr(), header.len(), 10000)
-                    };
-                    let _ = unsafe {
-                        tc_stream_write_all(dial_handle, file_data.as_ptr(), file_data.len(), 30000)
-                    };
-                    unsafe { tc_stream_close(dial_handle); }
-                    tailsend_telemetry::events::transfer_completed(
-                        1,
-                        file_size as u64,
-                        file_started_at.elapsed().as_millis(),
-                        if addr.contains("derp") { "relay" } else { "direct" },
-                        "send",
-                    );
+            let Some(raw) = raw else {
+                let w2 = w.clone();
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(app) = w2.upgrade() {
+                        app.set_status_text("File selection timed out".into());
+                    }
+                });
+                return;
+            };
 
-                    let w_cb = w.clone();
-                    let fn_cb = filename.clone();
+            let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::json!({}));
+            let status = parsed["status"].as_str().unwrap_or("error").to_string();
+            let path = parsed["path"].as_str().unwrap_or_default().to_string();
+            let name = parsed["name"].as_str().unwrap_or_default().to_string();
+
+            match status.as_str() {
+                "ok" => {
+                    if path.is_empty() {
+                        sender_transfer_failed(w.clone(), "Picked file path is empty".to_string());
+                        return;
+                    }
+                    let _ = send_file_streaming(PathBuf::from(path), &name, &addr, w, true);
+                }
+                "cancelled" => {
+                    let w2 = w.clone();
                     let _ = slint::invoke_from_event_loop(move || {
-                        if let Some(app) = w_cb.upgrade() {
-                            app.set_is_transferring(false);
-                            app.set_transfer_completed(true);
-                            app.set_is_sender_transfer(true);
-                            app.set_transfer_filename(fn_cb.clone().into());
-                            app.set_transfer_bytes_text(format!("{:.1} MB", total_mb).into());
-                            app.set_transfer_speed("送信完了".into());
-                            app.set_transfer_progress(1.0);
-                            app.set_transfer_status("ファイル送信完了".into());
-                            app.set_status_text(format!("{} の送信が完了しました！", fn_cb).into());
+                        if let Some(app) = w2.upgrade() {
+                            app.set_status_text("File selection cancelled".into());
                         }
                     });
                 }
-            });
-        }
+                other => {
+                    let msg = parsed["msg"].as_str().unwrap_or(other).to_string();
+                    sender_transfer_failed(w, format!("File pick failed: {}", msg));
+                }
+            }
+        });
     });
 
     // 📋 Copy File Path Callback
