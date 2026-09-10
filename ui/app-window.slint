@@ -224,6 +224,7 @@ component StatusBadge inherits Rectangle {
             font-weight: 600;
             color: Theme.text-secondary;
             vertical-alignment: center;
+            overflow: elide;
         }
     }
 }
@@ -290,6 +291,7 @@ component PeerHeaderCard inherits ModernCard {
                     font-size: 13px;
                     font-weight: 700;
                     color: Theme.text-primary;
+                    overflow: elide;
                 }
                 HorizontalLayout {
                     spacing: 4px;
@@ -314,6 +316,7 @@ component PeerHeaderCard inherits ModernCard {
                             ? Theme.success
                             : (root.transport-type == 1 ? Theme.accent-cyan : #f59e0b);
                         vertical-alignment: center;
+                        overflow: elide;
                     }
                 }
             }
@@ -381,6 +384,7 @@ component TransferProgressCard inherits Rectangle {
                     font-size: 12px;
                     font-weight: 700;
                     color: root.transfer-completed ? #a7f3d0 : #e0f2fe;
+                    overflow: elide;
                 }
             }
             Text {
@@ -393,7 +397,7 @@ component TransferProgressCard inherits Rectangle {
 
         if root.transfer-filename != "" : HorizontalLayout {
             alignment: space-between;
-            Text { text: root.transfer-filename; font-size: 11px; font-weight: 600; color: #f8fafc; }
+            Text { text: root.transfer-filename; font-size: 11px; font-weight: 600; color: #f8fafc; overflow: elide; horizontal-stretch: 1; }
             Text { text: root.transfer-bytes-text; font-size: 11px; color: Theme.text-secondary; }
         }
 
@@ -609,6 +613,8 @@ component ActivityStreamCard inherits ModernCard {
                     font-weight: 700;
                     color: Theme.text-secondary;
                     vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
                 }
                 Rectangle {
                     height: 18px;
