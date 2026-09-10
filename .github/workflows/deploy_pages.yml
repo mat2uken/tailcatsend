@@ -40,8 +40,13 @@ jobs:
 
       - name: Apply Tailcat Patches
         run: |
+          # Patch 0002 provides tailscale.com/feature/webrtc, which the web
+          # bridge imports, so both patches are required here.
           if [ -f tailcat/patches/0001-android-selinux-netmon-fallback.patch ]; then
             git -C tailcat/pkg/tailcat apply --ignore-space-change --ignore-whitespace ../../patches/0001-android-selinux-netmon-fallback.patch
+          fi
+          if [ -f tailcat/patches/0002-tailscale-webrtc-transport.patch ]; then
+            git -C tailcat/pkg/tailscale.com apply --ignore-space-change --ignore-whitespace ../../patches/0002-tailscale-webrtc-transport.patch
           fi
 
       - name: Setup Go
