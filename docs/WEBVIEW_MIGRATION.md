@@ -10,11 +10,11 @@
 | --- | --- | --- |
 | Web UI | `web-ui/src/main.ts` のVanJS画面。Vite 8/esbuild/Oxlint/Oxfmt/Vitestを使用 | QR表示・読取、設定、受信ファイル操作などの機能一致 |
 | Application API | `web-ui/src/api/` の型と版確認 | Rustデータとの変換、未移植操作の追加 |
-| 表示状態 | `web-ui/src/session.ts` のイベント順序・購読・終了処理 | 実adapterからの再接続通知と履歴復元 |
+| 表示状態 | `web-ui/src/session.ts` のイベント順序・購読・終了処理。接続時は`direct-udp`、`webrtc`、`derp`、`unknown`を表示 | 実adapterからの再接続通知と履歴復元 |
 | backend選択 | `web-ui/src/backends/{browser,tauri}.ts` をVite modeで選択。BrowserはGo bridgeとRust WASMを起動、Tauriはcommand/eventを使用 | Dedicated Workerへの分離、再作成時の操作無効化 |
 | Native shell | `apps/desktop` は `tailsend-tauri` を起動し、`apps/tauri` のVanJS WebView・共通Rust service・Go C archiveを使う | iOS/AndroidのWebView shell、実機での再起動・終了・送受信 |
 | Rust状態管理 | `tailsend-core::BackendService` のsnapshot・イベント・取消トークン | OS/Webの操作を含む製品全体への接続 |
-| 共通転送 | `tailsend-transfer/src/live.rs` の現行NAME/改行形式、`lib.rs` の既存バイナリ形式、`io.rs` の部分I/O | iOS/Androidを含む各OSのfile/stream adapter |
+| 共通転送 | `tailsend-transfer/src/live.rs` の現行NAME/改行形式、`lib.rs` の既存バイナリ形式、`io.rs` の部分I/O。`TransportPath`をstreamからsnapshotまで伝える | iOS/Androidを含む各OSのfile/stream adapter |
 | Native bridge | GoのC ABI、`tailsend-native-bridge` のRust宣言、`tailsend-native-transport` のstream/listener adapter | 各OSの実転送確認、配布物への組込み |
 | Browser保存 | Rust WASMがOPFSの途中保存・サイズ検査・確定・取消を実行。`web-ui/src/opfs.ts` はWorker向けの同等adapter | Workerへの移設、保存済みファイルの利用、起動時の途中ファイル回収 |
 | 更新検証 | `tailsend-updates` の署名・互換性・ファイル検査 | 配信manifest生成、ダウンロード、展開、切替、起動失敗時の復元 |
@@ -39,6 +39,7 @@
 - Tauriのnative buildでは、`scripts/build_tauri.sh` が対象OS用Go bridgeを生成してからRustとVanJS bundleをビルドする。ローカルのTauri実行はこのbridge生成を通した成果物で確認する。
 - `apps/desktop` の旧Slint入口と専用daemon IPCを削除し、既存の製品名を保ったまま `tailsend-tauri::run` を呼ぶ薄い起動処理へ切り替えた。デスクトップのReleaseリンクは確認済みだが、2端末実転送は未確認である。
 - `apps/web` の旧Slintエントリを共通Rust転送serviceへ置き換えた。ブラウザ側はGo WASM bridgeを起動してからRust WASMを読み込み、`window.__ponletBackend`へsnapshot・購読・招待・送受信・取消・切断を公開する。
+- 共通transport APIに経路コードを追加した。`0`はWireGuard UDP、`1`はWebRTC DataChannel、`2`はDERP relay、`255`は判定不能で、Go bridge・native adapter・browser adapter・UI snapshotで同じ値を使う。ブラウザのread要求長をGo bridgeへ渡し、Rust側の小さいバッファへ過剰に返さないようにした。
 - Pages workflowは、Viteの`web-ui/dist/web`、Go Tailcat WASM、`wasm-bindgen`で生成したRust service WASMを一つの配布物へ配置する構成へ変更した。旧Slint WASMを配信対象にしない。
 
 ## 接続時に守る順序
@@ -69,6 +70,6 @@ cargo check -p tailsend-core -p tailsend-transfer -p tailsend-updates --target w
 ./scripts/build_web_ui.sh
 ```
 
-ブラウザ用は`web-ui/dist/web`、Tauri用は`web-ui/dist/native`に出力する。Cloudflare Pages workflowは新しいVanJS index、Go Tailcat bridge、Rust service WASMを生成して配置する。Cloudflare Pagesへの実デプロイ、2端末実通信、Dedicated Worker、全transport経路は未確認である。
+ブラウザ用は`web-ui/dist/web`、Tauri用は`web-ui/dist/native`に出力する。Cloudflare Pages workflowは新しいVanJS index、Go Tailcat bridge、Rust service WASMを生成して配置する。ローカルChromeの2タブではWebRTC DataChannel接続とテキスト送受信まで確認した。Cloudflare Pagesへの実デプロイ、Tauriの2端末実転送、Dedicated Worker、WireGuard UDPとDERPを強制した経路、全platform組合せは未確認である。
 
 今回の検証結果と移行前に必要な比較は[レビュー記録](WEBVIEW_REVIEW.md)を参照。
