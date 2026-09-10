@@ -29,6 +29,7 @@
 - Tauri Android debug/release、iOS Simulator/device bundle の生成。
 - Android debug APK の実機起動と招待待受画面。
 - Chrome 2 タブの招待、WebRTC DataChannel 接続、テキスト送受信。
+- Sony XQ-DQ44 の Android Tauri WebView と Chromium の接続、`DERP relay` の経路表示、Android picker から `android-real.bin` (131,071 bytes) を Web 側へ送信する実機確認。
 - `cd web-ui && npm run test:e2e:real` で、招待、接続、テキスト、131,089 byte ファイル、OPFSからの開く操作、SHA-256、両端の経路表示を一括確認する。
 
 ## 残っている検証
