@@ -7,8 +7,10 @@ cd "${repo_dir}/web-ui"
 
 # Keep the lockfile as the source of truth for the reproducible UI build.
 npm ci --ignore-scripts --no-audit --no-fund
+npm run lint
 npm run typecheck
 npm test
+npm run format:check
 npm run build -- --mode web
 npm run build -- --mode tauri
 
