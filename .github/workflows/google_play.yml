@@ -202,7 +202,7 @@ jobs:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_CONFIG_JSON }}
           packageName: jp.yasagure.ponlet
           releaseFiles: ponlet-release.aab
-          track: ${{ env.TRACK }}
+          tracks: ${{ env.TRACK }}
           status: completed
 
       - name: Cleanup Keystore
