@@ -55,6 +55,8 @@ Worker化後も `npm run test:e2e:real` と `npm run test:e2e:real:derp` が同�
 
 `a4d2143` の native bridge 改修後に Android debug APK を再生成して Sony XQ-DQ44 へ再インストールし、同じ Android／Chromium E2E を再実行した。WebRTC と DERP の両方で両端の `connected` と経路表示、双方向テキスト、`browser-to-android-日本語.bin` (131,071 bytes)、SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` が一致した。APK は `apps/tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk` に生成され、Rust 側のチャンク一時割当削減後も実機転送が維持されることを確認した。
 
+`48f0c35` の Tauri状態保護と `f27d9ad` の経路試験入口を含む最新HEADで Android debug APKを再生成・再インストールし、`PONLET_ANDROID_SERIAL=QV770139JG npm run test:e2e:android` と `npm run test:e2e:android:derp` を再実行した。WebRTC／DERPともに両端の経路表示、双方向テキスト、`browser-to-android-日本語.bin` (131,071 bytes)、SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` の一致を確認した。続けて `npm run test:e2e:real` と `npm run test:e2e:real:derp` も実行し、WebRTC／DERPの双方向テキスト、131,089／98,321 byteファイル、既存のSHA-256一致を再確認した。
+
 `ffb753c` 後に `./scripts/build_tauri_mobile.sh ios-sim debug` を実行して iOS 18.5 の iPhone 16 simulator 用 `apps/tauri/gen/apple/build/arm64-sim/Ponlet.app` を再生成し、`xcrun simctl install`／`launch` で起動待機画面を確認した。これは iOS WebView shell の起動確認であり、iOS 実機の署名・通信確認ではない。
 
 `3597588` では、招待待機中に「招待を作成」を連続実行した際、取消された古いaccept処理の終端エラーが新しい招待の状態を上書きしないようにした。更新済みmacOS WebViewで再生成直後と待機処理の終了後に「相手を待機中」が維持されることを確認した。
