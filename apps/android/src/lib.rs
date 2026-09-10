@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::Write;
 use std::path::PathBuf;
@@ -8,6 +9,7 @@ use base64::Engine;
 use log::{error, info};
 use rand::RngCore;
 use slint::{Image, SharedPixelBuffer};
+use tailsend_protocol::filename::{generate_unique_filename, sanitize_filename};
 use tailsend_protocol::invitation::InvitationV1;
 use tailsend_qr::generate_qr_rgba;
 use tokio::sync::mpsc;
@@ -129,6 +131,327 @@ fn get_android_download_dir() -> PathBuf {
         }
     }
     PathBuf::from("/data/data/jp.yasagure.ponlet/files")
+}
+
+// parse_file_header parses the wire header sent by the web sender:
+// `NAME:<filename>:<size>\n`. The filename may contain colons, so the
+// size is split off at the last colon.
+fn parse_file_header(line: &str) -> Option<(String, u64)> {
+    let rest = line.strip_prefix("NAME:")?;
+    let (name, size_str) = rest.rsplit_once(':')?;
+    let size = size_str.trim().parse::<u64>().ok()?;
+    let name = sanitize_filename(name).ok()?;
+    Some((name, size))
+}
+
+fn unique_download_path(dir: &PathBuf, name: &str) -> PathBuf {
+    let existing: HashSet<String> = fs::read_dir(dir)
+        .map(|rd| {
+            rd.filter_map(|e| e.ok())
+                .filter_map(|e| e.file_name().into_string().ok())
+                .collect()
+        })
+        .unwrap_or_default();
+    let unique_name = generate_unique_filename(&existing, name);
+    dir.join(unique_name)
+}
+
+// receive_text_stream reads incoming Port 101 text. The desktop daemon keeps
+// the connection open and sends "text\n" lines, so complete lines are handled
+// as they arrive and any trailing data is flushed on EOF/timeout.
+fn receive_text_stream(
+    stream: TcHandle,
+    app_weak: slint::Weak<AppWindow>,
+    target_peer_addr: Arc<Mutex<Option<String>>>,
+) {
+    let handle_line = move |line: &str| {
+        if line.is_empty() {
+            return;
+        }
+        info!("✉️ [Tailcat Android] Text Received: {}", line);
+
+        let mut is_handshake = false;
+        if let Some(idx) = line.find("JOIN:") {
+            is_handshake = true;
+            let peer_addr = line[idx + 5..].split_whitespace().next().unwrap_or("").trim();
+            if !peer_addr.is_empty() {
+                if let Ok(mut guard) = target_peer_addr.lock() {
+                    *guard = Some(peer_addr.to_string());
+                    info!("🔗 [Tailcat Android] Automatically paired with remote peer: {}", peer_addr);
+                }
+            }
+        }
+        if line.starts_with("🤝") {
+            is_handshake = true;
+        }
+
+        if !is_handshake {
+            tailsend_telemetry::events::text_message_received(
+                tailsend_telemetry::length_bucket(line.chars().count()),
+            );
+        }
+
+        let w = app_weak.clone();
+        let t = line.to_string();
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(app) = w.upgrade() {
+                app.set_screen_index(3);
+                app.set_peer_name("Connected Peer (P2P)".into());
+                if is_handshake {
+                    app.set_status_text("Direct Encrypted P2P Connected!".into());
+                } else {
+                    let new_log = format!("[Peer]: {}\n{}", t, app.get_received_message_log());
+                    app.set_received_message_log(new_log.into());
+                    app.set_last_received_text(t.into());
+                    app.set_status_text("Received text message via Tailcat P2P!".into());
+                }
+            }
+        });
+    };
+
+    let mut buf = vec![0u8; 65536];
+    let mut pending: Vec<u8> = Vec::new();
+    let mut discarded = false;
+    loop {
+        let mut read_bytes: usize = 0;
+        let r_res = unsafe {
+            tc_stream_read(stream, buf.as_mut_ptr(), buf.len(), &mut read_bytes, 30000)
+        };
+        if r_res == 1 || r_res == 2 {
+            // TC_EOF: sender closed. TC_TIMEOUT: persistent sender (daemon)
+            // is still connected, stop reading instead of waiting forever.
+            break;
+        }
+        if r_res != 0 {
+            error!("❌ [Tailcat Android] Text stream read error (status {})", r_res);
+            break;
+        }
+        if read_bytes == 0 {
+            continue;
+        }
+        if pending.len() + read_bytes > 1024 * 1024 {
+            discarded = true;
+            break;
+        }
+        pending.extend_from_slice(&buf[..read_bytes]);
+        while let Some(pos) = pending.iter().position(|&b| b == b'\n') {
+            let line = String::from_utf8_lossy(&pending[..pos]).to_string();
+            pending.drain(..=pos);
+            handle_line(&line);
+        }
+    }
+    if !discarded && !pending.is_empty() {
+        let rest = String::from_utf8_lossy(&pending).to_string();
+        handle_line(&rest);
+    }
+    unsafe { tc_stream_close(stream); }
+}
+
+// receive_file_stream handles an incoming Port 102 file transfer: it reads
+// the `NAME:<filename>:<size>\n` header, streams the body to the download
+// directory, and reports progress / completion through the Slint UI.
+fn receive_file_stream(stream: TcHandle, app_weak: slint::Weak<AppWindow>) {
+    let start = Instant::now();
+    let dir = get_android_download_dir();
+
+    let mut header: Option<(String, u64)> = None;
+    let mut file: Option<File> = None;
+    let mut path = PathBuf::new();
+    let mut pending: Vec<u8> = Vec::new();
+    let mut received: u64 = 0;
+    let mut total: u64 = 0;
+    let mut last_ui_update = Instant::now();
+    let mut failed: Option<String> = None;
+    let mut buf = vec![0u8; 65536];
+
+    let set_ui = |app_weak: slint::Weak<AppWindow>, transfer_status: &str, bytes_text: String, progress: f32, speed: String| {
+        let status = transfer_status.to_string();
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(app) = app_weak.upgrade() {
+                app.set_is_transferring(true);
+                app.set_transfer_completed(false);
+                app.set_is_sender_transfer(false);
+                app.set_transfer_status(status.into());
+                app.set_transfer_bytes_text(bytes_text.into());
+                app.set_transfer_progress(progress);
+                app.set_transfer_speed(speed.into());
+            }
+        });
+    };
+
+    loop {
+        let mut read_bytes: usize = 0;
+        let res = unsafe {
+            tc_stream_read(stream, buf.as_mut_ptr(), buf.len(), &mut read_bytes, 30000)
+        };
+        if res == 1 {
+            break; // TC_EOF: sender finished
+        }
+        if res == 2 {
+            failed = Some("Receive timed out".to_string());
+            break;
+        }
+        if res != 0 {
+            failed = Some(format!("Stream read error (status {})", res));
+            break;
+        }
+        if read_bytes == 0 {
+            continue;
+        }
+        pending.extend_from_slice(&buf[..read_bytes]);
+
+        if header.is_none() {
+            match pending.iter().position(|&b| b == b'\n') {
+                Some(pos) => {
+                    let header_str = String::from_utf8_lossy(&pending[..pos]).to_string();
+                    pending.drain(..=pos);
+                    match parse_file_header(&header_str) {
+                        Some((name, size)) => {
+                            total = size;
+                            path = unique_download_path(&dir, &name);
+                            match File::create(&path) {
+                                Ok(f) => {
+                                    file = Some(f);
+                                    header = Some((name.clone(), size));
+                                    info!(
+                                        "📁 [Tailcat Android] Receiving file: {} ({} bytes) -> {}",
+                                        name,
+                                        size,
+                                        path.display()
+                                    );
+                                    tailsend_telemetry::events::transfer_started(1, "direct", "receive");
+                                    set_ui(
+                                        app_weak.clone(),
+                                        "Receiving file from Mac...",
+                                        format!("0.0 MB / {:.1} MB", size as f64 / 1048576.0),
+                                        0.0,
+                                        "Receiving…".to_string(),
+                                    );
+                                }
+                                Err(e) => {
+                                    failed = Some(format!("Failed to create file: {}", e));
+                                    break;
+                                }
+                            }
+                        }
+                        None => {
+                            failed = Some(format!("Invalid file header: {}", header_str));
+                            break;
+                        }
+                    }
+                }
+                None if pending.len() > 8192 => {
+                    failed = Some("File header too large".to_string());
+                    break;
+                }
+                None => continue,
+            }
+        }
+
+        let f = match file.as_mut() {
+            Some(f) => f,
+            None => continue,
+        };
+        let chunk = std::mem::take(&mut pending);
+        received += chunk.len() as u64;
+        if let Err(e) = f.write_all(&chunk) {
+            failed = Some(format!("Failed to write file: {}", e));
+            break;
+        }
+        if total > 0 && received > total {
+            failed = Some("Received more bytes than expected".to_string());
+            break;
+        }
+
+        let now = Instant::now();
+        if now.duration_since(last_ui_update).as_millis() >= 200 {
+            last_ui_update = now;
+            let elapsed = now.duration_since(start).as_secs_f64();
+            let speed = if elapsed > 0.0 {
+                format!("{:.1} MB/s", (received as f64 / 1048576.0) / elapsed)
+            } else {
+                "Calculating…".to_string()
+            };
+            set_ui(
+                app_weak.clone(),
+                "Receiving from Mac...",
+                format!(
+                    "{:.1} MB / {:.1} MB",
+                    received as f64 / 1048576.0,
+                    total as f64 / 1048576.0
+                ),
+                if total > 0 { received as f32 / total as f32 } else { 0.0 },
+                speed,
+            );
+        }
+    }
+
+    let app_weak_done = app_weak.clone();
+    match failed {
+        None => {
+            let complete = header.is_some() && (total == 0 || received == total);
+            if let Some(mut f) = file.take() {
+                let _ = f.flush();
+            }
+            let (name, size) = header.clone().unwrap_or_default();
+            if complete {
+                let mb = size as f64 / 1048576.0;
+                let saved_path = path.display().to_string();
+                info!(
+                    "✅ [Tailcat Android] File received: {} ({:.1} MB) saved to {}",
+                    name, mb, saved_path
+                );
+                tailsend_telemetry::events::transfer_completed(
+                    1,
+                    size,
+                    start.elapsed().as_millis(),
+                    "direct",
+                    "receive",
+                );
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(app) = app_weak_done.upgrade() {
+                        app.set_screen_index(3);
+                        app.set_is_transferring(false);
+                        app.set_transfer_completed(true);
+                        app.set_is_sender_transfer(false);
+                        app.set_transfer_status("ファイル受信完了".into());
+                        app.set_transfer_filename(name.clone().into());
+                        app.set_transfer_bytes_text(format!("{:.1} MB", mb).into());
+                        app.set_transfer_progress(1.0);
+                        app.set_transfer_speed("保存完了".into());
+                        app.set_status_text(format!("Received {} — Saved to Download/Ponlet!", name).into());
+                        let new_log = format!(
+                            "[File Received]: {} ({:.1} MB)\nSaved: {}\n{}",
+                            name, mb, saved_path, app.get_received_message_log()
+                        );
+                        app.set_received_message_log(new_log.into());
+                        app.set_saved_file_path(saved_path.into());
+                    }
+                });
+            } else {
+                let _ = fs::remove_file(&path);
+                let _ = slint::invoke_from_event_loop(move || {
+                    if let Some(app) = app_weak_done.upgrade() {
+                        app.set_is_transferring(false);
+                        app.set_transfer_status("Receive failed: transfer interrupted".into());
+                        app.set_status_text("File transfer was interrupted".into());
+                    }
+                });
+            }
+        }
+        Some(msg) => {
+            let _ = fs::remove_file(&path);
+            error!("❌ [Tailcat Android] File receive failed: {}", msg);
+            tailsend_telemetry::events::error("transport");
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(app) = app_weak_done.upgrade() {
+                    app.set_is_transferring(false);
+                    app.set_transfer_status(format!("Receive failed: {}", msg).into());
+                    app.set_status_text("File receive failed".into());
+                }
+            });
+        }
+    }
 }
 
 fn run_android_app(telemetry_initial: bool) -> Result<(), Box<dyn std::error::Error>> {
@@ -299,193 +622,15 @@ fn run_android_app(telemetry_initial: bool) -> Result<(), Box<dyn std::error::Er
                         });
 
                         if port == 101 {
-                            // Read incoming text
-                            let mut buf = vec![0u8; 65536];
-                            let mut read_bytes: usize = 0;
-                            let r_res = unsafe {
-                                tc_stream_read(stream, buf.as_mut_ptr(), buf.len(), &mut read_bytes, 30000)
-                            };
-                            if r_res == 0 && read_bytes > 0 {
-                                buf.truncate(read_bytes);
-                                let text = String::from_utf8_lossy(&buf).to_string();
-                                info!("✉️ [Tailcat Android] Text Received: {}", text);
-
-                                let mut is_handshake = false;
-                                if let Some(idx) = text.find("JOIN:") {
-                                    is_handshake = true;
-                                    let peer_addr = text[idx + 5..].split_whitespace().next().unwrap_or("").trim();
-                                    if !peer_addr.is_empty() {
-                                        if let Ok(mut guard) = target_peer_addr_listener.lock() {
-                                            *guard = Some(peer_addr.to_string());
-                                            info!("🔗 [Tailcat Android] Automatically paired with remote peer: {}", peer_addr);
-                                        }
-                                    }
-                                }
-                                if text.starts_with("🤝") {
-                                    is_handshake = true;
-                                }
-
-                                if !is_handshake {
-                                    tailsend_telemetry::events::text_message_received(
-                                        tailsend_telemetry::length_bucket(text.chars().count()),
-                                    );
-                                }
-
-                                let w = app_weak_listener.clone();
-                                let t = text.clone();
-                                let _ = slint::invoke_from_event_loop(move || {
-                                    if let Some(app) = w.upgrade() {
-                                        app.set_screen_index(3);
-                                        app.set_peer_name("Connected Peer (P2P)".into());
-                                        if is_handshake {
-                                            app.set_status_text("Direct Encrypted P2P Connected!".into());
-                                        } else {
-                                            let new_log = format!("[Peer]: {}\n{}", t, app.get_received_message_log());
-                                            app.set_received_message_log(new_log.into());
-                                            app.set_last_received_text(t.into());
-                                            app.set_status_text("Received text message via Tailcat P2P!".into());
-                                        }
-                                    }
-                                });
-                            }
-                            unsafe { tc_stream_close(stream); }
+                            // Read incoming text until EOF/timeout, handling each line
+                            receive_text_stream(
+                                stream,
+                                app_weak_listener.clone(),
+                                target_peer_addr_listener.clone(),
+                            );
                         } else if port == 102 {
-                            // Read incoming file with progress
-                            let out_dir = get_android_download_dir();
-                            let mut header_buf = vec![0u8; 1024];
-                            let mut header_read: usize = 0;
-                            let hr_res = unsafe {
-                                tc_stream_read(stream, header_buf.as_mut_ptr(), header_buf.len(), &mut header_read, 30000)
-                            };
-
-                            if hr_res == 0 && header_read > 0 {
-                                header_buf.truncate(header_read);
-                                let header_str = String::from_utf8_lossy(&header_buf);
-                                let mut filename = format!("android_received_{}.bin", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
-                                let mut expected_size: i64 = 0;
-                                let mut payload_start = 0;
-
-                                if let Some(newline_pos) = header_str.find('\n') {
-                                    let line = &header_str[..newline_pos];
-                                    payload_start = newline_pos + 1;
-                                    if line.starts_with("NAME:") {
-                                        let meta = line.trim_start_matches("NAME:").trim();
-                                        if let Some((f, s)) = meta.split_once(':') {
-                                            filename = f.to_string();
-                                            expected_size = s.parse::<i64>().unwrap_or(0);
-                                        } else {
-                                            filename = meta.to_string();
-                                        }
-                                    }
-                                }
-
-                                let total_mb = expected_size as f64 / 1048576.0;
-                                let out_path = out_dir.join(&filename);
-                                info!("📁 [Tailcat Android] Receiving file: {} -> {}", filename, out_path.display());
-                                tailsend_telemetry::events::transfer_started(1, "direct", "receive");
-                                let file_started_at = Instant::now();
-
-                                let w = app_weak_listener.clone();
-                                let fn_start = filename.clone();
-                                let _ = slint::invoke_from_event_loop(move || {
-                                    if let Some(app) = w.upgrade() {
-                                        app.set_screen_index(3);
-                                        app.set_is_transferring(true);
-                                        app.set_transfer_completed(false);
-                                        app.set_is_sender_transfer(false);
-                                        app.set_transfer_filename(fn_start.clone().into());
-                                        if total_mb > 0.0 {
-                                            app.set_transfer_bytes_text(format!("0.0 MB / {:.1} MB", total_mb).into());
-                                        } else {
-                                            app.set_transfer_bytes_text("Starting receive...".into());
-                                        }
-                                        app.set_transfer_speed("Connecting...".into());
-                                        app.set_transfer_progress(0.05);
-                                        app.set_transfer_status("Receiving file from Mac...".into());
-                                        app.set_status_text(format!("Receiving {} from Mac...", fn_start).into());
-                                    }
-                                });
-
-                                if let Ok(mut out_file) = File::create(&out_path) {
-                                    if payload_start < header_read {
-                                        let _ = out_file.write_all(&header_buf[payload_start..]);
-                                    }
-                                    let mut total_bytes = (header_read - payload_start) as i64;
-                                    let mut chunk_buf = vec![0u8; 64 * 1024];
-
-                                    loop {
-                                        let mut read_chunk: usize = 0;
-                                        let cr = unsafe {
-                                            tc_stream_read(stream, chunk_buf.as_mut_ptr(), chunk_buf.len(), &mut read_chunk, 15000)
-                                        };
-                                        if cr != 0 || read_chunk == 0 {
-                                            break;
-                                        }
-                                        let _ = out_file.write_all(&chunk_buf[..read_chunk]);
-                                        total_bytes += read_chunk as i64;
-
-                                        let progress = if expected_size > 0 {
-                                            total_bytes as f32 / expected_size as f32
-                                        } else {
-                                            0.5
-                                        };
-                                        let cur_mb = total_bytes as f64 / 1048576.0;
-                                        let w_prog = app_weak_listener.clone();
-                                        let fn_prog = filename.clone();
-                                        let bytes_txt = if total_mb > 0.0 {
-                                            format!("{:.1} MB / {:.1} MB", cur_mb, total_mb)
-                                        } else {
-                                            format!("{:.1} MB", cur_mb)
-                                        };
-
-                                        let _ = slint::invoke_from_event_loop(move || {
-                                            if let Some(app) = w_prog.upgrade() {
-                                                app.set_is_transferring(true);
-                                                app.set_transfer_completed(false);
-                                                app.set_transfer_filename(fn_prog.into());
-                                                app.set_transfer_bytes_text(bytes_txt.into());
-                                                app.set_transfer_progress(progress);
-                                                app.set_transfer_status("Receiving from Mac...".into());
-                                            }
-                                        });
-                                    }
-
-                                    let final_mb = total_bytes as f64 / 1048576.0;
-                                    info!("✅ [Tailcat Android] File successfully saved: {} ({:.1} MB)", out_path.display(), final_mb);
-                                    let duration_ms = file_started_at.elapsed().as_millis();
-                                    tailsend_telemetry::events::transfer_completed(
-                                        1,
-                                        total_bytes.max(0) as u64,
-                                        duration_ms,
-                                        "direct",
-                                        "receive",
-                                    );
-
-                                    let w_done = app_weak_listener.clone();
-                                    let fn_done = filename.clone();
-                                    let fp_done = out_path.display().to_string();
-
-                                    let _ = slint::invoke_from_event_loop(move || {
-                                        if let Some(app) = w_done.upgrade() {
-                                            app.set_screen_index(3);
-                                            app.set_is_transferring(false);
-                                            app.set_transfer_completed(true);
-                                            app.set_is_sender_transfer(false);
-                                            app.set_transfer_filename(fn_done.clone().into());
-                                            app.set_transfer_bytes_text(format!("{:.1} MB", final_mb).into());
-                                            app.set_transfer_speed("保存完了".into());
-                                            app.set_transfer_progress(1.0);
-                                            app.set_transfer_status("ファイル受信完了".into());
-                                            app.set_status_text(format!("Received {} — Saved to Download/Ponlet!", fn_done).into());
-                                            let new_log = format!(
-                                                "[File Received]: {} ({:.1} MB)\nSaved: {}\n{}",
-                                                fn_done, final_mb, fp_done, app.get_received_message_log()
-                                            );
-                                            app.set_received_message_log(new_log.into());
-                                        }
-                                    });
-                                }
-                            }
+                            // Incoming file transfer from the web sender
+                            receive_file_stream(stream, app_weak_listener.clone());
                             unsafe { tc_stream_close(stream); }
                         }
                     }
