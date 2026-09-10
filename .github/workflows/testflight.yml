@@ -155,6 +155,10 @@ jobs:
       - name: Archive iOS App
         run: |
           mkdir -p build
+          # PROVISIONING_PROFILE_SPECIFIER is set on the TailSend target at
+          # xcodegen generation time. Do NOT pass it as a global xcodebuild
+          # override: newer Xcode rejects the archive when it reaches the
+          # SPM package targets ("does not support provisioning profiles").
           xcodebuild archive \
             -project apps/ios/TailSend.xcodeproj \
             -scheme TailSend \
@@ -163,7 +167,6 @@ jobs:
             -archivePath build/TailSend.xcarchive \
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM="$TEAM_ID" \
-            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
             CODE_SIGN_IDENTITY="Apple Distribution"
 
       - name: Export IPA
