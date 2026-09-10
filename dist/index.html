@@ -740,6 +740,49 @@
             let startTime = performance.now();
             let lastProgressTs = 0;
 
+            // OPFS streaming sink: stream incoming chunks into Origin Private File System
+            // so the whole file is not held in JS memory. Falls back to in-memory
+            // buffering when OPFS is unavailable (e.g. older Safari).
+            let opfsRoot = null;
+            let opfsName = null;
+            let opfsHandle = null;
+            let opfsWritable = null;
+            try {
+                if (navigator.storage && typeof navigator.storage.getDirectory === "function") {
+                    opfsRoot = await navigator.storage.getDirectory();
+                    opfsName = `.tailcat_rcv_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+                    opfsHandle = await opfsRoot.getFileHandle(opfsName, { create: true });
+                    opfsWritable = await opfsHandle.createWritable();
+                    console.log("[Ponlet Web] Streaming incoming file to OPFS:", opfsName);
+                }
+            } catch (err) {
+                console.warn("[Ponlet Web] OPFS unavailable, falling back to in-memory receive:", err);
+                if (opfsWritable) { try { opfsWritable.abort(); } catch (_) {} }
+                opfsWritable = null;
+                opfsHandle = null;
+                opfsName = null;
+                opfsRoot = null;
+            }
+
+            const writeSink = async (bytes) => {
+                if (opfsWritable) {
+                    await opfsWritable.write(bytes);
+                } else {
+                    fileData.push(bytes);
+                }
+                receivedBytes += bytes.length;
+            };
+
+            const cleanupOpfs = async () => {
+                if (opfsWritable) {
+                    try { await opfsWritable.abort(); } catch (_) {}
+                    opfsWritable = null;
+                }
+                if (opfsRoot && opfsName) {
+                    try { await opfsRoot.removeEntry(opfsName); } catch (_) {}
+                }
+            };
+
             if (window.onPeerConnectedSlint) {
                 window.onPeerConnectedSlint("Remote Peer (P2P)");
             }
@@ -788,6 +831,7 @@
                         if (!headerLine.startsWith("NAME:") || lastColon <= 5) {
                             console.error("[Ponlet Web] Invalid file header:", headerLine);
                             showReceiveError(0.0);
+                            await cleanupOpfs();
                             try { conn.close(); } catch (_) {}
                             return;
                         }
@@ -796,6 +840,7 @@
                         if (!Number.isFinite(totalBytes) || totalBytes < 0) {
                             console.error("[Ponlet Web] Invalid file size in header:", headerLine);
                             showReceiveError(0.0);
+                            await cleanupOpfs();
                             try { conn.close(); } catch (_) {}
                             return;
                         }
@@ -809,8 +854,7 @@
                         }
 
                         if (body.length > 0) {
-                            fileData.push(body);
-                            receivedBytes += body.length;
+                            await writeSink(body);
                         }
 
                         if (totalBytes > 0 && receivedBytes >= totalBytes) {
@@ -818,8 +862,7 @@
                             break;
                         }
                     } else {
-                        fileData.push(chunk);
-                        receivedBytes += chunk.length;
+                        await writeSink(chunk);
 
                         const now = performance.now();
                         if (now - lastProgressTs >= 200) {
@@ -844,6 +887,7 @@
                 console.warn("[Ponlet Web] Stream read interrupted:", err);
                 if (!headerParsed || (totalBytes > 0 && receivedBytes < totalBytes)) {
                     showReceiveError(totalBytes > 0 ? Math.min(1.0, receivedBytes / totalBytes) : 0.0);
+                    await cleanupOpfs();
                     try { conn.close(); } catch (_) {}
                     return;
                 }
@@ -858,12 +902,14 @@
                 if (window.updateSlintStatusText) {
                     window.updateSlintStatusText(`受信エラー: 転送が中断されました (${filename})`);
                 }
+                await cleanupOpfs();
                 try { conn.close(); } catch (_) {}
                 return;
             }
 
             if (receivedBytes !== totalBytes) {
                 showReceiveError(totalBytes > 0 ? Math.min(1.0, receivedBytes / totalBytes) : 0.0);
+                await cleanupOpfs();
                 try { await conn.closeWrite(); } catch (_) {}
                 try { conn.close(); } catch (_) {}
                 return;
@@ -873,18 +919,43 @@
             try { conn.close(); } catch (_) {}
 
             // Trigger browser file download
-            const blob = new Blob(fileData, { type: "application/octet-stream" });
+            let blob;
+            if (opfsHandle) {
+                try {
+                    await opfsWritable.close();
+                } catch (err) {
+                    console.error("[Ponlet Web] Failed to finalize OPFS file:", err);
+                    showReceiveError(totalBytes > 0 ? Math.min(1.0, receivedBytes / totalBytes) : 0.0);
+                    opfsWritable = null;
+                    await cleanupOpfs();
+                    try { conn.close(); } catch (_) {}
+                    return;
+                }
+                opfsWritable = null;
+                blob = new Blob([await opfsHandle.getFile()], { type: "application/octet-stream" });
+            } else {
+                blob = new Blob(fileData, { type: "application/octet-stream" });
+            }
             const downloadUrl = URL.createObjectURL(blob);
             const a = document.createElement("a");
             a.href = downloadUrl;
             a.download = filename;
             document.body.appendChild(a);
             a.click();
+            const opfsCleanupRoot = opfsRoot;
+            const opfsCleanupName = opfsName;
             setTimeout(() => {
                 document.body.removeChild(a);
                 URL.revokeObjectURL(downloadUrl);
+                // Clean up the OPFS scratch file once the browser has picked up the blob
+                if (opfsCleanupRoot && opfsCleanupName) {
+                    opfsCleanupRoot.removeEntry(opfsCleanupName).catch(() => {});
+                }
             }, 1500);
             fileData = null;
+            opfsHandle = null;
+            opfsRoot = null;
+            opfsName = null;
 
             const finalMB = (receivedBytes / 1048576).toFixed(1);
             window.telemetryEvent("transfer_completed", {
