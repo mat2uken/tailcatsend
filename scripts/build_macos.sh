@@ -36,10 +36,14 @@ fi
 # Submodule working tree may be reset by submodule operations; re-apply the
 # patch on every build (no-op when already applied).
 if [ -f "$ROOT_DIR/tailcat/patches/0001-android-selinux-netmon-fallback.patch" ]; then
-    git -C "$ROOT_DIR/tailcat/pkg/tailcat" apply "$ROOT_DIR/tailcat/patches/0001-android-selinux-netmon-fallback.patch" || true
+    if git -C "$ROOT_DIR/tailcat/pkg/tailcat" apply --check --unidiff-zero "$ROOT_DIR/tailcat/patches/0001-android-selinux-netmon-fallback.patch" >/dev/null 2>&1; then
+        git -C "$ROOT_DIR/tailcat/pkg/tailcat" apply --unidiff-zero "$ROOT_DIR/tailcat/patches/0001-android-selinux-netmon-fallback.patch"
+    fi
 fi
 if [ -f "$ROOT_DIR/tailcat/patches/0003-tailcat-status-peer-report.patch" ]; then
-    git -C "$ROOT_DIR/tailcat/pkg/tailcat" apply "$ROOT_DIR/tailcat/patches/0003-tailcat-status-peer-report.patch" || true
+    if git -C "$ROOT_DIR/tailcat/pkg/tailcat" apply --check --unidiff-zero "$ROOT_DIR/tailcat/patches/0003-tailcat-status-peer-report.patch" >/dev/null 2>&1; then
+        git -C "$ROOT_DIR/tailcat/pkg/tailcat" apply --unidiff-zero "$ROOT_DIR/tailcat/patches/0003-tailcat-status-peer-report.patch"
+    fi
 fi
 
 # 2. Build the Go C archive, VanJS UI, and Tauri shell

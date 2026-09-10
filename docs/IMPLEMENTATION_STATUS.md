@@ -31,6 +31,8 @@ Chrome 2 タブの実通信では、日本語テキスト、131,089 byte ファ�
 
 2026-09-11 の `e1113a6` では、実機 Sony XQ-DQ44 (Android 15) と Chromium の間を `DERP relay` で接続し、Android の Documents picker から `android-real.bin` (131,071 bytes) を選択して Web 側の受信一覧へ表示できることを確認した。Android の `content://` URI に含まれる provider ID ではなく、Tauri の Android `ContentResolver` から表示名を取得する。
 
+同じSHAで `./scripts/build_tauri.sh` をmacOS arm64上で実行し、Go C archive (`target/native/tailcat/libtailcat.a`) をリンクしたRelease Tauri binary (`target/release/tailsend`)を生成した。起動後のmacOSアクセシビリティ名は `Ponlet — Direct P2P Transfer` で、製品入口がWebView UIになっていることを確認した。
+
 ## まだ実機で証明していない項目
 
 - Tauri の2端末間での双方向テキスト・ファイル転送、SHA-256、保存後の開く／共有。

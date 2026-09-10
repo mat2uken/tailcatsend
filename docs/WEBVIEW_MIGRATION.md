@@ -27,6 +27,7 @@
 - Rust workspace unit test、Tauri desktop check、`tailsend-web` の `wasm32-unknown-unknown` check。
 - Web UI の lint、typecheck、unit test、web/tauri Vite build。
 - Tauri Android debug/release、iOS Simulator/device bundle の生成。
+- macOS arm64 の Go C archive＋Tauri Release binary と、起動後の `Ponlet — Direct P2P Transfer` accessibility 名。
 - Android debug APK の実機起動と招待待受画面。
 - Chrome 2 タブの招待、WebRTC DataChannel 接続、テキスト送受信。
 - Sony XQ-DQ44 の Android Tauri WebView と Chromium の接続、`DERP relay` の経路表示、Android picker から `android-real.bin` (131,071 bytes) を Web 側へ送信する実機確認。
