@@ -13,7 +13,14 @@ members = [
     "apps/web",
     "apps/ios",
     "apps/android",
-]
+ ]
+
+# winit 0.30.13 only implements UIKeyInput on iOS, which silently drops
+# every keypress from multi-stage IMEs (Japanese kana / flick, pinyin,
+# hangul...). vendor/winit applies winit PR #4592, which adopts
+# UITextInput so CJK keyboards can type into Slint text inputs.
+[patch.crates-io]
+winit = { path = "vendor/winit" }
 
 [workspace.dependencies]
 # Internal crates
