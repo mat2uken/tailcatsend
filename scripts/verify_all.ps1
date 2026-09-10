@@ -13,13 +13,24 @@ foreach ($gp in $goPaths) {
 if (-not (Test-Path "tailcat\pkg\tailcat\go.mod")) {
     Write-Host "Initializing Tailcat submodule..." -ForegroundColor Yellow
     git submodule update --init --recursive --quiet
-    if (Test-Path "tailcat\patches\0001-android-selinux-netmon-fallback.patch") {
-        git -C tailcat/pkg/tailcat apply ../../patches/0001-android-selinux-netmon-fallback.patch
-    }
-    if (Test-Path "tailcat\patches\0003-tailcat-status-peer-report.patch") {
-        git -C tailcat/pkg/tailcat apply ../../patches/0003-tailcat-status-peer-report.patch
-    }
 }
+
+function Apply-Patch {
+    param([string]$Checkout, [string]$Patch)
+    if (-not (Test-Path $Patch)) { return }
+    git -C $Checkout apply --check --unidiff-zero $Patch 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        git -C $Checkout apply --unidiff-zero $Patch
+        return
+    }
+    git -C $Checkout apply --reverse --check --unidiff-zero $Patch 2>$null
+    if ($LASTEXITCODE -eq 0) { return }
+    throw "Cannot apply patch $Patch cleanly to $Checkout"
+}
+
+Apply-Patch "tailcat\pkg\tailcat" "tailcat\patches\0001-android-selinux-netmon-fallback.patch"
+Apply-Patch "tailcat\pkg\tailcat" "tailcat\patches\0003-tailcat-status-peer-report.patch"
+Apply-Patch "tailcat\pkg\tailscale.com" "tailcat\patches\0002-tailscale-webrtc-transport.patch"
 
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "     Ponlet (Tailcat + Tauri WebView) Automated Verification" -ForegroundColor Cyan
@@ -73,10 +84,18 @@ Measure-Step "2. WebAssembly Target Verification (wasm32-unknown-unknown)" {
 Measure-Step "3. Tailcat WireGuard & DERP Relay Integration (go test)" {
     Push-Location "tailcat"
     try {
-        go test -v -timeout 120s .\bridge\web\bridge_test.go
-        if ($LASTEXITCODE -ne 0) { throw "go test failed with exit code $LASTEXITCODE" }
+        go test -v -timeout 120s .\bridge\native .\bridge\transportpath
+        if ($LASTEXITCODE -ne 0) { throw "native bridge tests failed with exit code $LASTEXITCODE" }
+        $wasmTest = Join-Path ([System.IO.Path]::GetTempPath()) "tailcat-bridge-test-$PID.wasm"
+        $env:GOOS = "js"
+        $env:GOARCH = "wasm"
+        go test -c -o $wasmTest .\bridge\web
+        if ($LASTEXITCODE -ne 0) { throw "WASM bridge test build failed with exit code $LASTEXITCODE" }
+        Remove-Item -Force $wasmTest -ErrorAction SilentlyContinue
     }
     finally {
+        $env:GOOS = ""
+        $env:GOARCH = ""
         Pop-Location
     }
 }

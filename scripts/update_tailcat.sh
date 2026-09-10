@@ -20,8 +20,6 @@ echo -e "\033[0;33mTarget: github.com/tailscale/tailcat@${TARGET}\033[0m"
 # 1. Update Tailcat Git Submodule & Apply Patches
 echo -e "\n\033[0;33m[1/5] Updating Tailcat git submodule...\033[0m"
 SUBMODULE_DIR="$TAILCAT_DIR/pkg/tailcat"
-PATCH_FILE="$TAILCAT_DIR/patches/0001-android-selinux-netmon-fallback.patch"
-STATUS_PATCH_FILE="$TAILCAT_DIR/patches/0003-tailcat-status-peer-report.patch"
 
 git submodule sync --quiet
 git submodule update --init --recursive --quiet
@@ -38,14 +36,7 @@ COMMIT_HASH=$(git rev-parse --short=7 HEAD | tr -d '[:space:]')
 FULL_COMMIT=$(git rev-parse HEAD | tr -d '[:space:]')
 echo -e "\033[0;32m✓ Checked out submodule commit: ${COMMIT_HASH}\033[0m"
 
-if [ -f "$PATCH_FILE" ]; then
-    git apply "$PATCH_FILE"
-    echo -e "\033[0;32m✓ Applied local patch: $(basename "$PATCH_FILE")\033[0m"
-fi
-if [ -f "$STATUS_PATCH_FILE" ]; then
-    git apply "$STATUS_PATCH_FILE"
-    echo -e "\033[0;32m✓ Applied local patch: $(basename "$STATUS_PATCH_FILE")\033[0m"
-fi
+"$PROJECT_ROOT/scripts/apply_tailcat_patches.sh"
 
 # 2. Update Go Module and Metadata
 echo -e "\n\033[0;33m[2/5] Updating Go module dependencies and metadata...\033[0m"
@@ -95,8 +86,11 @@ WASM_GZ_SIZE=$(du -h "$OUT_WASM_GZ" | cut -f1)
 echo -e "\033[0;32m✓ Built and optimized tailcat.wasm: ${WASM_RAW_SIZE} (Gzip: ${WASM_GZ_SIZE})\033[0m"
 
 # 5. Run Integration Test
-echo -e "\n\033[0;33m[5/5] Running Tailcat WireGuard + DERP verification test...\033[0m"
-go test -v -timeout 120s ./bridge/web/bridge_test.go
+echo -e "\n\033[0;33m[5/5] Running Tailcat bridge verification tests...\033[0m"
+go test -v -timeout 120s ./bridge/native ./bridge/transportpath
+wasm_test="$(mktemp "${TMPDIR:-/tmp}/tailcat-bridge-test.XXXXXX.wasm")"
+trap 'rm -f "$wasm_test"' EXIT
+GOOS=js GOARCH=wasm go test -c -o "$wasm_test" ./bridge/web
 echo -e "\033[0;32m✓ Integration test passed!\033[0m"
 
 echo -e "\n\033[0;36m==========================================================\033[0m"

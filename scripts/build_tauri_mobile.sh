@@ -26,12 +26,7 @@ fi
 
 "${repo_dir}/scripts/build_web_ui.sh"
 
-status_patch="${repo_dir}/tailcat/patches/0003-tailcat-status-peer-report.patch"
-if [[ -f "${status_patch}" ]]; then
-  if git -C "${repo_dir}/tailcat/pkg/tailcat" apply --check --unidiff-zero "${status_patch}" >/dev/null 2>&1; then
-    git -C "${repo_dir}/tailcat/pkg/tailcat" apply --unidiff-zero "${status_patch}"
-  fi
-fi
+"${repo_dir}/scripts/apply_tailcat_patches.sh"
 
 mobile_target=""
 lib_dir=""

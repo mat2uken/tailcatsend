@@ -29,6 +29,7 @@ Write-Host "`n[1/5] Updating Tailcat git submodule..." -ForegroundColor Yellow
 $submoduleDir = Join-Path $TailcatDir "pkg\tailcat"
 $patchFile = Join-Path $TailcatDir "patches\0001-android-selinux-netmon-fallback.patch"
 $statusPatchFile = Join-Path $TailcatDir "patches\0003-tailcat-status-peer-report.patch"
+$webrtcPatchFile = Join-Path $TailcatDir "patches\0002-tailscale-webrtc-transport.patch"
 
 git submodule sync --quiet
 git submodule update --init --recursive --quiet
@@ -48,18 +49,34 @@ try {
     $fullCommit = (git rev-parse HEAD).Trim()
     Write-Host "✓ Checked out submodule commit: $commitHash" -ForegroundColor Green
 
-    if (Test-Path $patchFile) {
-        git apply $patchFile
-        Write-Host "✓ Applied local patch: $(Split-Path $patchFile -Leaf)" -ForegroundColor Green
-    }
-    if (Test-Path $statusPatchFile) {
-        git apply $statusPatchFile
-        Write-Host "✓ Applied local patch: $(Split-Path $statusPatchFile -Leaf)" -ForegroundColor Green
-    }
 }
 finally {
     Pop-Location
 }
+
+function Apply-Patch {
+    param(
+        [string]$Checkout,
+        [string]$Patch
+    )
+    if (-not (Test-Path $Patch)) { return }
+    git -C $Checkout apply --check --unidiff-zero $Patch 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        git -C $Checkout apply --unidiff-zero $Patch
+        Write-Host "✓ Applied local patch: $(Split-Path $Patch -Leaf)" -ForegroundColor Green
+        return
+    }
+    git -C $Checkout apply --reverse --check --unidiff-zero $Patch 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "✓ Local patch already applied: $(Split-Path $Patch -Leaf)" -ForegroundColor Green
+        return
+    }
+    throw "Cannot apply patch $(Split-Path $Patch -Leaf) cleanly to $Checkout"
+}
+
+Apply-Patch (Join-Path $TailcatDir "pkg\tailcat") $patchFile
+Apply-Patch (Join-Path $TailcatDir "pkg\tailcat") $statusPatchFile
+Apply-Patch (Join-Path $TailcatDir "pkg\tailscale.com") $webrtcPatchFile
 
 # 3. Update Go Module and Metadata
 Write-Host "`n[2/5] Updating Go module dependencies and metadata..." -ForegroundColor Yellow
@@ -146,14 +163,22 @@ finally {
 }
 
 # 6. Run Integration Test
-Write-Host "`n[5/5] Running Tailcat WireGuard + DERP verification test..." -ForegroundColor Yellow
+Write-Host "`n[5/5] Running Tailcat bridge verification tests..." -ForegroundColor Yellow
 Push-Location $TailcatDir
 try {
-    & $goExe test -v -timeout 120s .\bridge\web\bridge_test.go
-    if ($LASTEXITCODE -ne 0) { throw "Bridge integration test failed" }
+    & $goExe test -v -timeout 120s .\bridge\native .\bridge\transportpath
+    if ($LASTEXITCODE -ne 0) { throw "Native bridge tests failed" }
+    $wasmTest = Join-Path ([System.IO.Path]::GetTempPath()) "tailcat-bridge-test-$PID.wasm"
+    $env:GOOS = "js"
+    $env:GOARCH = "wasm"
+    & $goExe test -c -o $wasmTest .\bridge\web
+    if ($LASTEXITCODE -ne 0) { throw "WebAssembly bridge test build failed" }
+    Remove-Item -Force $wasmTest -ErrorAction SilentlyContinue
     Write-Host "✓ Integration test passed!" -ForegroundColor Green
 }
 finally {
+    $env:GOOS = ""
+    $env:GOARCH = ""
     Pop-Location
 }
 
