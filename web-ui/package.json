@@ -6,14 +6,25 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "node --test tests/*.test.mjs",
-    "typecheck": "tsc --noEmit"
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:unit": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint --config oxlint.config.js src/ tests/",
+    "format": "oxfmt --write src/ tests/",
+    "format:check": "oxfmt --check src/ tests/"
   },
   "dependencies": {
-    "vanjs-core": "^1.5.0"
+    "vanjs-core": "^1.6.1"
   },
   "devDependencies": {
+    "@nkzw/oxlint-config": "^2.0.1",
+    "esbuild": "^0.28.2",
+    "happy-dom": "^20.14.3",
+    "oxfmt": "^0.67.0",
+    "oxlint": "^1.82.0",
     "typescript": "^5.7.0",
-    "vite": "^6.0.0"
+    "vite": "^8.3.0",
+    "vitest": "^4.1.11"
   }
 }

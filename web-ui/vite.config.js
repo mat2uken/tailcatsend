@@ -1,9 +1,10 @@
-import { fileURLToPath, URL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 
 export default defineConfig(({ mode }) => {
   const isTauri = mode === 'tauri';
   const root = fileURLToPath(new URL('.', import.meta.url));
+
   return {
     base: './',
     resolve: {
@@ -15,15 +16,26 @@ export default defineConfig(({ mode }) => {
       },
     },
     build: {
-      target: ['es2020', 'safari17'],
+      target: 'es2018',
+      minify: 'esbuild',
       sourcemap: false,
+      cssMinify: true,
       outDir: isTauri ? 'dist/native' : 'dist/web',
       emptyOutDir: true,
       rollupOptions: {
         input: 'index.html',
+        output: {
+          entryFileNames: 'assets/[name].js',
+          chunkFileNames: 'assets/[name].js',
+          assetFileNames: 'assets/[name].[ext]',
+        },
       },
     },
     publicDir: isTauri ? false : `${root}/web-public`,
-    worker: { format: 'es' as const },
+    server: {
+      port: 3000,
+      open: false,
+    },
+    worker: { format: 'es' },
   };
 });
