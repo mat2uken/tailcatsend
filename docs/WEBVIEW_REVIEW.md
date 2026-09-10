@@ -18,6 +18,7 @@ UI と転送処理の責務は分かれ、ファイル本文を UI の JSON、Ba
 | Web UI lint/typecheck/unit/build | web/tauri 両 mode、Vitest 21件、Oxlint/Oxfmt |
 | Browser smoke | 2 タブ WebRTC／DERP の招待、テキスト、ファイル、SHA-256 |
 | Android実機 smoke | Sony XQ-DQ44 と Chromium の WebRTC／DERP 双方向転送 |
+| native bridge 改修後の Android 再検証 | `a4d2143` で再生成した APK、WebRTC／DERP 双方向転送、131,071 byte と SHA-256一致 |
 | Tauri実機 smoke | macOS bundle と Sony XQ-DQ44 の direct-udp 表示、DERP転送、取消 |
 | Android/iOS bundle | Tauri mobile の生成 |
 
