@@ -815,6 +815,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_weak_join = app_weak.clone();
     let target_addr_join = target_peer_addr.clone();
     let ipc_tx_join = ipc_tx_clone.clone();
+    let host_addr_join = host_addr_shared.clone();
     app.on_join_session(move |input_text| {
         let text = input_text.to_string();
         if !text.is_empty() {
@@ -831,13 +832,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 app.set_is_derp_relay(is_derp);
                 app.set_transport_type(if is_derp { 2 } else { 0 });
             }
-            // Send test handshake ping over Tailcat
+            // Send test handshake ping over Tailcat (includes JOIN: for peer address learning)
+            let host_addr = host_addr_join.lock().unwrap().clone();
             let _ = ipc_tx_join.send(DaemonCommand {
                 action: "send_text".to_string(),
                 address: Some(addr),
                 port: Some(101),
                 handle: None,
-                text: Some("🤝 [Connected] Ponlet connected via Tailcat WireGuard Mesh!".to_string()),
+                text: Some(format!(
+                    "🤝 [Connected] Ponlet connected via Tailcat WireGuard Mesh! JOIN:{}",
+                    host_addr
+                )),
                 filename: None,
                 path: None,
             });
@@ -848,6 +853,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app_weak_paste_join = app_weak.clone();
     let target_addr_paste_join = target_peer_addr.clone();
     let ipc_tx_paste_join = ipc_tx_clone.clone();
+    let host_addr_paste_join = host_addr_shared.clone();
     app.on_paste_and_join(move || {
         if let Some(app) = app_weak_paste_join.upgrade() {
             if let Ok(mut clipboard) = Clipboard::new() {
@@ -867,12 +873,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         app.set_is_derp_relay(is_derp);
                         app.set_transport_type(if is_derp { 2 } else { 0 });
 
+                        let host_addr = host_addr_paste_join.lock().unwrap().clone();
                         let _ = ipc_tx_paste_join.send(DaemonCommand {
                             action: "send_text".to_string(),
                             address: Some(addr),
                             port: Some(101),
                             handle: None,
-                            text: Some("🤝 [Connected] Ponlet connected via Tailcat WireGuard Mesh!".to_string()),
+                            text: Some(format!(
+                                "🤝 [Connected] Ponlet connected via Tailcat WireGuard Mesh! JOIN:{}",
+                                host_addr
+                            )),
                             filename: None,
                             path: None,
                         });

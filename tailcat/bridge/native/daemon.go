@@ -190,11 +190,11 @@ func main() {
 
 					if err == nil && strings.HasPrefix(header, "NAME:") {
 						meta := strings.TrimSpace(strings.TrimPrefix(header, "NAME:"))
-						if parts := strings.Split(meta, ":"); len(parts) == 2 {
-							filename = parts[0]
-							fmt.Sscanf(parts[1], "%d", &expectedSize)
+						if idx := strings.LastIndex(meta, ":"); idx >= 0 {
+							filename = sanitizeFilename(meta[:idx])
+							fmt.Sscanf(meta[idx+1:], "%d", &expectedSize)
 						} else {
-							filename = meta
+							filename = sanitizeFilename(meta)
 						}
 					}
 
@@ -206,63 +206,72 @@ func main() {
 						Size:     expectedSize,
 					})
 
-					outPath := filepath.Join(outDir, filename)
+					outPath := uniquePath(outDir, filename)
 					outFile, err := os.Create(outPath)
-					if err == nil {
-						defer outFile.Close()
-						buf := make([]byte, 64*1024)
-						var totalBytes int64
-						startTime := time.Now()
-						lastProgress := time.Now()
+					if err != nil {
+						d.broadcast(DaemonMessage{
+							Event: "error",
+							Error: fmt.Sprintf("Failed to create file %s: %v", outPath, err),
+						})
+						return
+					}
+					defer outFile.Close()
+					buf := make([]byte, 64*1024)
+					var totalBytes int64
+					startTime := time.Now()
+					lastProgress := time.Now()
 
-						for {
-							n, rErr := reader.Read(buf)
-							if n > 0 {
-								_, wErr := outFile.Write(buf[:n])
-								if wErr != nil {
-									break
-								}
-								totalBytes += int64(n)
-
-								// Broadcast progress every 100ms
-								if time.Since(lastProgress) >= 100*time.Millisecond {
-									lastProgress = time.Now()
-									var progress float64
-									if expectedSize > 0 {
-										progress = float64(totalBytes) / float64(expectedSize)
-									}
-									elapsed := time.Since(startTime).Seconds()
-									speed := ""
-									if elapsed > 0 {
-										speed = fmt.Sprintf("%.1f MB/s", (float64(totalBytes)/1048576.0)/elapsed)
-									}
-
-									d.broadcast(DaemonMessage{
-										Event:    "incoming_file_progress",
-										Port:     102,
-										Handle:   h,
-										Filename: filename,
-										Bytes:    totalBytes,
-										Size:     expectedSize,
-										Progress: progress,
-										Speed:    speed,
-									})
-								}
+					for {
+						n, rErr := reader.Read(buf)
+						if n > 0 {
+							_, wErr := outFile.Write(buf[:n])
+							if wErr != nil {
+								d.broadcast(DaemonMessage{
+									Event: "error",
+									Error: fmt.Sprintf("Failed to write received file %s: %v", outPath, wErr),
+								})
+								return
 							}
-							if rErr != nil {
-								break
+							totalBytes += int64(n)
+
+							// Broadcast progress every 100ms
+							if time.Since(lastProgress) >= 100*time.Millisecond {
+								lastProgress = time.Now()
+								var progress float64
+								if expectedSize > 0 {
+									progress = float64(totalBytes) / float64(expectedSize)
+								}
+								elapsed := time.Since(startTime).Seconds()
+								speed := ""
+								if elapsed > 0 {
+									speed = fmt.Sprintf("%.1f MB/s", (float64(totalBytes)/1048576.0)/elapsed)
+								}
+
+								d.broadcast(DaemonMessage{
+									Event:    "incoming_file_progress",
+									Port:     102,
+									Handle:   h,
+									Filename: filename,
+									Bytes:    totalBytes,
+									Size:     expectedSize,
+									Progress: progress,
+									Speed:    speed,
+								})
 							}
 						}
-
-						d.broadcast(DaemonMessage{
-							Event:    "incoming_file",
-							Port:     102,
-							Handle:   h,
-							Filename: filename,
-							Size:     totalBytes,
-							Path:     outPath,
-						})
+						if rErr != nil {
+							break
+						}
 					}
+
+					d.broadcast(DaemonMessage{
+						Event:    "incoming_file",
+						Port:     102,
+						Handle:   h,
+						Filename: filename,
+						Size:     totalBytes,
+						Path:     outPath,
+					})
 				}(c, handle)
 			}
 		}
@@ -318,6 +327,41 @@ func (d *Daemon) broadcast(msg DaemonMessage) {
 	}
 }
 
+func sanitizeFilename(name string) string {
+	name = strings.ReplaceAll(name, "\\", "/")
+	name = filepath.Base(name)
+	name = strings.Map(func(r rune) rune {
+		switch r {
+		case '/', ':', '*', '?', '"', '<', '>', '|':
+			return '_'
+		}
+		if r < 0x20 || r == 0x7f {
+			return '_'
+		}
+		return r
+	}, name)
+	name = strings.TrimSpace(name)
+	if name == "" || name == "." || name == ".." {
+		name = fmt.Sprintf("received_%d.bin", time.Now().Unix())
+	}
+	return name
+}
+
+func uniquePath(dir, name string) string {
+	p := filepath.Join(dir, name)
+	if _, err := os.Stat(p); err != nil {
+		return p
+	}
+	ext := filepath.Ext(name)
+	base := strings.TrimSuffix(name, ext)
+	for i := 1; ; i++ {
+		cand := filepath.Join(dir, fmt.Sprintf("%s (%d)%s", base, i, ext))
+		if _, err := os.Stat(cand); err != nil {
+			return cand
+		}
+	}
+}
+
 func (d *Daemon) acceptIPC(l net.Listener) {
 	for {
 		conn, err := l.Accept()
@@ -359,10 +403,10 @@ func (d *Daemon) handleIPCClient(conn net.Conn) {
 			go d.handleDial(conn, cmd)
 
 		case "send_text":
-			go d.handleSendText(conn, cmd)
+			go d.handleSendText(cmd)
 
 		case "send_file":
-			go d.handleSendFile(conn, cmd)
+			go d.handleSendFile(cmd)
 
 		case "disconnect":
 			d.closeAllTextConns()
@@ -452,7 +496,7 @@ func (d *Daemon) closeAllTextConns() {
 	}
 }
 
-func (d *Daemon) handleSendText(ipcConn net.Conn, cmd CommandMessage) {
+func (d *Daemon) handleSendText(cmd CommandMessage) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
@@ -463,8 +507,7 @@ func (d *Daemon) handleSendText(ipcConn net.Conn, cmd CommandMessage) {
 	if err == nil {
 		_, writeErr := conn.Write(msgBytes)
 		if writeErr == nil {
-			res, _ := json.Marshal(DaemonMessage{Event: "send_text_success", Text: cmd.Text})
-			ipcConn.Write(append(res, '\n'))
+			d.broadcast(DaemonMessage{Event: "send_text_success", Text: cmd.Text})
 			return
 		}
 		// Connection failed/broken, clean it up and retry with a new connection
@@ -474,28 +517,24 @@ func (d *Daemon) handleSendText(ipcConn net.Conn, cmd CommandMessage) {
 	// 2. Fresh dial retry
 	conn, err = d.getOrCreateTextConn(ctx, cmd.Address)
 	if err != nil {
-		res, _ := json.Marshal(DaemonMessage{Event: "error", Error: fmt.Sprintf("Dial peer text port 101 failed: %v", err)})
-		ipcConn.Write(append(res, '\n'))
+		d.broadcast(DaemonMessage{Event: "error", Error: fmt.Sprintf("Dial peer text port 101 failed: %v", err)})
 		return
 	}
 
 	_, writeErr := conn.Write(msgBytes)
 	if writeErr != nil {
 		d.closeTextConn(cmd.Address)
-		res, _ := json.Marshal(DaemonMessage{Event: "error", Error: fmt.Sprintf("Write text to peer failed: %v", writeErr)})
-		ipcConn.Write(append(res, '\n'))
+		d.broadcast(DaemonMessage{Event: "error", Error: fmt.Sprintf("Write text to peer failed: %v", writeErr)})
 		return
 	}
 
-	res, _ := json.Marshal(DaemonMessage{Event: "send_text_success", Text: cmd.Text})
-	ipcConn.Write(append(res, '\n'))
+	d.broadcast(DaemonMessage{Event: "send_text_success", Text: cmd.Text})
 }
 
-func (d *Daemon) handleSendFile(ipcConn net.Conn, cmd CommandMessage) {
+func (d *Daemon) handleSendFile(cmd CommandMessage) {
 	fileData, err := os.ReadFile(cmd.Path)
 	if err != nil {
-		res, _ := json.Marshal(DaemonMessage{Event: "error", Error: err.Error()})
-		ipcConn.Write(append(res, '\n'))
+		d.broadcast(DaemonMessage{Event: "error", Error: err.Error()})
 		return
 	}
 
@@ -504,15 +543,13 @@ func (d *Daemon) handleSendFile(ipcConn net.Conn, cmd CommandMessage) {
 	defer cancel()
 
 	if err := pingUntil(ctx, cl); err != nil {
-		res, _ := json.Marshal(DaemonMessage{Event: "error", Error: fmt.Sprintf("Ping to peer failed: %v", err)})
-		ipcConn.Write(append(res, '\n'))
+		d.broadcast(DaemonMessage{Event: "error", Error: fmt.Sprintf("Ping to peer failed: %v", err)})
 		return
 	}
 
 	conn, err := cl.DialTCPPort(ctx, 102)
 	if err != nil {
-		res, _ := json.Marshal(DaemonMessage{Event: "error", Error: err.Error()})
-		ipcConn.Write(append(res, '\n'))
+		d.broadcast(DaemonMessage{Event: "error", Error: err.Error()})
 		return
 	}
 	defer conn.Close()
@@ -526,12 +563,11 @@ func (d *Daemon) handleSendFile(ipcConn net.Conn, cmd CommandMessage) {
 	}
 	time.Sleep(200 * time.Millisecond)
 
-	res, _ := json.Marshal(DaemonMessage{
+	d.broadcast(DaemonMessage{
 		Event:    "send_file_success",
 		Filename: cmd.Filename,
 		Size:     int64(len(fileData)),
 	})
-	ipcConn.Write(append(res, '\n'))
 }
 
 func (d *Daemon) handleDial(ipcConn net.Conn, cmd CommandMessage) {
