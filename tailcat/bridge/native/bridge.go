@@ -1149,6 +1149,13 @@ func tc_cancel(handle C.tc_handle_t) C.int32_t {
 	s, okStream := state.streams[uint64(handle)]
 	l, okListener := state.listeners[uint64(handle)]
 	op, okDial := state.dials[uint64(handle)]
+	if okDial {
+		// A caller that cancels a dial does not wait on the operation handle.
+		// Remove it now so repeated start/cancel cycles cannot retain entries
+		// until the next bridge shutdown. The operation goroutine still owns its
+		// context and will close any late stream in op.finish.
+		delete(state.dials, uint64(handle))
+	}
 	state.mu.Unlock()
 
 	if okDial {

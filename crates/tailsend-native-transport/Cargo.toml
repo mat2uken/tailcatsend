@@ -1,0 +1,10 @@
+[package]
+name = "tailsend-native-transport"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tailsend-native-bridge = { workspace = true }
+tailsend-transport-api = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true, features = ["rt", "sync"] }

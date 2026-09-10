@@ -11,11 +11,13 @@ members = [
     "crates/tailsend-telemetry",
     "crates/tailsend-updates",
     "crates/tailsend-native-bridge",
+    "crates/tailsend-native-transport",
     "apps/desktop",
     "apps/web",
     "apps/ios",
     "apps/android",
- ]
+    "apps/tauri",
+]
 
 # winit 0.30.13 only implements UIKeyInput on iOS, which silently drops
 # every keypress from multi-stage IMEs (Japanese kana / flick, pinyin,
@@ -36,6 +38,7 @@ tailsend-ui-controller = { path = "crates/tailsend-ui-controller" }
 tailsend-telemetry = { path = "crates/tailsend-telemetry" }
 tailsend-updates = { path = "crates/tailsend-updates" }
 tailsend-native-bridge = { path = "crates/tailsend-native-bridge" }
+tailsend-native-transport = { path = "crates/tailsend-native-transport" }
 
 # Slint
 slint = { version = "1.17.1", default-features = false }

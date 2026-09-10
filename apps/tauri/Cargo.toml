@@ -1,0 +1,30 @@
+[package]
+name = "tailsend-tauri"
+version = "0.1.0"
+description = "Ponlet WebView application shell"
+authors = ["Ponlet"]
+edition = "2021"
+
+[lib]
+name = "tailsend_tauri_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "=2.6.3" }
+
+[dependencies]
+async-trait = { workspace = true }
+base64 = { workspace = true }
+bytes = { workspace = true }
+log = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tailsend-core = { workspace = true }
+tailsend-native-transport = { workspace = true }
+tailsend-platform-api = { workspace = true }
+tailsend-protocol = { workspace = true }
+tailsend-transfer = { workspace = true, features = ["tokio-runtime"] }
+tailsend-transport-api = { workspace = true }
+tauri = { version = "=2.11.5" }
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "macros", "io-util"] }
