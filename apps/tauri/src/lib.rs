@@ -427,6 +427,29 @@ impl TauriRuntime {
             .session
             .take()
     }
+
+    fn session_is_current(&self, session: &Arc<PeerSession>) -> bool {
+        self.state
+            .lock()
+            .expect("runtime state mutex poisoned")
+            .session
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, session))
+    }
+
+    fn take_session_if_current(&self, session: &Arc<PeerSession>) -> bool {
+        let mut state = self.state.lock().expect("runtime state mutex poisoned");
+        if state
+            .session
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, session))
+        {
+            state.session = None;
+            true
+        } else {
+            false
+        }
+    }
 }
 
 async fn ponlet_snapshot_impl(runtime: State<'_, TauriRuntime>) -> Result<UiSnapshot, String> {
@@ -574,6 +597,10 @@ async fn ponlet_join_impl(
     .await
     {
         Ok(handshake) => {
+            if session.cancel.load(Ordering::Acquire) || !runtime.session_is_current(&session) {
+                let _ = session.listener.close().await;
+                return Err("Operation cancelled".to_string());
+            }
             *session
                 .transport_path
                 .lock()
@@ -593,14 +620,15 @@ async fn ponlet_join_impl(
         }
         Err(error) => {
             let _ = session.listener.close().await;
-            runtime.take_session();
-            runtime.set_state(
-                &app,
-                SessionState::Error {
-                    code: 1002,
-                    message: error.clone(),
-                },
-            );
+            if runtime.take_session_if_current(&session) {
+                runtime.set_state(
+                    &app,
+                    SessionState::Error {
+                        code: 1002,
+                        message: error.clone(),
+                    },
+                );
+            }
             Err(error)
         }
     }
