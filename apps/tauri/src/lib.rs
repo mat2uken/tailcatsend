@@ -513,13 +513,19 @@ async fn ponlet_create_invite_impl(
                 accept_loop(backend, app, session).await;
             }
             Err(error) => {
-                backend.set_state(
-                    &app,
-                    SessionState::Error {
-                        code: 1001,
-                        message: error,
-                    },
-                );
+                // Closing a listener cancels an in-flight accept while a new
+                // invitation is being created.  The old handshake task must
+                // not overwrite the state of that replacement session with
+                // its expected ListenerClosed error.
+                if !session.cancel.load(Ordering::Acquire) {
+                    backend.set_state(
+                        &app,
+                        SessionState::Error {
+                            code: 1001,
+                            message: error,
+                        },
+                    );
+                }
             }
         }
     });
