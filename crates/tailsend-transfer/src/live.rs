@@ -350,24 +350,12 @@ where
             actual,
         });
     }
-    // The existing senders half-close this per-file stream after its body.
-    // Check EOF as well as buffered excess, otherwise an oversized body is
-    // accepted or rejected depending only on how the transport split packets.
-    let mut trailing = [0u8; 1];
-    match reader.read(&mut trailing).await {
-        Ok(0) => {}
-        Ok(count) => {
-            let _ = sink.abort().await;
-            return Err(TransferError::SizeMismatch {
-                expected: header.size,
-                actual: header.size.saturating_add(count as u64),
-            });
-        }
-        Err(error) => {
-            let _ = sink.abort().await;
-            return Err(error);
-        }
-    }
+    // Do not wait for a separate EOF read here. Tailcat can delay propagating
+    // the sender's half-close even after every declared byte has arrived, and
+    // waiting would leave a successfully received file stuck in "transferring".
+    // Excess bytes delivered with the body are already retained in
+    // `reader.pending` and rejected above. A later stream read belongs to the
+    // next protocol operation and is intentionally not consumed here.
     if let Err(error) = check_cancelled(&cancel_flag) {
         let _ = sink.abort().await;
         return Err(error);

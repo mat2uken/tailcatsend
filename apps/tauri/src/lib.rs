@@ -1424,21 +1424,28 @@ async fn unique_received_path(path: &Path) -> Result<PathBuf, StorageError> {
         .file_name()
         .and_then(|value| value.to_str())
         .ok_or_else(|| StorageError::Io("received path has no filename".into()))?;
+
+    // Do not enumerate the destination directory here.  Downloads can be
+    // backed by a file provider (iCloud, Android DocumentsProvider, etc.) and
+    // a directory scan may wait for the provider indefinitely.  Probe one
+    // candidate at a time instead; this also keeps the memory cost independent
+    // of the number of files already in the directory.
     let mut existing = HashSet::new();
-    let mut entries = tokio::fs::read_dir(parent)
-        .await
-        .map_err(|error| StorageError::Io(error.to_string()))?;
-    while let Some(entry) = entries
-        .next_entry()
-        .await
-        .map_err(|error| StorageError::Io(error.to_string()))?
-    {
-        if let Some(name) = entry.file_name().to_str() {
-            existing.insert(name.to_owned());
+    for _ in 0..10_000 {
+        let unique = unique_received_name(&existing, candidate);
+        let destination = parent.join(&unique);
+        match tokio::fs::try_exists(&destination).await {
+            Ok(false) => return Ok(destination),
+            Ok(true) => {
+                existing.insert(unique);
+            }
+            Err(error) => return Err(StorageError::Io(error.to_string())),
         }
     }
-    let unique = unique_received_name(&existing, candidate);
-    Ok(parent.join(unique))
+
+    Err(StorageError::Io(
+        "too many files with the same received name".into(),
+    ))
 }
 
 fn unique_received_name(existing: &HashSet<String>, candidate: &str) -> String {
