@@ -22,6 +22,7 @@
 - Webの送信FileSourceは共通Rustの再利用バッファへ直接読み出す`read_into`を実装し、本文チャンクの一時`Bytes`割当を避ける。
 - Go bridge の server status は peer 情報を明示的に取得する。接続通知時の値だけでなく、Rust stream がデータ開始時に再取得するため、受信側も実際の経路へ追随する。
 - `vanjslitetemplate` の Vite 8、Vitest、Oxlint、Oxfmt、`@nkzw/oxlint-config`、`vanjs-core` 構成を採用した。mode ごとの outDir と ES2018 target は維持する。
+- `web-ui/src/update/` に native と同じ manifest／署名／ファイルハッシュ検査を追加した。更新設定がある Web では検証済みファイルを専用 Cache Storage に保存し、`web-ui/web-public/ponlet-sw.js` が次回ナビゲーションで保留版を切り替える。Pages workflow の `scripts/write_web_update_config.mjs` は公開鍵とURLの variables が揃った場合だけ設定を出力する。manifest生成・署名と実Pages切替は配布側の作業として残る。
 - 旧 Slint workspace crate、font/icon、winit patch、NativeActivity/UIKit shell、旧生成 Pages entry を削除した。
 - `d1c3473` で保存先の確認を上限付き存在確認へ変更し、宣言サイズを受信した時点で保存を確定するようにした。遅延する half-close を待たないため、Files provider と大きなファイルでの停止を避ける。
 - `adb7b65` で共通 Rust service から native／Web の stream close を呼ぶ取消 callback を追加した。callback は状態 mutex の外で一度だけ実行し、I/O 待ちを解除する。
@@ -54,6 +55,7 @@ macOS bundleとSony XQ-DQ44の実行では、`PONLET_TRANSPORT=derp` で双方�
 - 正式な macOS Tauri bundle (`target/release/bundle/macos/Ponlet.app`) と Sony XQ-DQ44 (Android 15) を接続し、招待直後の `direct-udp`、データ転送後の `derp`、双方向テキスト、macOS Tauri から Android への `tauri-to-android-日本語.bin` (131,071 bytes) 保存を確認した。Android の SHA-256 は `db7a7ca4ee279909ee4b75b9286e3ad86491667a7a43697a23dec03bf79118a0` で、送信元と一致した。
 - `cd web-ui && npm run test:e2e:real` で、招待、接続、テキスト、131,089 byte ファイル、OPFSからの開く操作、SHA-256、両端の経路表示を一括確認する。
 - `cd web-ui && npm run test:e2e:real:derp` ではローカル試験ページの WebRTC API を無効にして、同じ転送を DERP relay で再実行する。両端の経路表示が `derp` になることを含めて検査する。
+- `ec2d3ee` から上記 E2E は終端の経路が `unknown` でないことを必須にし、DERP強制時は両端が `derp` であることも検査する。現行SHAの再実行では通常経路が両端 `webrtc`、DERP強制が両端 `derp` で通過した。
 - `cd web-ui && PONLET_ANDROID_SERIAL=<serial> npm run test:e2e:android` では Sony XQ-DQ44 の Android Tauri WebView とWorker化した Chromiumを WebRTCで接続し、双方向テキストと131,071 byteファイルのSHA-256一致を確認する。`PONLET_TEST_TRANSPORT=derp` を付けた `npm run test:e2e:android:derp` では同じ入力を DERP relayで再実行する。
 - `adb7b65` 後にも Android APK を再ビルドして上記2コマンドを実行し、WebRTC／DERP ともに両端の経路表示、双方向テキスト、131,071 byteファイル、SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` の一致を確認した。
 - `a4d2143` と `ffb753c` の後に Android debug APK を再生成・再インストールし、WebRTC／DERP の同じ E2E を再実行した。両経路で `connected`、双方向テキスト、131,071 byteファイル、SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` の一致を確認した。`./scripts/build_tauri_mobile.sh ios-sim debug` で iOS 18.5 iPhone 16 simulator bundle も再生成し、起動待機画面を確認した。
@@ -71,7 +73,9 @@ macOS bundleとSony XQ-DQ44の実行では、`PONLET_TRANSPORT=derp` で双方�
 
 iOS 実機は Bundle ID `jp.yasagure.ponlet` の署名・Provisioning Profile が開発チームに存在せず、2026-09-11 の debug build が Xcode signing で停止した。iOS Simulator の build 成功とは分けて扱う。
 
-Linux cross check は aarch64 用 sysroot と `pkg-config` の `libdbus` 設定不足で停止し、Windows target と Windows／Linux／iOS の実機はこの環境にない。Pages の実デプロイ、署名付き更新の起動切替、性能と総メモリの測定も未実施である。
+Linux cross check は aarch64 用 sysroot と `pkg-config` の `libdbus` 設定不足で停止し、Windows target と Windows／Linux／iOS の実機はこの環境にない。Pages の実デプロイ、署名鍵・公開設定を使った更新切替、起動失敗からの復元、性能と総メモリの測定は未実施である。
+
+最新の Android 再検証は Sony XQ-DQ44 が `adb` から切断され、接続中の `emulator-5554` も debug APK の internal storage 不足でインストールできなかった。Android の過去の実機結果はそのまま保持し、現在のSHAで再実行した証拠とは分けている。
 
 ## 再現コマンド
 

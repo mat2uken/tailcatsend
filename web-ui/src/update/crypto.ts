@@ -41,12 +41,17 @@ export async function verifyManifestSignature(
   } catch {
     throw new ManifestError("manifest public key is invalid");
   }
-  const valid = await crypto.subtle.verify(
-    { name: "ECDSA", hash: "SHA-256" },
-    key,
-    asBufferSource(signature),
-    asBufferSource(manifestBytes),
-  );
+  let valid: boolean;
+  try {
+    valid = await crypto.subtle.verify(
+      { name: "ECDSA", hash: "SHA-256" },
+      key,
+      asBufferSource(signature),
+      asBufferSource(manifestBytes),
+    );
+  } catch {
+    throw new ManifestError("manifest signature is invalid");
+  }
   if (!valid) {
     throw new ManifestError("manifest signature is invalid");
   }

@@ -12,6 +12,8 @@ VanJSとTypeScriptで実装した共通UI。`web` modeは`dist/web`、`tauri` mo
 - `src/main.ts`: DOMとユーザー操作。
 - `src/opfs.ts`: WorkerとWindowで共有するファイル単位の途中保存・確定・取消。
 - `src/worker.ts`: Rust service、Go bridge proxy、Transferable bufferの上限を扱うDedicated Worker entry。
+- `src/update/`: P-256署名、manifest、ファイルサイズ／SHA-256の検査と、検証済み版を次回起動用へ保存する処理。
+- `web-public/ponlet-sw.js`: 保留版を次回のナビゲーションで有効化する最小Service Worker。実運用では`window.__PONLET_UPDATE_CONFIG__`へPagesのmanifest URL、署名URL、公開鍵、revisionを注入する。
 
 ```sh
 npm ci --ignore-scripts --no-audit --no-fund
@@ -22,5 +24,7 @@ npm run build -- --mode tauri
 ```
 
 リポジトリの`./scripts/build_web_ui.sh`でも以上を実行できる。テストは既存ViteでTypeScriptを読み込み、Nodeの標準test runnerから実行する。
+
+更新設定がない場合、ブラウザはネットワークへ接続せず内蔵版をそのまま起動する。更新設定を使う場合も、実行中の画面は置き換えず、全ファイルの検査後に次回ナビゲーションで切り替える。Tauri WebViewでは更新確認を無効にしてアプリ内のbundleを使う。Pages workflow は `scripts/write_web_update_config.mjs` を呼び、`PONLET_UPDATE_MANIFEST_URL`、`PONLET_UPDATE_SIGNATURE_URL`、`PONLET_UPDATE_PUBLIC_KEY_JWK` などの repository variables が揃ったときだけ設定を有効にする。manifestの生成とP-256秘密鍵による署名は別のリリース処理で行う。
 
 APIの変換、既存UIとの比較、更新機能へ接続する順序は[移行状態](../docs/WEBVIEW_MIGRATION.md)と[レビュー記録](../docs/WEBVIEW_REVIEW.md)を参照。

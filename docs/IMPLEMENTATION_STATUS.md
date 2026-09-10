@@ -14,7 +14,7 @@
 - 招待 URL、QR 表示／カメラ読取、テキスト送受信、ファイル選択、受信結果、取消、経路表示、設定表示を UI に接続した。
 - Slint の workspace crate、旧 mobile shell、旧 UI 定義、winit patch を削除し、製品入口を Tauri WebView に統一した。
 - Pages workflow は Go Tailcat WASM と Rust service WASM を別ファイルとして生成し、Web UI bundle と合わせて配布する。
-- ブラウザ側にも署名対象の manifest bytes、P-256 ECDSA `r || s`、ファイルサイズ／SHA-256、配布先・API・revision の検査を追加し、native の `tailsend-updates` と同じ拒否条件を unit test で確認する。取得・Cache Storage 切替は未接続のままにする。
+- ブラウザ側にも署名対象の manifest bytes、P-256 ECDSA `r || s`、ファイルサイズ／SHA-256、配布先・API・revision の検査を追加し、native の `tailsend-updates` と同じ拒否条件を unit test で確認する。設定が注入された Web では 1.5 秒以内の取得・検証と Cache Storage への保留保存を行い、次回ナビゲーションで Service Worker が有効化する。Tauri では更新処理を無効にする。
 - BrowserではGo Tailcat WASMをWindowに置き、Rust service WASMとOPFSをDedicated Workerへ置く。Workerとのstream I/OはMessagePortで中継し、本文バッファはTransferableなArrayBufferを使う。Workerを使えないWebViewには同一Window adapterの切替を残す。
 - ブラウザのFileSourceは再利用バッファへ直接読み出す`read_into`を使い、64 KiBごとの一時`Bytes`割当を追加しない。
 - Tailcat の状態取得では peer 情報を要求し、受信側のデータ stream でも WebRTC／WireGuard UDP／DERP の表示を接続後に更新する。修正は `tailcat/patches/0003-tailcat-status-peer-report.patch` としてビルド時に適用する。
@@ -32,7 +32,7 @@ cargo check -p tailsend-tauri -p tailsend-desktop
 (cd web-ui && npm ci && npm run lint && npm run typecheck && npm test && npm run build -- --mode web && npm run build -- --mode tauri)
 ```
 
-現在の unit test は Rust workspace 55件（core 14、transfer 17を含む）と Web UI 26件を対象にし、ヘッダー分割、本文同時受信、部分 I/O、取消、保存失敗、イベント順序、QR、受信一覧、Tauri picker forwarding、署名付き更新 manifest を含める。
+現在の unit test は Rust workspace 55件（core 14、transfer 17を含む）と Web UI 28件を対象にし、ヘッダー分割、本文同時受信、部分 I/O、取消、保存失敗、イベント順序、QR、受信一覧、Tauri picker forwarding、署名付き更新 manifest、更新版の検証保存を含める。
 
 Chrome 2 タブの実通信では、日本語テキスト、131,089 byte ファイル、OPFSからの開く操作、SHA-256一致、両端の `webrtc` 表示を確認した。再現コマンドは `cd web-ui && npm run test:e2e:real`。
 
@@ -51,6 +51,8 @@ Chrome 2 タブの実通信では、日本語テキスト、131,089 byte ファ�
 Web 2タブの実通信E2Eには `npm run test:e2e:real:derp` を追加した。ローカル試験ページだけ WebRTC API を無効にして DERPへフォールバックさせ、両端の `derp` 表示、双方向テキスト、131,089／98,321 byte のファイル、SHA-256一致を確認する。受信開始時に未確定だった経路は、最初のデータ後に再取得して接続後の表示へ反映する。
 
 Worker化後も `npm run test:e2e:real` と `npm run test:e2e:real:derp` が同じ入力とSHA-256で通過した。Sony XQ-DQ44 (Android 15) とWorker化した Chromiumの実機E2Eも `npm run test:e2e:android` (WebRTC) と `npm run test:e2e:android:derp` (DERP) で通過し、131,071 byteのファイル保存と端末上のSHA-256を確認した。
+
+`ec2d3ee` では実通信E2Eが終端の経路表示を検査するようにし、現行のブラウザ2タブを再実行した。通常実行は両端 `webrtc`、DERP強制実行は両端 `derp` で、双方向テキスト、131,089／98,321 byte のファイル、既存のSHA-256一致を確認した。自動経路では端点ごとに `webrtc` と `derp` が分かれる場合も成功とし、`unknown` は失敗にする。
 
 `adb7b65` 後に同じ Android APK を再インストールして、上記 Android／Chromium E2E を再実行した。WebRTC と DERP の両方で接続後の両端表示、双方向テキスト、`browser-to-android-日本語.bin` (131,071 bytes)、SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` が一致した。Browser 2タブも同じ commit で WebRTC／DERP の各実行を再確認した。
 
@@ -74,10 +76,12 @@ Worker化後も `npm run test:e2e:real` と `npm run test:e2e:real:derp` が同�
 - iOS 実機のロック解除後起動とファイル操作。iOS Simulator の bundle 生成と、署名済み IPA のインストールは別に記録する。
 - WireGuard UDP、WebRTC DataChannel、DERP relay をそれぞれ指定した同一条件の転送。UI は制御接続ではなく各データ stream の bridge 報告を表示するが、強制切替の成功を意味しない。
 - Windows、macOS、Linux、iOS、Android、Web の全組み合わせ、低容量保存先、巨大ファイル、100回の接続・取消・切断後の参照解放。
-- Cloudflare Pages の実デプロイ、署名付き UI/WASM 更新、起動失敗からの復元、速度・CPU・総メモリの受入値。
+- Cloudflare Pages の実デプロイ、manifest署名と公開設定の配布、失敗版の隔離・復元、速度・CPU・総メモリの受入値。ブラウザ側の検証済み版保存と次回切替処理は実装済みだが、Pagesの署名鍵・配布設定を使った実行は未実施。
 
 2026-09-11 の iOS 実機試行は、接続済み iPhone 12 Pro に対して `APPLE_DEVELOPMENT_TEAM=4VSXQAQDT ./scripts/build_tauri_mobile.sh ios debug` を実行したが、`jp.yasagure.ponlet` の Bundle ID を登録できず、Provisioning Profile が見つからないため Xcode signing で停止した。署名設定を変更して通過扱いにはしていない。
 
 `cargo check -p tailsend-tauri` は aarch64-apple-ios、aarch64-apple-ios-sim、x86_64-apple-ios、wasm32-unknown-unknown で通過した。aarch64-unknown-linux-gnu は Rust のエラーではなく、実行環境に cross sysroot と `pkg-config` の `libdbus` 設定がないため停止している。Windows target と各 OS の実機はこの環境にない。
+
+最新の Android 再検証は Sony XQ-DQ44 が `adb` から切断され、接続中の `emulator-5554` も 327 MiB の debug APK を internal storage に展開できず停止した。過去の物理端末結果をこの状態の証拠として再利用していない。
 
 上記はビルド成功やブラウザ2タブの WebRTC smoke だけでは完了扱いにしない。端末、commit、通信経路、入力ファイル、受信ハッシュ、保存物、所要時間を同じ記録へ残してから判定する。

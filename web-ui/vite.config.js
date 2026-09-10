@@ -31,7 +31,7 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
-    publicDir: isTauri ? false : `${root}/web-public`,
+    publicDir: isTauri ? `${root}/native-public` : `${root}/web-public`,
     server: {
       port: 3000,
       open: false,

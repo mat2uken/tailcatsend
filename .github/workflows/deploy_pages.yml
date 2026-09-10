@@ -122,6 +122,18 @@ jobs:
           # Vite WebView entry point.
           cp -R web-ui/dist/web/. dist/
 
+      - name: Configure signed browser updates
+        env:
+          PONLET_UPDATE_MANIFEST_URL: ${{ vars.PONLET_UPDATE_MANIFEST_URL }}
+          PONLET_UPDATE_SIGNATURE_URL: ${{ vars.PONLET_UPDATE_SIGNATURE_URL }}
+          PONLET_UPDATE_PUBLIC_KEY_JWK: ${{ vars.PONLET_UPDATE_PUBLIC_KEY_JWK }}
+          PONLET_UPDATE_FILE_BASE_URL: ${{ vars.PONLET_UPDATE_FILE_BASE_URL }}
+          PONLET_UPDATE_DISTRIBUTION: ${{ vars.PONLET_UPDATE_DISTRIBUTION }}
+          PONLET_UPDATE_TARGET: ${{ vars.PONLET_UPDATE_TARGET }}
+          PONLET_UPDATE_API_VERSION: ${{ vars.PONLET_UPDATE_API_VERSION }}
+          PONLET_UPDATE_CURRENT_REVISION: ${{ github.run_number }}
+        run: node scripts/write_web_update_config.mjs dist/ponlet-update-config.js
+
       - name: Verify WASM Sizes (Cloudflare 25 MiB limit)
         run: |
           set -e

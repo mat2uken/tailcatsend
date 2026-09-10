@@ -4,6 +4,7 @@ import { createBackend, initializeBrowserBackend } from "@backend";
 import { initialSnapshot, type PonletBackend, type TransportPath } from "./api/application-api";
 import { Session, type Message } from "./session";
 import { placeAnchor } from "./lib/position";
+import { checkForUpdate } from "./update/client";
 import "./style.css";
 
 const {
@@ -580,6 +581,7 @@ document.body.append(
 );
 
 async function startApplication(): Promise<void> {
+  void checkForUpdate();
   try {
     await initializeBrowserBackend();
     backend = createBackend();
