@@ -29,7 +29,7 @@ cargo check -p tailsend-tauri -p tailsend-desktop
 (cd web-ui && npm ci && npm run lint && npm run typecheck && npm test && npm run build -- --mode web && npm run build -- --mode tauri)
 ```
 
-現在の unit test は Rust workspace 46件（core 14、transfer 17を含む）と Web UI 21件を対象にし、ヘッダー分割、本文同時受信、部分 I/O、取消、保存失敗、イベント順序、QR、受信一覧、Tauri picker forwarding、署名付き更新 manifest を含める。
+現在の unit test は Rust workspace 54件（core 14、transfer 17を含む）と Web UI 21件を対象にし、ヘッダー分割、本文同時受信、部分 I/O、取消、保存失敗、イベント順序、QR、受信一覧、Tauri picker forwarding、署名付き更新 manifest を含める。
 
 Chrome 2 タブの実通信では、日本語テキスト、131,089 byte ファイル、OPFSからの開く操作、SHA-256一致、両端の `webrtc` 表示を確認した。再現コマンドは `cd web-ui && npm run test:e2e:real`。
 

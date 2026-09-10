@@ -12,7 +12,7 @@ UI と転送処理の責務は分かれ、ファイル本文を UI の JSON、Ba
 
 | 確認 | 状態 |
 | --- | --- |
-| `cargo test --workspace` | Slint 削除後の全 crate、46 Rust tests を実行 |
+| `cargo test --workspace` | Slint 削除後の全 crate、54 Rust tests を実行 |
 | `cargo check -p tailsend-web --target wasm32-unknown-unknown` | Browser service の compile |
 | Tauri/Desktop check | Go bridge と WebView adapter の link |
 | Web UI lint/typecheck/unit/build | web/tauri 両 mode、Vitest 21件、Oxlint/Oxfmt |
