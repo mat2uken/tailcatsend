@@ -32,7 +32,7 @@ interface GoConnection {
   closeWrite(): Promise<unknown>;
   getTransport?(): number;
   port?: number;
-  read(length: number): Promise<Uint8Array | ArrayBuffer | null>;
+  read(length: number): Promise<Uint8Array | ArrayBuffer | GoReadValue | null>;
   transportType?: number;
   write(bytes: Uint8Array): Promise<unknown>;
 }
@@ -142,6 +142,30 @@ function asBytes(value: Uint8Array | ArrayBuffer | null): Uint8Array | null {
   return ArrayBuffer.isView(value) ? value : new Uint8Array(value);
 }
 
+interface GoReadValue {
+  bytes?: Uint8Array | ArrayBuffer | null;
+  code?: number;
+  error?: string;
+}
+
+function decodeGoRead(value: unknown): { bytes: Uint8Array | null; code?: number; error?: string } {
+  if (value == null) {
+    return { bytes: null };
+  }
+  if (ArrayBuffer.isView(value) || isArrayBuffer(value)) {
+    return { bytes: asBytes(value as Uint8Array | ArrayBuffer) };
+  }
+  if (typeof value === "object") {
+    const result = value as GoReadValue;
+    return {
+      bytes: asBytes(result.bytes ?? null),
+      code: typeof result.code === "number" ? result.code : undefined,
+      error: typeof result.error === "string" ? result.error : undefined,
+    };
+  }
+  throw new Error("Tailcat read returned an invalid result");
+}
+
 async function handleGoMessage(
   event: MessageEvent<GoCommand>,
   bridge: GoBridge,
@@ -248,7 +272,8 @@ async function handleGoMessage(
   }
   try {
     if (message.type === "stream-read") {
-      const bytes = asBytes(await connection.read(message.length));
+      const decoded = decodeGoRead(await connection.read(message.length));
+      const bytes = decoded.bytes;
       const buffer = bytes?.buffer;
       const transfer = isArrayBuffer(buffer) ? [buffer] : [];
       post(
@@ -260,6 +285,8 @@ async function handleGoMessage(
             buffer: buffer ?? null,
             byteOffset: bytes?.byteOffset ?? 0,
             byteLength: bytes?.byteLength ?? 0,
+            statusCode: decoded.code,
+            statusMessage: decoded.error,
             transportType: currentTransport(connection),
           },
         },
@@ -267,12 +294,18 @@ async function handleGoMessage(
       );
     } else if (message.type === "stream-write") {
       const bytes = new Uint8Array(message.buffer, message.byteOffset, message.byteLength);
-      await connection.write(bytes);
+      const result = await connection.write(bytes);
+      const value =
+        typeof result === "number"
+          ? { written: result, code: 0 }
+          : typeof result === "object" && result !== null
+            ? result
+            : { written: bytes.byteLength, code: 0 };
       post({
         type: "response",
         requestId: message.requestId,
         ok: true,
-        value: { transportType: currentTransport(connection) },
+        value: { ...value, transportType: currentTransport(connection) },
       });
     } else if (message.type === "stream-close-write") {
       await connection.closeWrite();

@@ -112,6 +112,9 @@ extern "C" {
         timeout_ms: u32,
         out_stream: *mut TcHandle,
     ) -> i32;
+    /// `out_read` is valid even when the status is not `TC_OK`. If it is
+    /// positive, the caller must consume those bytes before handling the
+    /// returned EOF/error status.
     pub fn tc_stream_read(
         stream: TcHandle,
         buffer: *mut u8,
@@ -119,6 +122,8 @@ extern "C" {
         out_read: *mut usize,
         timeout_ms: u32,
     ) -> i32;
+    /// `out_written` is valid even when the status is not `TC_OK`; a partial
+    /// write plus an error is never retried by the bridge itself.
     pub fn tc_stream_write(
         stream: TcHandle,
         buffer: *const u8,

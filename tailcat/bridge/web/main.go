@@ -32,6 +32,11 @@ const (
 	transportWebRTC    = transportpath.WebRTC
 	transportDERP      = transportpath.DERP
 	transportUnknown   = transportpath.Unknown
+
+	streamOK       = 0
+	streamEOF      = 1
+	streamTimeout  = 2
+	streamNetwork  = 20
 )
 
 func main() {
@@ -279,6 +284,16 @@ func makeJSConn(c net.Conn, port uint16, transport uint8, currentTransport func(
 				if n > 0 {
 					u8 := js.Global().Get("Uint8Array").New(n)
 					js.CopyBytesToJS(u8, buf[:n])
+					// Preserve a data-plus-error read. Rust consumes the bytes and
+					// reports the status on the following read instead of treating a
+					// truncated stream as a clean EOF.
+					if err != nil {
+						return map[string]any{
+							"bytes": u8,
+							"code":  streamStatus(err),
+							"error": err.Error(),
+						}, nil
+					}
 					return u8, nil
 				}
 				if err == nil || errors.Is(err, io.EOF) {
@@ -294,10 +309,17 @@ func makeJSConn(c net.Conn, port uint16, transport uint8, currentTransport func(
 			b := make([]byte, args[0].Get("length").Int())
 			js.CopyBytesToGo(b, args[0])
 			return makePromise(func() (any, error) {
-				if _, err := c.Write(b); err != nil {
-					return nil, err
+				written, err := c.Write(b)
+				if err != nil {
+					return map[string]any{
+						"code":    streamStatus(err),
+						"error":   err.Error(),
+						"written": written,
+					}, nil
 				}
-				return js.Undefined(), nil
+				// A short write without an error is a valid partial-I/O result.
+				// Returning the count lets the Rust loop retry the remainder.
+				return written, nil
 			})
 		}),
 		"closeWrite": js.FuncOf(func(this js.Value, args []js.Value) any {
@@ -320,6 +342,19 @@ func makeJSConn(c net.Conn, port uint16, transport uint8, currentTransport func(
 			return nil
 		}),
 	})
+}
+
+func streamStatus(err error) int {
+	if err == nil {
+		return streamOK
+	}
+	if errors.Is(err, io.EOF) {
+		return streamEOF
+	}
+	if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+		return streamTimeout
+	}
+	return streamNetwork
 }
 
 func optString(v js.Value, name string) string {

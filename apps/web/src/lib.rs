@@ -157,6 +157,15 @@ struct WebStream {
     connection: JsValue,
     closed: bool,
     transport_path: TransportPath,
+    /// Preserve a status returned together with bytes. The common transfer
+    /// loop consumes the bytes first and observes the status on the next
+    /// read, matching the native C ABI adapter.
+    pending_read_status: Option<PendingReadStatus>,
+}
+
+enum PendingReadStatus {
+    Eof,
+    Error(TransportError),
 }
 
 impl WebStream {
@@ -185,6 +194,12 @@ impl DuplexStream for WebStream {
         if self.closed {
             return Err(TransportError::Closed);
         }
+        if let Some(status) = self.pending_read_status.take() {
+            return match status {
+                PendingReadStatus::Eof => Ok(0),
+                PendingReadStatus::Error(error) => Err(error),
+            };
+        }
         let read = function(&self.connection, "read")?
             .call1(
                 &self.connection,
@@ -192,10 +207,20 @@ impl DuplexStream for WebStream {
             )
             .map_err(js_error)?;
         let value = promise(read).await?;
-        if value.is_null() || value.is_undefined() {
-            return Ok(0);
+        let (bytes, status) = decode_read_result(&value)?;
+        if let Some((code, message)) = status {
+            self.pending_read_status = Some(if code == 1 {
+                PendingReadStatus::Eof
+            } else {
+                PendingReadStatus::Error(transport_status_error(code, &message))
+            });
         }
-        let bytes = Uint8Array::new(&value);
+        let Some(bytes) = bytes else {
+            return match self.pending_read_status.take() {
+                Some(PendingReadStatus::Eof) | None => Ok(0),
+                Some(PendingReadStatus::Error(error)) => Err(error),
+            };
+        };
         let count = bytes.length() as usize;
         if count > buffer.len() {
             return Err(TransportError::Internal(format!(
@@ -221,8 +246,8 @@ impl DuplexStream for WebStream {
         let write = function(&self.connection, "write")?
             .call1(&self.connection, &bytes)
             .map_err(js_error)?;
-        promise(write).await?;
-        Ok(buffer.len())
+        let result = promise(write).await?;
+        decode_write_result(&result, buffer.len())
     }
 
     async fn close_write(&mut self) -> Result<(), TransportError> {
@@ -283,6 +308,7 @@ impl Listener for WebListener {
                 connection: value,
                 closed: false,
                 transport_path,
+                pending_read_status: None,
             }),
             port,
         })
@@ -371,7 +397,100 @@ impl TailcatTransport for WebTransport {
             connection,
             closed: false,
             transport_path,
+            pending_read_status: None,
         }))
+    }
+}
+
+fn decode_read_result(
+    value: &JsValue,
+) -> Result<(Option<Uint8Array>, Option<(u8, String)>), TransportError> {
+    if value.is_null() || value.is_undefined() {
+        return Ok((None, None));
+    }
+    if let Ok(bytes) = value.clone().dyn_into::<Uint8Array>() {
+        return Ok((Some(bytes), None));
+    }
+    let bytes_value = property(value, "bytes")?;
+    let bytes = if bytes_value.is_null() || bytes_value.is_undefined() {
+        None
+    } else {
+        Some(
+            bytes_value
+                .dyn_into::<Uint8Array>()
+                .map_err(|_| TransportError::Protocol("Tailcat read result has invalid bytes".into()))?,
+        )
+    };
+    let code = property(value, "code")?
+        .as_f64()
+        .ok_or_else(|| TransportError::Protocol("Tailcat read result has no status".into()))?
+        as u8;
+    let message = property(value, "error")?.as_string().unwrap_or_default();
+    Ok((bytes, Some((code, message))))
+}
+
+fn decode_write_result(value: &JsValue, buffer_len: usize) -> Result<usize, TransportError> {
+    if value.is_undefined() || value.is_null() {
+        // Older Go bridges resolved write() with undefined after a complete
+        // write. Keep that bridge compatible while newer builds return the
+        // accepted byte count.
+        return Ok(buffer_len);
+    }
+    if let Some(written) = value.as_f64() {
+        let written = written as usize;
+        if written > buffer_len {
+            return Err(TransportError::Internal(format!(
+                "Tailcat write overrun: {written} > {buffer_len}"
+            )));
+        }
+        return Ok(written);
+    }
+    let written = property(value, "written")?
+        .as_f64()
+        .ok_or_else(|| TransportError::Protocol("Tailcat write result has no count".into()))?
+        as usize;
+    if written > buffer_len {
+        return Err(TransportError::Internal(format!(
+            "Tailcat write overrun: {written} > {buffer_len}"
+        )));
+    }
+    let code = property(value, "code")?
+        .as_f64()
+        .ok_or_else(|| TransportError::Protocol("Tailcat write result has no status".into()))?
+        as u8;
+    if code != 0 {
+        let message = property(value, "error")?.as_string().unwrap_or_default();
+        if written > 0 {
+            return Err(TransportError::PartialWrite {
+                written,
+                message: transport_status_error(code, &message).to_string(),
+            });
+        }
+        return Err(transport_status_error(code, &message));
+    }
+    Ok(written)
+}
+
+fn transport_status_error(code: u8, message: &str) -> TransportError {
+    match code {
+        1 => TransportError::Closed,
+        2 => TransportError::Timeout,
+        3 => TransportError::Cancelled,
+        20 => TransportError::Unreachable(if message.is_empty() {
+            "Tailcat stream error".into()
+        } else {
+            message.into()
+        }),
+        21 => TransportError::Protocol(if message.is_empty() {
+            "Tailcat stream error".into()
+        } else {
+            message.into()
+        }),
+        _ => TransportError::Internal(if message.is_empty() {
+            format!("Tailcat stream status {code}")
+        } else {
+            message.into()
+        }),
     }
 }
 

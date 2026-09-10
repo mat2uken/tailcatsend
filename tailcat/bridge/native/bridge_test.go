@@ -4,6 +4,7 @@ package main
 
 import (
 	"errors"
+	"io"
 	"net"
 	"sync"
 	"testing"
@@ -101,6 +102,20 @@ func TestStreamWriteAllHonorsPersistentCancellation(t *testing.T) {
 	}
 	if len(conn.writes) != 0 {
 		t.Fatalf("cancelled stream wrote data: %v", conn.writes)
+	}
+}
+
+func TestReadStatusPreservesDataPlusTerminalStatus(t *testing.T) {
+	s := &streamEntry{}
+	if got := readStatus(s, io.EOF); got != TC_EOF {
+		t.Fatalf("EOF status = %d, want %d", got, TC_EOF)
+	}
+	if got := readStatus(s, errors.New("read failed")); got != TC_NETWORK_ERROR {
+		t.Fatalf("error status = %d, want %d", got, TC_NETWORK_ERROR)
+	}
+	s.cancelled.Store(true)
+	if got := readStatus(s, errors.New("read failed")); got != TC_CANCELLED {
+		t.Fatalf("cancelled status = %d, want %d", got, TC_CANCELLED)
 	}
 }
 

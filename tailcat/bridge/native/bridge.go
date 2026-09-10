@@ -1078,32 +1078,36 @@ func tc_stream_read(
 	n, err := s.conn.Read(goSlice)
 	*out_read = C.size_t(n)
 
-	// A Reader may return data and an error together. The bytes must remain
-	// visible to the caller; the following call reports the terminal error.
+	// A Reader may return data and an error together. Keep both pieces of
+	// information in the ABI: callers must process the bytes first and then
+	// observe the returned status on their next read. Returning TC_OK here
+	// would silently discard a non-EOF error and could make a truncated file
+	// look complete.
 	if n > 0 {
-		if err != nil && !errors.Is(err, io.EOF) {
-			setLastError(err.Error())
-		}
-		return TC_OK
+		return readStatus(s, err)
 	}
-
 	if s.cancelled.Load() {
 		return TC_CANCELLED
+	}
+	return readStatus(s, err)
+}
+
+func readStatus(s *streamEntry, err error) C.int32_t {
+	if s.cancelled.Load() {
+		return TC_CANCELLED
+	}
+	if err == nil {
+		return TC_OK
 	}
 	if errors.Is(err, io.EOF) {
 		return TC_EOF
 	}
-
 	if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+		setLastError(err.Error())
 		return TC_TIMEOUT
 	}
-
-	if err != nil {
-		setLastError(err.Error())
-		return TC_NETWORK_ERROR
-	}
-
-	return TC_OK
+	setLastError(err.Error())
+	return TC_NETWORK_ERROR
 }
 
 func streamWriteAll(s *streamEntry, data []byte, timeout_ms C.uint32_t) (int, C.int32_t) {

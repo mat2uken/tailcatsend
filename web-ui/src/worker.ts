@@ -138,6 +138,8 @@ interface GoReadResult {
   buffer: ArrayBuffer | null;
   byteLength: number;
   byteOffset: number;
+  statusCode?: number;
+  statusMessage?: string;
   transportType: number;
 }
 
@@ -153,8 +155,14 @@ interface GoConnectionProxy {
   closeWrite(): Promise<unknown>;
   getTransport(): number;
   port: number;
-  read(length: number): Promise<Uint8Array | null>;
+  read(length: number): Promise<Uint8Array | GoReadProxyResult | null>;
   write(bytes: Uint8Array): Promise<unknown>;
+}
+
+interface GoReadProxyResult {
+  bytes: Uint8Array | null;
+  code: number;
+  error?: string;
 }
 
 interface RustBackend {
@@ -236,14 +244,29 @@ function connectionProxy(descriptor: GoConnectionDescriptor): GoConnectionProxy 
       })) as GoReadResult;
       updateTransport(result.transportType);
       if (!result.buffer || result.byteLength === 0) {
+        if (typeof result.statusCode === "number" && result.statusCode !== 0) {
+          return {
+            bytes: null,
+            code: result.statusCode,
+            error: result.statusMessage,
+          } satisfies GoReadProxyResult;
+        }
         return null;
       }
-      return new Uint8Array(result.buffer, result.byteOffset, result.byteLength);
+      const bytes = new Uint8Array(result.buffer, result.byteOffset, result.byteLength);
+      if (typeof result.statusCode === "number" && result.statusCode !== 0) {
+        return {
+          bytes,
+          code: result.statusCode,
+          error: result.statusMessage,
+        } satisfies GoReadProxyResult;
+      }
+      return bytes;
     },
     write: async (bytes) => {
       const buffer = bytes.buffer;
       const transfer = isArrayBuffer(buffer) ? [buffer] : [];
-      await postGo(
+      const result = await postGo(
         {
           type: "stream-write",
           requestId: ++goRequestId,
@@ -254,7 +277,7 @@ function connectionProxy(descriptor: GoConnectionDescriptor): GoConnectionProxy 
         },
         transfer,
       );
-      return undefined;
+      return result;
     },
     closeWrite: () =>
       postGo({

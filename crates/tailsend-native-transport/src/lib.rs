@@ -5,8 +5,8 @@
 //! and transfer code. Payloads are copied once into a blocking task because
 //! the C ABI call must keep the caller's pointer alive until it returns.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::atomic::AtomicU8;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use tailsend_native_bridge::{
@@ -296,6 +296,15 @@ struct NativeStream {
     handle: TcHandle,
     closed: Arc<AtomicBool>,
     transport_path: AtomicU8,
+    /// A native Reader may return bytes together with a terminal status. Keep
+    /// that status until the caller has consumed the bytes returned by the
+    /// same read, then surface it on the next read.
+    pending_read_status: Option<PendingReadStatus>,
+}
+
+enum PendingReadStatus {
+    Eof,
+    Error(TransportError),
 }
 
 impl NativeStream {
@@ -304,6 +313,7 @@ impl NativeStream {
             handle,
             closed: Arc::new(AtomicBool::new(false)),
             transport_path: AtomicU8::new(stream_transport_path(handle).code()),
+            pending_read_status: None,
         }
     }
 }
@@ -330,6 +340,12 @@ impl DuplexStream for NativeStream {
         }
         if self.closed.load(Ordering::Acquire) {
             return Err(TransportError::Closed);
+        }
+        if let Some(status) = self.pending_read_status.take() {
+            return match status {
+                PendingReadStatus::Eof => Ok(0),
+                PendingReadStatus::Error(error) => Err(error),
+            };
         }
         let handle = self.handle;
         let capacity = buffer.len();
@@ -359,7 +375,14 @@ impl DuplexStream for NativeStream {
         buffer[..read].copy_from_slice(&bytes[..read]);
         if code == TC_OK {
             Ok(read)
-        } else if code == TC_EOF && read == 0 {
+        } else if read > 0 {
+            self.pending_read_status = Some(if code == TC_EOF {
+                PendingReadStatus::Eof
+            } else {
+                PendingReadStatus::Error(transport_error(code))
+            });
+            Ok(read)
+        } else if code == TC_EOF {
             Ok(0)
         } else {
             Err(transport_error(code))
