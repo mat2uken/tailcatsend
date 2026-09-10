@@ -1,10 +1,10 @@
 # WebView移行レビュー記録
 
-対象は`feature/common-rust-transfer-engine`。共通Rust転送基盤、Web UIツールチェーン、Tauri native adapter、デスクトップ入口切替はそれぞれ`3d6400a`、`0cc621c`、`90e2c91`、`784ffde`以降へコミット済みである。以下の実機・配布・性能項目は現在のコミットで再確認していない。
+対象は`feature/common-rust-transfer-engine`。共通Rust転送基盤、Web UIツールチェーン、Tauri native adapter、デスクトップ入口切替はそれぞれ`3d6400a`、`0cc621c`、`90e2c91`、`784ffde`以降へコミット済みである。Tauriモバイルshellとビルド入口も追加し、Android/iOSのbundle生成まで確認した。以下の実機転送・配布・性能項目は現在のコミットで再確認していない。
 
 ## レビュー判断
 
-共通転送、状態管理、C ABI、保存、署名検証は移行の部品として利用できる形へ改善した。TauriデスクトップではVanJS UIから共通Rust転送・Go C ABIへ接続するadapterを追加し、`apps/desktop` の旧Slint入口をTauri WebViewの起動処理へ切り替えた。Browserでは旧Slint WASMを共通Rust service WASMへ置き換え、Go Tailcat bridgeの起動後にVanJS UIへ接続する構成へ更新した。ローカルChromeの2タブでWebRTC DataChannel接続とテキスト送受信は確認済みである。iOS/AndroidのSlint削除、Dedicated Worker分離、Pagesの実デプロイ、Tauriの実機転送、WireGuard UDP・DERPを指定した実機転送は未完了である。
+共通転送、状態管理、C ABI、保存、署名検証は移行の部品として利用できる形へ改善した。TauriデスクトップではVanJS UIから共通Rust転送・Go C ABIへ接続するadapterを追加し、`apps/desktop` の旧Slint入口をTauri WebViewの起動処理へ切り替えた。Browserでは旧Slint WASMを共通Rust service WASMへ置き換え、Go Tailcat bridgeの起動後にVanJS UIへ接続する構成へ更新した。ローカルChromeの2タブでWebRTC DataChannel接続とテキスト送受信は確認済みである。Tauri iOS Simulator/device bundleとAndroid debug/release APKの生成も確認した。iOS/AndroidのSlint削除、Dedicated Worker分離、Pagesの実デプロイ、Tauriの実機転送、WireGuard UDP・DERPを指定した実機転送は未完了である。
 
 優先して修正した不具合は次の通り。
 
@@ -44,6 +44,9 @@ WASM時刻処理の選択には[web-timeの仕様](https://docs.rs/web-time/late
 | Desktop product check/build | 成功 | `cargo check -p tailsend-desktop` と `scripts/build_tauri.sh` のReleaseリンク |
 | Browser two-tab smoke | 成功 | ローカルChromeの2タブで招待、WebRTC DataChannel接続、テキスト送受信。参加側に`Connected WebRTC DataChannel`を表示 |
 | Android / iOS / iOS Simulator check | 成功 | 各targetでのRustコンパイル。Androidには未使用importのwarningが3件ある |
+| Tauri Android debug/release | 成功 | NDK 28.2、arm64-v8a、minSdk 31でdebug APKとunsigned release APKを生成 |
+| Tauri iOS Simulator debug | 成功 | iOS 17.0 targetのarm64 simulator bundleを生成 |
+| Tauri iOS device debug | 成功 | 既存の開発チームを`APPLE_DEVELOPMENT_TEAM`へ渡した場合に署名済みIPAを生成。端末へのインストールと起動は未実施 |
 | WASM実行smoke | 成功 | Node上で招待状態、時刻、進捗間引き、flush、sequenceを確認 |
 | Native C ABI smoke | 成功 | Go c-sharedを実ヘッダーでCからリンク。init/version/shutdown/reinit |
 | 静的検査 | 成功 | 変更した4 workflowのactionlint、build_web_ui.shのshellcheck、各変更shellの構文、Rust整形と差分の空白 |
@@ -52,7 +55,7 @@ WASM時刻処理の選択には[web-timeの仕様](https://docs.rs/web-time/late
 
 WASM実行smokeの一時ソースと生成物は`/tmp/tailsend-wasm-smoke`、C ABI smokeは`/tmp/tailcat-c-abi-smoke`に置いた。WASM側の出力は`state_seq=1,progress_seq=2,flush_seq=3,snapshot_seq=3,done=3`、C側の版取得は`tailcat-bridge/abi2/dev`だった。一時生成物はGitへ追加していない。
 
-Browser two-tab smokeの成功は、同一ブラウザ内のWebRTC DataChannel経路とテキスト処理を示す。Tauri native buildの成功はリンク確認であり、Go bridgeを使った2端末間の実転送、ファイル保存、DERP・WireGuard UDPの経路選択を証明するものではない。これらはWebView製品版の実機・速度・省メモリ性と同じく未検証である。受信側の経路表示はTailcat server statusが接続直後に未確定となる場合があり、`unknown`を許容して後続の状態更新で再判定する必要がある。
+Browser two-tab smokeの成功は、同一ブラウザ内のWebRTC DataChannel経路とテキスト処理を示す。Tauri native/mobile buildの成功はリンクとbundle生成の確認であり、Go bridgeを使った2端末間の実転送、ファイル保存、DERP・WireGuard UDPの経路選択を証明するものではない。これらはWebView製品版の実機・速度・省メモリ性と同じく未検証である。受信側の経路表示はTailcat server statusが接続直後に未確定となる場合があり、`unknown`を許容して後続の状態更新で再判定する必要がある。
 
 ## 置換前に残る比較
 
