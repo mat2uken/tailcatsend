@@ -31,6 +31,7 @@
 - Android debug APK の実機起動と招待待受画面。
 - Chrome 2 タブの招待、WebRTC DataChannel 接続、テキスト送受信。
 - Sony XQ-DQ44 の Android Tauri WebView と Chromium の接続、`DERP relay` の経路表示、Android picker から `android-real.bin` (131,071 bytes) を Web 側へ送信する実機確認。
+- Sony XQ-DQ44 と Chromium を新しいホストへ接続し、`WebRTC DataChannel` で双方向テキスト、ブラウザから Android への `browser-to-android-日本語.bin` (131,071 bytes) を送信し、Android `received/` の SHA-256 (`e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19`) を確認する `tests/e2e/test_android_browser_real.mjs`。
 - `cd web-ui && npm run test:e2e:real` で、招待、接続、テキスト、131,089 byte ファイル、OPFSからの開く操作、SHA-256、両端の経路表示を一括確認する。
 
 ## 残っている検証
@@ -42,6 +43,8 @@
 5. Pages 実デプロイ、署名付き UI/WASM の取得・検証・切替、起動失敗時の復元。
 6. 100回の接続・転送・取消・切断後に stream、Go client、JS callback、購読、timer が残らないこと。
 
+iOS 実機は Bundle ID `jp.yasagure.ponlet` の署名・Provisioning Profile が開発チームに存在せず、2026-09-11 の debug build が Xcode signing で停止した。iOS Simulator の build 成功とは分けて扱う。
+
 ## 再現コマンド
 
 ```sh
@@ -49,6 +52,8 @@ cargo test --workspace
 cargo check -p tailsend-web --target wasm32-unknown-unknown
 cargo check -p tailsend-tauri -p tailsend-desktop
 (cd web-ui && npm ci && npm run lint && npm run typecheck && npm test && npm run build -- --mode web && npm run build -- --mode tauri)
+# 接続中の Android 実機と adb が必要
+cd web-ui && PONLET_ANDROID_SERIAL=<serial> npm run test:e2e:android
 ```
 
 実機の判定には、commit、端末、OS、経路、入力ファイル、送受信 byte 数、受信ハッシュ、保存先、所要時間を記録する。過去のビルドやブラウザ smoke の結果を、現在の実機転送の証拠として再利用しない。

@@ -33,6 +33,10 @@ Chrome 2 タブの実通信では、日本語テキスト、131,089 byte ファ�
 
 同じSHAで `./scripts/build_tauri.sh` をmacOS arm64上で実行し、Go C archive (`target/native/tailcat/libtailcat.a`) をリンクしたRelease Tauri binary (`target/release/tailsend`)を生成した。起動後のmacOSアクセシビリティ名は `Ponlet — Direct P2P Transfer` で、製品入口がWebView UIになっていることを確認した。
 
+2026-09-11 に Sony XQ-DQ44 (Android 15) と Chromium の実機を再接続し、WebRTC DataChannel で双方向テキストとブラウザ→Android のファイル送信を確認した。`browser-to-android-日本語.bin` は 131,071 bytes、Android の `received/` に確定し、端末上の `sha256sum` は `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` だった。再現入口は `PONLET_ANDROID_SERIAL=<serial> npm run test:e2e:android` で、接続後の両端に `webrtc` が表示されることも検査する。
+
+同じ端末で以前に Android picker から Chromium へ送った `android-real.bin` は DERP relay として確定しているため、Android／Web の実機では WebRTC と DERP の二つの経路を別実行で確認した。macOS上のTailcat低レベル probe では WireGuard UDP の直接経路 (`Endpoint=192.168.31.151:59013`) も観測したが、これは製品UIを介した2端末転送の証明には使わない。
+
 ## まだ実機で証明していない項目
 
 - Tauri の2端末間での双方向テキスト・ファイル転送、SHA-256、保存後の開く／共有。
@@ -40,5 +44,7 @@ Chrome 2 タブの実通信では、日本語テキスト、131,089 byte ファ�
 - WireGuard UDP、WebRTC DataChannel、DERP relay をそれぞれ指定した同一条件の転送。UI は制御接続ではなく各データ stream の bridge 報告を表示するが、強制切替の成功を意味しない。
 - Windows、macOS、Linux、iOS、Android、Web の全組み合わせ、低容量保存先、巨大ファイル、100回の接続・取消・切断後の参照解放。
 - Cloudflare Pages の実デプロイ、署名付き UI/WASM 更新、起動失敗からの復元、速度・CPU・総メモリの受入値。
+
+2026-09-11 の iOS 実機試行は、接続済み iPhone 12 Pro に対して `APPLE_DEVELOPMENT_TEAM=4VSXQAQDT ./scripts/build_tauri_mobile.sh ios debug` を実行したが、`jp.yasagure.ponlet` の Bundle ID を登録できず、Provisioning Profile が見つからないため Xcode signing で停止した。署名設定を変更して通過扱いにはしていない。
 
 上記はビルド成功やブラウザ2タブの WebRTC smoke だけでは完了扱いにしない。端末、commit、通信経路、入力ファイル、受信ハッシュ、保存物、所要時間を同じ記録へ残してから判定する。
