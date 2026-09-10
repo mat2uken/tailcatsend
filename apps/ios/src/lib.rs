@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::ffi::CStr;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::os::raw::c_char;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -71,12 +71,18 @@ extern "C" {
         timeout_ms: u32,
     ) -> i32;
     fn tc_stream_close(stream: TcHandle) -> i32;
+    fn tc_stream_close_write(stream: TcHandle) -> i32;
 
     fn tailsend_swift_open_camera_scanner();
+    fn tailsend_swift_pick_file();
 }
 
 // Global channel for Swift QR camera scanner callbacks
 static GLOBAL_JOIN_TX: std::sync::OnceLock<mpsc::UnboundedSender<String>> = std::sync::OnceLock::new();
+
+// Global channel for Swift document picker callbacks: (temp path, original name)
+static GLOBAL_FILE_TX: std::sync::OnceLock<mpsc::UnboundedSender<(String, String)>> =
+    std::sync::OnceLock::new();
 
 #[no_mangle]
 pub extern "C" fn tailsend_ios_main() {
@@ -101,6 +107,23 @@ pub extern "C" fn tailsend_ios_join_session(url_ptr: *const c_char) {
         info!("📸 [Swift Camera] Scanned QR code raw text: {}", url_str);
         if let Some(tx) = GLOBAL_JOIN_TX.get() {
             let _ = tx.send(url_str.to_string());
+        }
+    }
+}
+
+// Called from Swift's document picker with the temp copy path and the
+// original filename of the picked file.
+#[no_mangle]
+pub extern "C" fn tailsend_ios_file_picked(path_ptr: *const c_char, name_ptr: *const c_char) {
+    if path_ptr.is_null() || name_ptr.is_null() {
+        return;
+    }
+    let path_c = unsafe { CStr::from_ptr(path_ptr) };
+    let name_c = unsafe { CStr::from_ptr(name_ptr) };
+    if let (Ok(path), Ok(name)) = (path_c.to_str(), name_c.to_str()) {
+        info!("📁 [Swift FilePicker] Picked file: {} -> {}", name, path);
+        if let Some(tx) = GLOBAL_FILE_TX.get() {
+            let _ = tx.send((path.to_string(), name.to_string()));
         }
     }
 }
@@ -446,6 +469,249 @@ fn receive_file_stream(stream: TcHandle, app_weak: slint::Weak<AppWindow>) {
     }
 }
 
+// wire_filename sanitizes a picked filename for the `NAME:` wire header.
+// The receiver splits the header at the last ':', so ':' and newlines
+// must be replaced with '_' before sending.
+fn wire_filename(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| match c {
+            ':' | '\n' | '\r' => '_',
+            other => other,
+        })
+        .collect();
+    let trimmed = cleaned.trim();
+    if trimmed.is_empty() {
+        "unnamed_file".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+// send_file_stream streams a picked file to the target peer over Port
+// 102: it dials the peer, writes the `NAME:<filename>:<size>\n` header,
+// then streams 64 KiB chunks from disk (never buffering the whole file
+// in memory), signals half-close, waits briefly for the receiver's EOF
+// and closes. Progress is reported to the Slint UI with a 200 ms
+// throttle, and the temp copy is removed afterwards.
+fn send_file_stream(
+    path: PathBuf,
+    name: String,
+    target: String,
+    app_weak: slint::Weak<AppWindow>,
+) {
+    let start = Instant::now();
+    let derp = "https://tailcat.dev/derpmap.json";
+
+    let set_ui = |completed: bool, status: &str, bytes_text: String, progress: f32, speed: String, status_text: String| {
+        let status = status.to_string();
+        let name = name.clone();
+        let app_weak = app_weak.clone();
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(app) = app_weak.upgrade() {
+                app.set_is_transferring(!completed);
+                app.set_transfer_completed(completed);
+                app.set_is_sender_transfer(true);
+                app.set_transfer_status(status.into());
+                app.set_transfer_filename(name.into());
+                app.set_transfer_bytes_text(bytes_text.into());
+                app.set_transfer_progress(progress);
+                app.set_transfer_speed(speed.into());
+                app.set_status_text(status_text.into());
+            }
+        });
+    };
+
+    let mut failure: Option<String> = None;
+    let mut stream: TcHandle = 0;
+    let mut total: u64 = 0;
+
+    if target.is_empty() {
+        failure = Some("No peer connected".to_string());
+    }
+
+    let mut file = None;
+    if failure.is_none() {
+        match std::fs::File::open(&path).and_then(|f| f.metadata().map(|md| (f, md.len()))) {
+            Ok((f, size)) => {
+                total = size;
+                file = Some(f);
+            }
+            Err(e) => failure = Some(format!("Failed to open file: {}", e)),
+        }
+    }
+
+    let Some(mut file) = file else {
+        let msg = failure.take().unwrap_or_else(|| "Unknown error".to_string());
+        error!("❌ [Tailcat iOS] File send failed: {}", msg);
+        tailsend_telemetry::events::error("transport");
+        set_ui(
+            false,
+            &format!("Send failed: {}", msg),
+            "0.0 MB / 0.0 MB".to_string(),
+            0.0,
+            "".to_string(),
+            "File send failed".to_string(),
+        );
+        let _ = std::fs::remove_file(&path);
+        return;
+    };
+
+    set_ui(
+        false,
+        "Sending file…",
+        format!("0.0 MB / {:.1} MB", total as f64 / 1048576.0),
+        0.0,
+        "Calculating…".to_string(),
+        format!("Sending {}…", name),
+    );
+
+    // Dial the peer on Port 102 (file transfer channel)
+    let mut stream_handle: TcHandle = 0;
+    if failure.is_none() {
+        let dial_res = unsafe {
+            tc_stream_dial(
+                target.as_ptr(),
+                target.len(),
+                derp.as_ptr(),
+                derp.len(),
+                102,
+                30000,
+                &mut stream_handle,
+            )
+        };
+        if dial_res == 0 && stream_handle != 0 {
+            stream = stream_handle;
+        } else {
+            failure = Some(format!("Could not connect to peer (status {})", dial_res));
+        }
+    }
+
+    if failure.is_none() {
+        tailsend_telemetry::events::transfer_started(1, "direct", "send");
+
+        let header = format!("NAME:{}:{}\n", wire_filename(&name), total);
+        let header_res =
+            unsafe { tc_stream_write_all(stream, header.as_ptr(), header.len(), 30000) };
+        if header_res != 0 {
+            failure = Some(format!("Failed to write header (status {})", header_res));
+        }
+    }
+
+    let mut buf = vec![0u8; 65536];
+    let mut sent: u64 = 0;
+    let mut last_ui_update = Instant::now();
+
+    while failure.is_none() {
+        let n = match file.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) => {
+                failure = Some(format!("Failed to read file: {}", e));
+                break;
+            }
+        };
+        let write_res = unsafe { tc_stream_write_all(stream, buf.as_ptr(), n, 30000) };
+        if write_res != 0 {
+            failure = Some(format!("Stream write error (status {})", write_res));
+            break;
+        }
+        sent += n as u64;
+
+        let now = Instant::now();
+        if now.duration_since(last_ui_update).as_millis() >= 200 {
+            last_ui_update = now;
+            let elapsed = now.duration_since(start).as_secs_f64();
+            let speed = if elapsed > 0.0 {
+                format!("{:.1} MB/s", (sent as f64 / 1048576.0) / elapsed)
+            } else {
+                "Calculating…".to_string()
+            };
+            set_ui(
+                false,
+                "Sending file…",
+                format!(
+                    "{:.1} MB / {:.1} MB",
+                    sent as f64 / 1048576.0,
+                    total as f64 / 1048576.0
+                ),
+                if total > 0 { sent as f32 / total as f32 } else { 0.0 },
+                speed,
+                "Sending file…".to_string(),
+            );
+        }
+    }
+
+    if failure.is_none() {
+        // Half-close so the receiver sees EOF after the last chunk
+        let _ = unsafe { tc_stream_close_write(stream) };
+        // Give the receiver up to 3 seconds to acknowledge with EOF
+        let mut ack_buf = vec![0u8; 4096];
+        let mut ack_read: usize = 0;
+        let eof_res =
+            unsafe { tc_stream_read(stream, ack_buf.as_mut_ptr(), ack_buf.len(), &mut ack_read, 3000) };
+        if eof_res == 1 {
+            info!("✅ [Tailcat iOS] Receiver closed file stream (EOF)");
+        } else if eof_res == 2 {
+            info!("⏳ [Tailcat iOS] No EOF within 3s after file send, closing anyway");
+        } else if eof_res == 0 && ack_read > 0 {
+            info!("📨 [Tailcat iOS] Receiver sent {} trailing bytes, closing", ack_read);
+        }
+    }
+
+    if stream != 0 {
+        unsafe { tc_stream_close(stream); }
+    }
+
+    let app_weak_done = app_weak.clone();
+    match failure {
+        None => {
+            let mb = total as f64 / 1048576.0;
+            info!(
+                "✅ [Tailcat iOS] File sent: {} ({:.1} MB) in {} ms",
+                name,
+                mb,
+                start.elapsed().as_millis()
+            );
+            tailsend_telemetry::events::transfer_completed(
+                1,
+                total,
+                start.elapsed().as_millis(),
+                "direct",
+                "send",
+            );
+            let name_done = name.clone();
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(app) = app_weak_done.upgrade() {
+                    app.set_is_transferring(false);
+                    app.set_transfer_completed(true);
+                    app.set_is_sender_transfer(true);
+                    app.set_transfer_status("File Sent!".into());
+                    app.set_transfer_filename(name_done.clone().into());
+                    app.set_transfer_bytes_text(format!("{:.1} MB", mb).into());
+                    app.set_transfer_progress(1.0);
+                    app.set_transfer_speed("".into());
+                    app.set_status_text(format!("Sent {} ({:.1} MB)!", name_done, mb).into());
+                }
+            });
+        }
+        Some(msg) => {
+            error!("❌ [Tailcat iOS] File send failed: {}", msg);
+            tailsend_telemetry::events::error("transport");
+            let _ = slint::invoke_from_event_loop(move || {
+                if let Some(app) = app_weak_done.upgrade() {
+                    app.set_is_transferring(false);
+                    app.set_transfer_status(format!("Send failed: {}", msg).into());
+                    app.set_status_text("File send failed".into());
+                }
+            });
+        }
+    }
+
+    // Remove the temporary copy of the picked file
+    let _ = std::fs::remove_file(&path);
+}
+
 fn run_ios_app(telemetry_initial: bool, started_at: Instant) -> Result<(), Box<dyn std::error::Error>> {
     let base_url = "https://ponlet.mat2uken.app".to_string();
     
@@ -464,6 +730,24 @@ fn run_ios_app(telemetry_initial: bool, started_at: Instant) -> Result<(), Box<d
     // Channel for joining another peer's session (from QR camera or input)
     let (join_tx, mut join_rx) = mpsc::unbounded_channel::<String>();
     let _ = GLOBAL_JOIN_TX.set(join_tx.clone());
+
+    // Channel for picked files (from the native document picker)
+    let (file_tx, mut file_rx) = mpsc::unbounded_channel::<(String, String)>();
+    let _ = GLOBAL_FILE_TX.set(file_tx);
+
+    // Dedicated worker thread for outgoing file transfers (Port 102)
+    let app_weak_sender = app_weak.clone();
+    let target_peer_addr_sender = target_peer_addr.clone();
+    std::thread::spawn(move || {
+        while let Some((path, name)) = file_rx.blocking_recv() {
+            let target = target_peer_addr_sender
+                .lock()
+                .ok()
+                .and_then(|g| g.clone())
+                .unwrap_or_default();
+            send_file_stream(PathBuf::from(path), name, target, app_weak_sender.clone());
+        }
+    });
 
     // Initialize Tailcat C-ABI
     unsafe {
@@ -919,11 +1203,24 @@ fn run_ios_app(telemetry_initial: bool, started_at: Instant) -> Result<(), Box<d
         }
     });
 
-    // 📁 Pick File Handler Stub
+    // 📁 Pick File Handler (opens the native document picker via Swift)
     let app_weak_file = app_weak.clone();
+    let target_addr_file = target_peer_addr.clone();
     app.on_pick_files(move || {
         if let Some(app) = app_weak_file.upgrade() {
-            app.set_status_text("Direct P2P file sharing ready".into());
+            let target = target_addr_file
+                .lock()
+                .ok()
+                .and_then(|g| g.clone())
+                .unwrap_or_default();
+            if target.is_empty() {
+                app.set_status_text("No peer connected. Scan or join a session first.".into());
+                return;
+            }
+            app.set_status_text("Opening file picker…".into());
+            unsafe {
+                tailsend_swift_pick_file();
+            }
         }
     });
 

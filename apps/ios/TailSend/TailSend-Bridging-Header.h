@@ -6,6 +6,7 @@
 // Rust iOS C-ABI entry points
 void tailsend_ios_main(void);
 void tailsend_ios_join_session(const char *url_str);
+void tailsend_ios_file_picked(const char *path_str, const char *name_str);
 
 // Swift C-ABI exported functions for Rust to call
 void tailsend_swift_open_camera_scanner(void);
