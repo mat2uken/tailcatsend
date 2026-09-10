@@ -37,6 +37,9 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
+          # Full history so `git describe --tags` can resolve the latest
+          # version tag on manual (non-tag) runs.
+          fetch-depth: 0
           submodules: true
 
       - name: Apply Tailcat Patches
