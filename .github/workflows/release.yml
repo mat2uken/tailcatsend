@@ -299,9 +299,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          MARKETING_VERSION="1.0.0"
+          # The marketing version is only established by a v* tag push.
+          # Manual runs reuse the latest tag's version instead of forcing
+          # a default like 1.0.0.
+          MARKETING_VERSION=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')
           if [ -n "${{ github.ref_name }}" ] && [[ "${{ github.ref_name }}" =~ ^v ]]; then
             MARKETING_VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          if [ -z "$MARKETING_VERSION" ]; then
+            MARKETING_VERSION="1.0.0"
           fi
 
           TODAY_YMD=$(TZ='Asia/Tokyo' date +'%Y%m%d')

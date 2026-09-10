@@ -14,7 +14,7 @@ on:
           - beta
           - production
       version_name:
-        description: 'App Version Name (e.g. 1.0.0; leave empty to auto-detect from tag or use 1.0.0)'
+        description: 'App Version Name (leave empty to use the latest v* tag)'
         required: false
         default: ''
       version_code:
@@ -132,13 +132,19 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # The version name is only established by a v* tag push. Manual
+          # runs reuse the latest tag's version instead of forcing a
+          # default like 1.0.0.
           VERSION_NAME="${{ github.event.inputs.version_name }}"
           if [ -z "$VERSION_NAME" ]; then
             if [ -n "$GITHUB_REF_NAME" ] && [[ "$GITHUB_REF_NAME" =~ ^v ]]; then
               VERSION_NAME="${GITHUB_REF_NAME#v}"
             else
-              VERSION_NAME="1.0.0"
+              VERSION_NAME=$(git describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')
             fi
+          fi
+          if [ -z "$VERSION_NAME" ]; then
+            VERSION_NAME="1.0.0"
           fi
 
           VERSION_CODE="${{ github.event.inputs.version_code }}"
