@@ -14,6 +14,7 @@
 - 招待 URL、QR 表示／カメラ読取、テキスト送受信、ファイル選択、受信結果、取消、経路表示、設定表示を UI に接続した。
 - Slint の workspace crate、旧 mobile shell、旧 UI 定義、winit patch を削除し、製品入口を Tauri WebView に統一した。
 - Pages workflow は Go Tailcat WASM と Rust service WASM を別ファイルとして生成し、Web UI bundle と合わせて配布する。
+- BrowserではGo Tailcat WASMをWindowに置き、Rust service WASMとOPFSをDedicated Workerへ置く。Workerとのstream I/OはMessagePortで中継し、本文バッファはTransferableなArrayBufferを使う。Workerを使えないWebViewには同一Window adapterの切替を残す。
 - Tailcat の状態取得では peer 情報を要求し、受信側のデータ stream でも WebRTC／WireGuard UDP／DERP の表示を接続後に更新する。修正は `tailcat/patches/0003-tailcat-status-peer-report.patch` としてビルド時に適用する。
 
 ## ローカルで通過させる確認
@@ -40,6 +41,8 @@ Chrome 2 タブの実通信では、日本語テキスト、131,089 byte ファ�
 正式な macOS Tauri bundle (`target/release/bundle/macos/Ponlet.app`) と Sony XQ-DQ44 (Android 15) を同じ実行で接続した。招待直後の状態取得は `transport=direct-udp`、データ送受信後は両端の表示が `derp` へ更新された。macOS Tauri から Android へ `tauri-to-android-日本語.bin` (131,071 bytes) を送信し、Android の `received/` に保存されたファイルの SHA-256 `db7a7ca4ee279909ee4b75b9286e3ad86491667a7a43697a23dec03bf79118a0` が送信元と一致した。テキストは `macOS Tauri→Android 実通信 ✅` と `Android→macOS Tauri 実通信 ↔ 日本語` の双方向を確認した。これは Tauri 2端末の実通信と、同一接続での直接経路からDERPへの経路表示更新を確認する証拠である。
 
 Web 2タブの実通信E2Eには `npm run test:e2e:real:derp` を追加した。ローカル試験ページだけ WebRTC API を無効にして DERPへフォールバックさせ、両端の `derp` 表示、双方向テキスト、131,089／98,321 byte のファイル、SHA-256一致を確認する。受信開始時に未確定だった経路は、最初のデータ後に再取得して接続後の表示へ反映する。
+
+Worker化後も `npm run test:e2e:real` と `npm run test:e2e:real:derp` が同じ入力とSHA-256で通過した。Sony XQ-DQ44 (Android 15) とWorker化した Chromiumの実機E2Eも `npm run test:e2e:android` (WebRTC) と `npm run test:e2e:android:derp` (DERP) で通過し、131,071 byteのファイル保存と端末上のSHA-256を確認した。
 
 ## まだ実機で証明していない項目
 

@@ -29,10 +29,9 @@ function serveStatic() {
     try {
       const requestPath = decodeURIComponent((request.url ?? "/").split("?", 1)[0]);
       const relative = requestPath === "/" ? "/index.html" : requestPath;
-      const file =
-        relative === "/index.html" || relative.startsWith("/assets/index.")
-          ? resolve(uiDist, `.${relative}`)
-          : resolve(dist, `.${relative}`);
+      const uiFile = resolve(uiDist, `.${relative}`);
+      const distFile = resolve(dist, `.${relative}`);
+      const file = existsSync(uiFile) ? uiFile : distFile;
       if (!(file.startsWith(`${dist}${sep}`) || file.startsWith(`${uiDist}${sep}`))) {
         response.writeHead(400).end("invalid path");
         return;

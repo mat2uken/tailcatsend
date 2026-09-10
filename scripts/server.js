@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 
 const DIST_DIR = path.resolve(__dirname, "../dist");
+const UI_DIR = path.resolve(__dirname, "../web-ui/dist/web");
 const PORT = 8787;
 const HOST = "0.0.0.0";
 
@@ -22,7 +23,9 @@ const server = http.createServer((req, res) => {
     let reqPath = req.url.split("?")[0].split("#")[0];
     if (reqPath === "/") reqPath = "/index.html";
 
-    const filePath = path.join(DIST_DIR, reqPath);
+    const uiPath = path.join(UI_DIR, reqPath);
+    const distPath = path.join(DIST_DIR, reqPath);
+    const filePath = fs.existsSync(uiPath) ? uiPath : distPath;
     if (!fs.existsSync(filePath)) {
         res.writeHead(404, { "Content-Type": "text/plain" });
         res.end(`404 Not Found: ${reqPath}`);

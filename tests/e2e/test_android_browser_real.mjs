@@ -11,6 +11,11 @@ const dist = resolve(root, "dist");
 const uiDist = resolve(root, "web-ui/dist/web");
 const serial = process.env.PONLET_ANDROID_SERIAL ?? "";
 const cdpPort = Number(process.env.PONLET_ANDROID_CDP_PORT ?? "9223");
+const transportOverride = process.env.PONLET_TEST_TRANSPORT;
+
+if (transportOverride && transportOverride !== "derp") {
+  throw new Error(`unsupported PONLET_TEST_TRANSPORT: ${transportOverride}`);
+}
 
 const contentTypes = {
   ".css": "text/css; charset=utf-8",
@@ -32,10 +37,9 @@ function serveStatic() {
     try {
       const requestPath = decodeURIComponent((request.url ?? "/").split("?", 1)[0]);
       const relative = requestPath === "/" ? "/index.html" : requestPath;
-      const file =
-        relative === "/index.html" || relative.startsWith("/assets/index.")
-          ? resolve(uiDist, `.${relative}`)
-          : resolve(dist, `.${relative}`);
+      const uiFile = resolve(uiDist, `.${relative}`);
+      const distFile = resolve(dist, `.${relative}`);
+      const file = existsSync(uiFile) ? uiFile : distFile;
       if (!(file.startsWith(`${dist}${sep}`) || file.startsWith(`${uiDist}${sep}`))) {
         response.writeHead(400).end("invalid path");
         return;
@@ -125,10 +129,21 @@ async function main() {
   const { server, port } = await serveStatic();
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ acceptDownloads: true });
+  if (transportOverride === "derp") {
+    await context.addInitScript(() => {
+      Object.defineProperty(globalThis, "RTCPeerConnection", {
+        configurable: true,
+        value: undefined,
+      });
+    });
+  }
   const host = await context.newPage();
   let cdp;
   try {
-    await host.goto(`http://127.0.0.1:${port}/`, { waitUntil: "networkidle" });
+    const pageUrl = transportOverride
+      ? `http://127.0.0.1:${port}/?transport=${encodeURIComponent(transportOverride)}`
+      : `http://127.0.0.1:${port}/`;
+    await host.goto(pageUrl, { waitUntil: "networkidle" });
     await waitForSnapshot(host, (value) => value.state === "ready", "browser startup");
     await host.getByRole("button", { name: /Create invite|招待を作成/ }).click({ force: true });
     const inviteSnapshot = await waitForSnapshot(
@@ -179,7 +194,9 @@ async function main() {
     });
     const androidAfter = await waitForAndroidSnapshot(
       android,
-      (value) => value.received?.some((item) => item.name === "browser-to-android-日本語.bin"),
+      (value) =>
+        value.state === "connected" &&
+        value.received?.some((item) => item.name === "browser-to-android-日本語.bin"),
       "Android file receive",
     );
     const received = androidAfter.received.find(

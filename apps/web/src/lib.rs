@@ -140,9 +140,8 @@ async fn promise(value: JsValue) -> Result<JsValue, TransportError> {
 }
 
 fn tailcat_bridge() -> Result<JsValue, TransportError> {
-    let window = web_sys::window()
-        .ok_or_else(|| TransportError::Internal("window is unavailable".to_string()))?;
-    let value = Reflect::get(&window, &JsValue::from_str("tailSendTailcat")).map_err(js_error)?;
+    let global = js_sys::global();
+    let value = Reflect::get(&global, &JsValue::from_str("tailSendTailcat")).map_err(js_error)?;
     if value.is_undefined() || value.is_null() {
         return Err(TransportError::Internal(
             "Tailcat WebAssembly bridge is not ready".to_string(),
@@ -242,9 +241,10 @@ impl DuplexStream for WebStream {
             return Ok(());
         }
         self.closed = true;
-        function(&self.connection, "close")?
+        let close = function(&self.connection, "close")?
             .call0(&self.connection)
             .map_err(js_error)?;
+        promise(close).await?;
         Ok(())
     }
 }
@@ -290,7 +290,8 @@ impl Listener for WebListener {
 
     async fn close(&self) -> Result<(), TransportError> {
         if let Ok(close) = self.close.clone().dyn_into::<Function>() {
-            close.call0(&JsValue::UNDEFINED).map_err(js_error)?;
+            let result = close.call0(&JsValue::UNDEFINED).map_err(js_error)?;
+            promise(result).await?;
         }
         Ok(())
     }
@@ -421,9 +422,9 @@ struct WebFileSink {
 impl WebFileSink {
     async fn prepare(name: &str) -> Result<Self, StorageError> {
         let safe = sanitize_filename(name).map_err(|error| StorageError::Io(error.to_string()))?;
-        let window = web_sys::window()
-            .ok_or_else(|| StorageError::Unsupported("window is unavailable".into()))?;
-        let navigator = window.navigator();
+        let global = js_sys::global();
+        let navigator = Reflect::get(&global, &JsValue::from_str("navigator"))
+            .map_err(|error| StorageError::Io(format!("{error:?}")))?;
         let storage = Reflect::get(&navigator, &JsValue::from_str("storage"))
             .map_err(|error| StorageError::Io(format!("{error:?}")))?;
         let root = promise(
@@ -1190,8 +1191,8 @@ pub fn install_backend() -> Result<(), JsValue> {
     install_function(&object, "dispose", dispose.as_ref().unchecked_ref())?;
     dispose.forget();
 
-    let window = web_sys::window().ok_or_else(|| JsValue::from_str("window is unavailable"))?;
-    Reflect::set(&window, &JsValue::from_str("__ponletBackend"), &object).map(|_| ())
+    let global = js_sys::global();
+    Reflect::set(&global, &JsValue::from_str("__ponletBackend"), &object).map(|_| ())
 }
 
 fn snapshot_from_service(

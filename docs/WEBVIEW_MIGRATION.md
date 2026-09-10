@@ -8,7 +8,7 @@
 | --- | --- |
 | UI | `web-ui/` の VanJS + TypeScript + 標準 HTML/CSS。Vite mode `web` と `tauri` で同じソースを出力 |
 | Rust service | `tailsend-core`、`tailsend-transfer`、platform/transport API。招待、進捗、取消、保存完了を共通化 |
-| Browser | `apps/web` の Rust WASM と Window 側 Go Tailcat WASM。OPFS 保存、File 読み出し、WebRTC bridge を接続 |
+| Browser | `apps/web` の Rust WASM と OPFS を Dedicated Workerへ配置し、Window 側 Go Tailcat WASMを MessagePort で中継。File 読み出し、WebRTC bridge を接続 |
 | Native | `apps/tauri` の Tauri command/event、Go c-archive/c-shared、native file handle。`apps/desktop` は Tauri 起動のみ |
 | Mobile | `apps/tauri/gen/apple` と `apps/tauri/gen/android`。旧 `apps/ios`、`apps/android`、Slint UI は削除済み |
 | 配布 | Pages workflow が UI、Go WASM、Rust service WASM を release build から配置。更新検証 crate は署名とファイル検査まで実装 |
@@ -18,6 +18,7 @@
 - `NAME` ヘッダーの分割受信、ヘッダーと本文の同時受信、部分 read/write、0 byte、早期 EOF、取消、保存確定を共通 Rust へ移した。
 - Tauri の送信 picker、受信保存、QR bitmap、受信一覧を Rust command/event と VanJS に接続した。ファイル本文は invoke JSON に載せない。
 - Browser adapter は Go bridge の接続後に Rust WASM service を起動し、snapshot/event/API version を検証してから UI に渡す。
+- Browser adapter は Go bridge を Window に残し、Rust WASM service と OPFS を Dedicated Workerで起動する。WorkerとのI/Oは MessagePortを使い、stream本文は TransferableなArrayBufferで受け渡す。Workerを作成できないWebViewだけは同一Window adapterへ切り替える。
 - Go bridge の server status は peer 情報を明示的に取得する。接続通知時の値だけでなく、Rust stream がデータ開始時に再取得するため、受信側も実際の経路へ追随する。
 - `vanjslitetemplate` の Vite 8、Vitest、Oxlint、Oxfmt、`@nkzw/oxlint-config`、`vanjs-core` 構成を採用した。mode ごとの outDir と ES2018 target は維持する。
 - 旧 Slint workspace crate、font/icon、winit patch、NativeActivity/UIKit shell、旧生成 Pages entry を削除した。
@@ -35,6 +36,7 @@
 - 正式な macOS Tauri bundle (`target/release/bundle/macos/Ponlet.app`) と Sony XQ-DQ44 (Android 15) を接続し、招待直後の `direct-udp`、データ転送後の `derp`、双方向テキスト、macOS Tauri から Android への `tauri-to-android-日本語.bin` (131,071 bytes) 保存を確認した。Android の SHA-256 は `db7a7ca4ee279909ee4b75b9286e3ad86491667a7a43697a23dec03bf79118a0` で、送信元と一致した。
 - `cd web-ui && npm run test:e2e:real` で、招待、接続、テキスト、131,089 byte ファイル、OPFSからの開く操作、SHA-256、両端の経路表示を一括確認する。
 - `cd web-ui && npm run test:e2e:real:derp` ではローカル試験ページの WebRTC API を無効にして、同じ転送を DERP relay で再実行する。両端の経路表示が `derp` になることを含めて検査する。
+- `cd web-ui && PONLET_ANDROID_SERIAL=<serial> npm run test:e2e:android` では Sony XQ-DQ44 の Android Tauri WebView とWorker化した Chromiumを WebRTCで接続し、双方向テキストと131,071 byteファイルのSHA-256一致を確認する。`PONLET_TEST_TRANSPORT=derp` を付けた `npm run test:e2e:android:derp` では同じ入力を DERP relayで再実行する。
 
 ## 残っている検証
 
