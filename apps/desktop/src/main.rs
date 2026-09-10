@@ -669,6 +669,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         });
                     }
+                    "transfer_cancelled" => {
+                        let w = app_weak_daemon.clone();
+                        let _ = slint::invoke_from_event_loop(move || {
+                            if let Some(app) = w.upgrade() {
+                                let is_ja = app.get_current_language() == "ja";
+                                app.set_is_transferring(false);
+                                app.set_transfer_completed(false);
+                                app.set_transfer_status(I18n::transfer_cancelled(is_ja).into());
+                            }
+                        });
+                    }
                     _ => {}
                 }
             }

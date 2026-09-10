@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -36,6 +37,7 @@ type DaemonMessage struct {
 	Speed         string  `json:"speed,omitempty"`
 	Path          string  `json:"path,omitempty"`
 	Error         string  `json:"error,omitempty"`
+	Reason        string  `json:"reason,omitempty"`
 	TransportType int     `json:"transport_type,omitempty"`
 	IsDERP        *bool   `json:"is_derp,omitempty"`
 }
@@ -79,6 +81,24 @@ type Daemon struct {
 	textConns  map[string]net.Conn
 	nextHandle uint64
 	ipcClients map[net.Conn]bool
+	transfers  []*activeTransfer
+}
+
+// activeTransfer tracks a single in-flight file transfer so the UI can cancel
+// the most recent one. Either send (dial conn) or receive (cancel + outFile).
+type activeTransfer struct {
+	mu        sync.Mutex
+	conn      net.Conn
+	cancel    context.CancelFunc
+	outFile   *os.File
+	outPath   string
+	cancelled atomic.Bool
+}
+
+func (t *activeTransfer) setConn(c net.Conn) {
+	t.mu.Lock()
+	t.conn = c
+	t.mu.Unlock()
 }
 
 func main() {
@@ -216,16 +236,34 @@ func main() {
 						return
 					}
 					defer outFile.Close()
+
+					_, recvCancel := context.WithCancel(context.Background())
+					defer recvCancel()
+					transfer := &activeTransfer{
+						cancel:  recvCancel,
+						outFile: outFile,
+						outPath: outPath,
+					}
+					transfer.setConn(conn)
+					d.registerTransfer(transfer)
+					defer d.finishTransfer(transfer)
+
 					buf := make([]byte, 64*1024)
 					var totalBytes int64
 					startTime := time.Now()
 					lastProgress := time.Now()
 
 					for {
+						if transfer.cancelled.Load() {
+							break
+						}
 						n, rErr := reader.Read(buf)
 						if n > 0 {
 							_, wErr := outFile.Write(buf[:n])
 							if wErr != nil {
+								if transfer.cancelled.Load() {
+									break
+								}
 								d.broadcast(DaemonMessage{
 									Event: "error",
 									Error: fmt.Sprintf("Failed to write received file %s: %v", outPath, wErr),
@@ -262,6 +300,12 @@ func main() {
 						if rErr != nil {
 							break
 						}
+					}
+
+					if transfer.cancelled.Load() {
+						outFile.Close()
+						_ = os.Remove(outPath)
+						return
 					}
 
 					d.broadcast(DaemonMessage{
@@ -408,6 +452,9 @@ func (d *Daemon) handleIPCClient(conn net.Conn) {
 		case "send_file":
 			go d.handleSendFile(cmd)
 
+		case "cancel_transfer":
+			go d.handleCancelTransfer()
+
 		case "disconnect":
 			d.closeAllTextConns()
 			res, _ := json.Marshal(DaemonMessage{Event: "disconnected"})
@@ -496,6 +543,56 @@ func (d *Daemon) closeAllTextConns() {
 	}
 }
 
+func (d *Daemon) registerTransfer(t *activeTransfer) {
+	d.mu.Lock()
+	d.transfers = append(d.transfers, t)
+	d.mu.Unlock()
+}
+
+func (d *Daemon) finishTransfer(t *activeTransfer) {
+	d.mu.Lock()
+	for i, x := range d.transfers {
+		if x == t {
+			d.transfers = append(d.transfers[:i], d.transfers[i+1:]...)
+			break
+		}
+	}
+	d.mu.Unlock()
+}
+
+// handleCancelTransfer cancels the most recent in-flight transfer. The
+// transfer_cancelled event is broadcast here once; the send/receive goroutines
+// exit silently so they don't report a competing success/error event.
+func (d *Daemon) handleCancelTransfer() {
+	d.mu.Lock()
+	var t *activeTransfer
+	if n := len(d.transfers); n > 0 {
+		t = d.transfers[n-1]
+	}
+	d.mu.Unlock()
+	if t == nil {
+		return
+	}
+
+	t.cancelled.Store(true)
+	t.mu.Lock()
+	if t.conn != nil {
+		_ = t.conn.Close()
+	}
+	if t.outFile != nil {
+		_ = t.outFile.Close()
+	}
+	t.mu.Unlock()
+	if t.cancel != nil {
+		t.cancel()
+	}
+
+	d.broadcast(DaemonMessage{
+		Event:  "transfer_cancelled",
+		Reason: "user",
+	})
+}
+
 func (d *Daemon) handleSendText(cmd CommandMessage) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -532,7 +629,14 @@ func (d *Daemon) handleSendText(cmd CommandMessage) {
 }
 
 func (d *Daemon) handleSendFile(cmd CommandMessage) {
-	fileData, err := os.ReadFile(cmd.Path)
+	f, err := os.Open(cmd.Path)
+	if err != nil {
+		d.broadcast(DaemonMessage{Event: "error", Error: err.Error()})
+		return
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
 	if err != nil {
 		d.broadcast(DaemonMessage{Event: "error", Error: err.Error()})
 		return
@@ -542,31 +646,79 @@ func (d *Daemon) handleSendFile(cmd CommandMessage) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
+	transfer := &activeTransfer{cancel: cancel}
+	d.registerTransfer(transfer)
+	defer d.finishTransfer(transfer)
+
 	if err := pingUntil(ctx, cl); err != nil {
+		if transfer.cancelled.Load() {
+			return
+		}
 		d.broadcast(DaemonMessage{Event: "error", Error: fmt.Sprintf("Ping to peer failed: %v", err)})
 		return
 	}
 
 	conn, err := cl.DialTCPPort(ctx, 102)
 	if err != nil {
+		if transfer.cancelled.Load() {
+			return
+		}
 		d.broadcast(DaemonMessage{Event: "error", Error: err.Error()})
 		return
 	}
+	transfer.setConn(conn)
 	defer conn.Close()
 
-	header := fmt.Sprintf("NAME:%s:%d\n", cmd.Filename, len(fileData))
-	_, _ = conn.Write([]byte(header))
-	_, _ = conn.Write(fileData)
+	header := fmt.Sprintf("NAME:%s:%d\n", cmd.Filename, fi.Size())
+	if _, err := conn.Write([]byte(header)); err != nil {
+		if transfer.cancelled.Load() {
+			return
+		}
+		d.broadcast(DaemonMessage{Event: "error", Error: err.Error()})
+		return
+	}
+
+	// Stream the file body in 64 KiB chunks so arbitrarily large files never
+	// get buffered in memory.
+	buf := make([]byte, 64*1024)
+	var sent int64
+	for {
+		n, rErr := io.ReadFull(f, buf)
+		if n > 0 {
+			if _, wErr := conn.Write(buf[:n]); wErr != nil {
+				if transfer.cancelled.Load() {
+					return
+				}
+				d.broadcast(DaemonMessage{Event: "error", Error: fmt.Sprintf("Write file to peer failed: %v", wErr)})
+				return
+			}
+			sent += int64(n)
+		}
+		if rErr != nil {
+			if rErr != io.EOF && rErr != io.ErrUnexpectedEOF {
+				if transfer.cancelled.Load() {
+					return
+				}
+				d.broadcast(DaemonMessage{Event: "error", Error: fmt.Sprintf("Read file failed: %v", rErr)})
+				return
+			}
+			break
+		}
+	}
 
 	if cw, ok := conn.(interface{ CloseWrite() error }); ok {
 		_ = cw.CloseWrite()
 	}
 	time.Sleep(200 * time.Millisecond)
 
+	if transfer.cancelled.Load() {
+		return
+	}
+
 	d.broadcast(DaemonMessage{
 		Event:    "send_file_success",
 		Filename: cmd.Filename,
-		Size:     int64(len(fileData)),
+		Size:     sent,
 	})
 }
 
