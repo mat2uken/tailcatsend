@@ -648,6 +648,14 @@ async fn ponlet_disconnect_impl(
 
 impl TauriRuntime {
     async fn disconnect_internal(&self, app: &AppHandle) -> Result<(), String> {
+        let active_transfer = self
+            .state
+            .lock()
+            .expect("runtime state mutex poisoned")
+            .active_transfer;
+        if let Some(transfer_id) = active_transfer {
+            let _ = self.backend.cancel(transfer_id);
+        }
         if let Some(session) = self.take_session() {
             session.cancel.store(true, Ordering::Release);
             session
@@ -1032,42 +1040,52 @@ impl IncomingFileSink for NativeFileSink {
 
     async fn commit(mut self: Box<Self>) -> Result<ReceivedItem, StorageError> {
         use tokio::io::AsyncWriteExt;
-        if let Some(mut file) = self.file.take() {
-            file.flush()
+        let result = async {
+            if let Some(mut file) = self.file.take() {
+                file.flush()
+                    .await
+                    .map_err(|error| StorageError::Io(error.to_string()))?;
+                file.sync_all()
+                    .await
+                    .map_err(|error| StorageError::Io(error.to_string()))?;
+            }
+            if tokio::fs::try_exists(&self.final_path)
+                .await
+                .map_err(|error| StorageError::Io(error.to_string()))?
+            {
+                let stem = self
+                    .final_path
+                    .file_stem()
+                    .and_then(|v| v.to_str())
+                    .unwrap_or("received");
+                let ext = self
+                    .final_path
+                    .extension()
+                    .and_then(|v| v.to_str())
+                    .unwrap_or("");
+                let suffix = if ext.is_empty() {
+                    String::new()
+                } else {
+                    format!(".{ext}")
+                };
+                self.final_path = self
+                    .final_path
+                    .with_file_name(format!("{stem} (1){suffix}"));
+            }
+            tokio::fs::rename(&self.temp_path, &self.final_path)
                 .await
                 .map_err(|error| StorageError::Io(error.to_string()))?;
-            file.sync_all()
-                .await
-                .map_err(|error| StorageError::Io(error.to_string()))?;
+            Ok(ReceivedItem {
+                name: self.name.clone(),
+                size: self.size,
+                local_path_or_handle: self.final_path.to_string_lossy().into_owned(),
+            })
         }
-        if self.final_path.exists() {
-            let stem = self
-                .final_path
-                .file_stem()
-                .and_then(|v| v.to_str())
-                .unwrap_or("received");
-            let ext = self
-                .final_path
-                .extension()
-                .and_then(|v| v.to_str())
-                .unwrap_or("");
-            let suffix = if ext.is_empty() {
-                String::new()
-            } else {
-                format!(".{ext}")
-            };
-            self.final_path = self
-                .final_path
-                .with_file_name(format!("{stem} (1){suffix}"));
+        .await;
+        if result.is_err() {
+            let _ = tokio::fs::remove_file(&self.temp_path).await;
         }
-        tokio::fs::rename(&self.temp_path, &self.final_path)
-            .await
-            .map_err(|error| StorageError::Io(error.to_string()))?;
-        Ok(ReceivedItem {
-            name: self.name.clone(),
-            size: self.size,
-            local_path_or_handle: self.final_path.to_string_lossy().into_owned(),
-        })
+        result
     }
 
     async fn abort(mut self: Box<Self>) -> Result<(), StorageError> {
