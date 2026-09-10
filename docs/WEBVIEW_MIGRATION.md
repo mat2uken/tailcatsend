@@ -33,6 +33,7 @@
 - Sony XQ-DQ44 の Android Tauri WebView と Chromium の接続、`DERP relay` の経路表示、Android picker から `android-real.bin` (131,071 bytes) を Web 側へ送信する実機確認。
 - Sony XQ-DQ44 と Chromium を新しいホストへ接続し、`WebRTC DataChannel` で双方向テキスト、ブラウザから Android への `browser-to-android-日本語.bin` (131,071 bytes) を送信し、Android `received/` の SHA-256 (`e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19`) を確認する `tests/e2e/test_android_browser_real.mjs`。
 - `cd web-ui && npm run test:e2e:real` で、招待、接続、テキスト、131,089 byte ファイル、OPFSからの開く操作、SHA-256、両端の経路表示を一括確認する。
+- `cd web-ui && npm run test:e2e:real:derp` ではローカル試験ページの WebRTC API を無効にして、同じ転送を DERP relay で再実行する。両端の経路表示が `derp` になることを含めて検査する。
 
 ## 残っている検証
 

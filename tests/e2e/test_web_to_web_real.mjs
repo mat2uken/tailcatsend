@@ -8,6 +8,12 @@ const { chromium } = playwright;
 
 const root = resolve(new URL("../..", import.meta.url).pathname);
 const dist = resolve(root, "dist");
+const uiDist = resolve(root, "web-ui/dist/web");
+const transportOverride = process.env.PONLET_TEST_TRANSPORT;
+
+if (transportOverride && !["webrtc", "derp"].includes(transportOverride)) {
+  throw new Error(`unsupported PONLET_TEST_TRANSPORT: ${transportOverride}`);
+}
 
 const contentTypes = {
   ".css": "text/css; charset=utf-8",
@@ -23,8 +29,11 @@ function serveStatic() {
     try {
       const requestPath = decodeURIComponent((request.url ?? "/").split("?", 1)[0]);
       const relative = requestPath === "/" ? "/index.html" : requestPath;
-      const file = resolve(dist, `.${relative}`);
-      if (file !== dist && !file.startsWith(`${dist}${sep}`)) {
+      const file =
+        relative === "/index.html" || relative.startsWith("/assets/index.")
+          ? resolve(uiDist, `.${relative}`)
+          : resolve(dist, `.${relative}`);
+      if (!(file.startsWith(`${dist}${sep}`) || file.startsWith(`${uiDist}${sep}`))) {
         response.writeHead(400).end("invalid path");
         return;
       }
@@ -88,12 +97,23 @@ async function main() {
   const { server, port } = await serveStatic();
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ acceptDownloads: true });
+  if (transportOverride === "derp") {
+    await context.addInitScript(() => {
+      Object.defineProperty(globalThis, "RTCPeerConnection", {
+        configurable: true,
+        value: undefined,
+      });
+    });
+  }
   const host = await context.newPage();
   const joiner = await context.newPage();
   const base = `http://127.0.0.1:${port}`;
+  const pageUrl = transportOverride
+    ? `${base}/?transport=${encodeURIComponent(transportOverride)}`
+    : `${base}/`;
 
   try {
-    await host.goto(`${base}/`, { waitUntil: "networkidle" });
+    await host.goto(pageUrl, { waitUntil: "networkidle" });
     await waitForSnapshot(host, (value) => value.state === "ready", "host backend startup");
     await host.getByRole("button", { name: /Create invite|招待を作成/ }).click();
     const inviteSnapshot = await waitForSnapshot(
@@ -102,7 +122,9 @@ async function main() {
       "invite creation",
     );
     const invite = new URL(inviteSnapshot.inviteUrl);
-    const joinUrl = `${base}/#${invite.hash.slice(1)}`;
+    const joinUrl = transportOverride
+      ? `${base}/?transport=${encodeURIComponent(transportOverride)}#${invite.hash.slice(1)}`
+      : `${base}/#${invite.hash.slice(1)}`;
     await joiner.goto(joinUrl, { waitUntil: "networkidle" });
 
     await waitForSnapshot(host, (value) => value.state === "connected", "host connection");
@@ -142,7 +164,9 @@ async function main() {
     await joiner.getByRole("button", { name: /Send|送信/ }).click();
     await host.getByText(`[Peer]: ${reverseText}`).waitFor({ state: "visible", timeout: 30_000 });
 
-    const reverseBytes = Buffer.from(Array.from({ length: 98_321 }, (_, index) => (index * 7) % 251));
+    const reverseBytes = Buffer.from(
+      Array.from({ length: 98_321 }, (_, index) => (index * 7) % 251),
+    );
     const reverseHash = sha256(reverseBytes);
     await joiner.locator('input[type="file"]').setInputFiles({
       name: "reply-日本語.dat",

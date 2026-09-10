@@ -1079,6 +1079,7 @@ async fn receive_text(runtime: Arc<TauriState>, app: AppHandle, mut stream: Box<
         );
     })
     .await;
+    runtime.set_transport_path(&app, stream.transport_path());
     let _ = stream.close().await;
     runtime.backend.finish_transfer(transfer_id);
     if let Err(error) = result {
@@ -1135,6 +1136,7 @@ async fn receive_file(runtime: Arc<TauriState>, app: AppHandle, mut stream: Box<
         Some(&callback),
     )
     .await;
+    runtime.set_transport_path(&app, stream.transport_path());
     let _ = stream.close().await;
     match result {
         Ok(received) => {

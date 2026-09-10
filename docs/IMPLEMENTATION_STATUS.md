@@ -37,6 +37,8 @@ Chrome 2 タブの実通信では、日本語テキスト、131,089 byte ファ�
 
 同じ端末で以前に Android picker から Chromium へ送った `android-real.bin` は DERP relay として確定しているため、Android／Web の実機では WebRTC と DERP の二つの経路を別実行で確認した。macOS上のTailcat低レベル probe では WireGuard UDP の直接経路 (`Endpoint=192.168.31.151:59013`) も観測したが、これは製品UIを介した2端末転送の証明には使わない。
 
+Web 2タブの実通信E2Eには `npm run test:e2e:real:derp` を追加した。ローカル試験ページだけ WebRTC API を無効にして DERPへフォールバックさせ、両端の `derp` 表示、双方向テキスト、131,089／98,321 byte のファイル、SHA-256一致を確認する。受信開始時に未確定だった経路は、最初のデータ後に再取得して接続後の表示へ反映する。
+
 ## まだ実機で証明していない項目
 
 - Tauri の2端末間での双方向テキスト・ファイル転送、SHA-256、保存後の開く／共有。

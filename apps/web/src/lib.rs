@@ -968,10 +968,15 @@ async fn accept_loop(backend: Rc<WebBackend>, session: Rc<WebSession>) {
         };
         backend.event(AppEvent::TransportChanged(incoming.stream.transport_path()));
         let backend_for_stream = backend.clone();
+        let session_for_stream = session.clone();
         spawn_local(async move {
             match incoming.port {
-                TEXT_PORT => receive_text(backend_for_stream, incoming.stream).await,
-                FILE_PORT => receive_file(backend_for_stream, incoming.stream).await,
+                TEXT_PORT => {
+                    receive_text(backend_for_stream, session_for_stream, incoming.stream).await
+                }
+                FILE_PORT => {
+                    receive_file(backend_for_stream, session_for_stream, incoming.stream).await
+                }
                 _ => {
                     let mut stream = incoming.stream;
                     let _ = stream.close().await;
@@ -981,13 +986,20 @@ async fn accept_loop(backend: Rc<WebBackend>, session: Rc<WebSession>) {
     }
 }
 
-async fn receive_text(backend: Rc<WebBackend>, mut stream: Box<dyn DuplexStream>) {
+async fn receive_text(
+    backend: Rc<WebBackend>,
+    session: Rc<WebSession>,
+    mut stream: Box<dyn DuplexStream>,
+) {
     let id = new_id();
     let cancel = backend.service.register_transfer(id);
     let result = receive_live_text_stream(&mut stream, cancel, |text| {
         backend.event(AppEvent::TextReceived { text })
     })
     .await;
+    let transport_path = stream.transport_path();
+    *session.transport_path.borrow_mut() = transport_path;
+    backend.event(AppEvent::TransportChanged(transport_path));
     let _ = stream.close().await;
     if let Err(error) = result {
         backend.event(AppEvent::TransferCancelled {
@@ -999,7 +1011,11 @@ async fn receive_text(backend: Rc<WebBackend>, mut stream: Box<dyn DuplexStream>
     backend.restore_connected_idle();
 }
 
-async fn receive_file(backend: Rc<WebBackend>, mut stream: Box<dyn DuplexStream>) {
+async fn receive_file(
+    backend: Rc<WebBackend>,
+    session: Rc<WebSession>,
+    mut stream: Box<dyn DuplexStream>,
+) {
     let id = new_id();
     let cancel = backend.service.register_transfer(id);
     let progress_backend = backend.clone();
@@ -1028,6 +1044,9 @@ async fn receive_file(backend: Rc<WebBackend>, mut stream: Box<dyn DuplexStream>
         Some(&callback),
     )
     .await;
+    let transport_path = stream.transport_path();
+    *session.transport_path.borrow_mut() = transport_path;
+    backend.event(AppEvent::TransportChanged(transport_path));
     let _ = stream.close().await;
     match result {
         Ok(received) => backend.event(AppEvent::FilesReceived {
