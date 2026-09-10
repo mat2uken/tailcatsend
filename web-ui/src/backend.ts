@@ -114,5 +114,6 @@ export function createBackend(
     ...(native.pickAndSendFiles
       ? { pickAndSendFiles: () => native.pickAndSendFiles!() }
       : {}),
+    ...(native.qrCode ? { qrCode: (url) => native.qrCode!(url) } : {}),
   };
 }

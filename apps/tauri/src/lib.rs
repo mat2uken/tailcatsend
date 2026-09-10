@@ -33,6 +33,7 @@ use tailsend_transfer::{
 use tailsend_transport_api::{
     DuplexStream, ListenOptions, Listener, TailcatTransport, TransportPath,
 };
+use tailsend_qr::generate_qr_rgba;
 
 const APP_EVENT: &str = "ponlet:event";
 const DERP_MAP_URL: &str = "https://tailcat.dev/derpmap.json";
@@ -54,6 +55,7 @@ struct UiSnapshot {
     transfer: Option<UiTransfer>,
     error: Option<String>,
     transport: TransportPath,
+    received: Vec<UiReceivedItem>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -65,6 +67,22 @@ struct UiTransfer {
     total: u64,
     incoming: bool,
     status: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UiReceivedItem {
+    name: String,
+    size: u64,
+    local_path_or_handle: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UiQrBitmap {
+    width: u32,
+    height: u32,
+    rgba_pixels: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -84,6 +102,10 @@ enum UiEvent {
         sequence: u64,
         text: String,
         incoming: bool,
+    },
+    Files {
+        sequence: u64,
+        items: Vec<UiReceivedItem>,
     },
     Terminal {
         sequence: u64,
@@ -119,6 +141,7 @@ pub struct TauriRuntime {
     transport: Arc<NativeTailcatTransport>,
     state: Mutex<RuntimeState>,
     downloads_dir: Mutex<PathBuf>,
+    received: Arc<Mutex<Vec<UiReceivedItem>>>,
 }
 
 impl TauriRuntime {
@@ -132,11 +155,17 @@ impl TauriRuntime {
                 active_transfer: None,
             }),
             downloads_dir: Mutex::new(default_downloads_dir()),
+            received: Arc::new(Mutex::new(Vec::new())),
         })
     }
 
     fn snapshot(&self) -> UiSnapshot {
         let snapshot = self.backend.snapshot();
+        let received = self
+            .received
+            .lock()
+            .expect("received item mutex poisoned")
+            .clone();
         let app = snapshot.app;
         let (state, peer_name, invite_url, expires, can_send, can_disconnect, transfer, error) =
             match app.state {
@@ -240,6 +269,7 @@ impl TauriRuntime {
             transfer,
             error,
             transport: app.transport_path,
+            received,
         }
     }
 
@@ -273,6 +303,37 @@ impl TauriRuntime {
                         sequence: ordered.sequence,
                         text,
                         incoming: true,
+                    },
+                );
+            }
+            AppEvent::FilesReceived { items } => {
+                let items = items
+                    .into_iter()
+                    .map(|item| {
+                        self.received
+                            .lock()
+                            .expect("received item mutex poisoned")
+                            .push(UiReceivedItem {
+                                name: item.name,
+                                size: item.size,
+                                local_path_or_handle: item.local_path_or_handle,
+                            });
+                    })
+                    .count();
+                let recent = self
+                    .received
+                    .lock()
+                    .expect("received item mutex poisoned")
+                    .iter()
+                    .rev()
+                    .take(items)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let _ = app.emit(
+                    APP_EVENT,
+                    UiEvent::Files {
+                        sequence: ordered.sequence,
+                        items: recent,
                     },
                 );
             }
@@ -313,7 +374,7 @@ impl TauriRuntime {
                     },
                 );
             }
-            AppEvent::StateChanged(_) | AppEvent::FilesReceived { .. } => {
+            AppEvent::StateChanged(_) => {
                 self.emit_snapshot(app, ordered.sequence);
             }
         }
@@ -734,6 +795,15 @@ async fn ponlet_save_text_impl(app: AppHandle, text: String) -> Result<(), Strin
     std::io::Write::flush(&mut file).map_err(|error| format!("cannot flush message: {error}"))
 }
 
+fn ponlet_qr_code_impl(url: String) -> Result<UiQrBitmap, String> {
+    let image = generate_qr_rgba(&url, 256).map_err(|error| error.to_string())?;
+    Ok(UiQrBitmap {
+        width: image.width,
+        height: image.height,
+        rgba_pixels: image.rgba_pixels,
+    })
+}
+
 async fn ponlet_cancel_transfer_impl(
     _app: AppHandle,
     runtime: State<'_, TauriRuntime>,
@@ -788,6 +858,7 @@ impl TauriRuntime {
                 .lock()
                 .expect("downloads directory mutex poisoned")
                 .clone(),
+            received: self.received.clone(),
         })
     }
 
@@ -803,12 +874,18 @@ impl TauriRuntime {
 struct TauriState {
     backend: BackendService,
     downloads_dir: PathBuf,
+    received: Arc<Mutex<Vec<UiReceivedItem>>>,
 }
 
 impl TauriState {
     fn set_state(&self, app: &AppHandle, state: SessionState) {
         let event = self.backend.set_state(state);
-        let snapshot = snapshot_from_backend(&self.backend);
+        let received = self
+            .received
+            .lock()
+            .expect("received item mutex poisoned")
+            .clone();
+        let snapshot = snapshot_from_backend(&self.backend, &received);
         let _ = app.emit(
             APP_EVENT,
             UiEvent::Snapshot {
@@ -834,6 +911,19 @@ impl TauriState {
                 },
             );
         }
+    }
+
+    fn add_received(&self, item: ReceivedItem) -> UiReceivedItem {
+        let item = UiReceivedItem {
+            name: item.name,
+            size: item.size,
+            local_path_or_handle: item.local_path_or_handle,
+        };
+        self.received
+            .lock()
+            .expect("received item mutex poisoned")
+            .push(item.clone());
+        item
     }
 }
 
@@ -910,7 +1000,7 @@ async fn receive_text(runtime: Arc<TauriState>, app: AppHandle, mut stream: Box<
             },
         );
     }
-    set_idle_from_backend(&runtime.backend, &app);
+    set_idle_from_backend(&runtime.backend, &app, &runtime.received);
 }
 
 async fn receive_file(runtime: Arc<TauriState>, app: AppHandle, mut stream: Box<dyn DuplexStream>) {
@@ -952,9 +1042,17 @@ async fn receive_file(runtime: Arc<TauriState>, app: AppHandle, mut stream: Box<
     let _ = stream.close().await;
     match result {
         Ok(received) => {
+            let item = runtime.add_received(received.item.clone());
             let ordered = runtime.backend.emit(AppEvent::FilesReceived {
                 items: vec![received.item],
             });
+            let _ = app.emit(
+                APP_EVENT,
+                UiEvent::Files {
+                    sequence: ordered.sequence,
+                    items: vec![item],
+                },
+            );
             let _ = app.emit(
                 APP_EVENT,
                 UiEvent::Terminal {
@@ -982,7 +1080,7 @@ async fn receive_file(runtime: Arc<TauriState>, app: AppHandle, mut stream: Box<
         }
     }
     runtime.backend.finish_transfer(transfer_id);
-    set_idle_from_backend(&runtime.backend, &app);
+    set_idle_from_backend(&runtime.backend, &app, &runtime.received);
 }
 
 fn finish_outgoing(
@@ -1008,7 +1106,7 @@ fn finish_outgoing(
     let failed = !matches!(&event, AppEvent::TransferCompleted { .. });
     runtime.publish(app, event);
     runtime.finish_transfer(transfer_id);
-    set_idle_from_backend(&runtime.backend, app);
+    set_idle_from_backend(&runtime.backend, app, &runtime.received);
     if failed {
         Err("Transfer failed".to_string())
     } else {
@@ -1016,7 +1114,11 @@ fn finish_outgoing(
     }
 }
 
-fn set_idle_from_backend(backend: &BackendService, app: &AppHandle) {
+fn set_idle_from_backend(
+    backend: &BackendService,
+    app: &AppHandle,
+    received: &Arc<Mutex<Vec<UiReceivedItem>>>,
+) {
     let name = backend.snapshot().app.peer_display_name;
     if name.is_empty() {
         return;
@@ -1035,7 +1137,13 @@ fn set_idle_from_backend(backend: &BackendService, app: &AppHandle) {
         APP_EVENT,
         UiEvent::Snapshot {
             sequence: event.sequence,
-            snapshot: snapshot_from_backend(backend),
+            snapshot: snapshot_from_backend(
+                backend,
+                &received
+                    .lock()
+                    .expect("received item mutex poisoned")
+                    .clone(),
+            ),
         },
     );
 }
@@ -1223,7 +1331,7 @@ impl IncomingFileSink for NativeFileSink {
     }
 }
 
-fn snapshot_from_backend(backend: &BackendService) -> UiSnapshot {
+fn snapshot_from_backend(backend: &BackendService, received: &[UiReceivedItem]) -> UiSnapshot {
     let snapshot = backend.snapshot();
     let app = snapshot.app;
     let (state, peer_name, invite_url, expires, can_send, can_disconnect, transfer, error) =
@@ -1328,6 +1436,7 @@ fn snapshot_from_backend(backend: &BackendService) -> UiSnapshot {
         transfer,
         error,
         transport: app.transport_path,
+        received: received.to_vec(),
     }
 }
 
@@ -1445,6 +1554,15 @@ mod tests {
             .expect("FilePath parsing is infallible");
         assert_eq!(picker_file_name(&opaque, 2), "selected-file-3");
     }
+
+    #[test]
+    fn qr_bitmap_has_rgba_pixels_for_invitation() {
+        let image = ponlet_qr_code_impl("https://ponlet.example/#i=test".to_string())
+            .expect("QR should encode");
+        assert!(image.width >= 256);
+        assert_eq!(image.width, image.height);
+        assert_eq!(image.rgba_pixels.len(), (image.width * image.height * 4) as usize);
+    }
 }
 
 mod commands {
@@ -1504,6 +1622,11 @@ mod commands {
     }
 
     #[tauri::command]
+    pub fn ponlet_qr_code(url: String) -> Result<UiQrBitmap, String> {
+        super::ponlet_qr_code_impl(url)
+    }
+
+    #[tauri::command]
     pub async fn ponlet_cancel_transfer(
         app: AppHandle,
         runtime: State<'_, TauriRuntime>,
@@ -1536,6 +1659,7 @@ pub fn run() {
             commands::ponlet_send_files,
             commands::ponlet_pick_and_send_files,
             commands::ponlet_save_text,
+            commands::ponlet_qr_code,
             commands::ponlet_cancel_transfer,
             commands::ponlet_disconnect,
         ])

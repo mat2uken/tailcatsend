@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { BackendEvent, BackendSnapshot, PonletBackend } from "../api/application-api";
+import type { BackendEvent, BackendSnapshot, PonletBackend, QrBitmap } from "../api/application-api";
 import { validateSnapshot } from "../api/validation";
 
 type TauriFile = File & { path?: string };
@@ -76,6 +76,7 @@ export function createBackend(): PonletBackend {
     sendText: (text) => invoke("ponlet_send_text", { text }),
     sendFiles: (files) => invoke("ponlet_send_files", { files: files.map(toFileRequest) }),
     pickAndSendFiles: () => invoke("ponlet_pick_and_send_files"),
+    qrCode: (url): Promise<QrBitmap> => invoke("ponlet_qr_code", { url }),
     cancelTransfer: (id) => invoke("ponlet_cancel_transfer", { id }),
     disconnect: () => invoke("ponlet_disconnect"),
     copyText,

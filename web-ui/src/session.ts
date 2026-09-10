@@ -78,6 +78,8 @@ export class Session {
         messages: [{ text: event.text, incoming: event.incoming }, ...this.view.messages],
         lastReceivedText: event.incoming ? event.text : this.view.lastReceivedText,
       };
+    } else if (event.type === "files") {
+      snapshot.received = [...snapshot.received, ...event.items];
     } else if (event.type === "progress" && snapshot.transfer?.id === event.id) {
       snapshot.transfer = { ...snapshot.transfer, done: event.done, total: event.total };
     } else if (event.type === "terminal" && snapshot.transfer?.id === event.id) {

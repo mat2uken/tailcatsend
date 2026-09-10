@@ -25,6 +25,7 @@ use tailsend_core::{
 use tailsend_platform_api::{
     FileMetadata, FileSource, IncomingFileSink, ReceivedItem, StorageError,
 };
+use tailsend_qr::generate_qr_rgba;
 use tailsend_protocol::control::{BrowserFamily, Capabilities, PeerInfo, PlatformKind};
 use tailsend_protocol::filename::sanitize_filename;
 use tailsend_protocol::invitation::InvitationV1;
@@ -56,6 +57,7 @@ struct UiSnapshot {
     transfer: Option<UiTransfer>,
     error: Option<String>,
     transport: TransportPath,
+    received: Vec<UiReceivedItem>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -67,6 +69,22 @@ struct UiTransfer {
     total: u64,
     incoming: bool,
     status: &'static str,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UiReceivedItem {
+    name: String,
+    size: u64,
+    local_path_or_handle: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct UiQrBitmap {
+    width: u32,
+    height: u32,
+    rgba_pixels: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -86,6 +104,10 @@ enum UiEvent {
         sequence: u64,
         text: String,
         incoming: bool,
+    },
+    Files {
+        sequence: u64,
+        items: Vec<UiReceivedItem>,
     },
     Terminal {
         sequence: u64,
@@ -510,6 +532,7 @@ struct WebBackend {
     transport: Arc<WebTransport>,
     session: RefCell<Option<Rc<WebSession>>>,
     subscribers: RefCell<Vec<Function>>,
+    received: RefCell<Vec<UiReceivedItem>>,
 }
 
 impl WebBackend {
@@ -523,11 +546,12 @@ impl WebBackend {
             transport: Arc::new(WebTransport),
             session: RefCell::new(None),
             subscribers: RefCell::new(Vec::new()),
+            received: RefCell::new(Vec::new()),
         })
     }
 
     fn snapshot(&self) -> UiSnapshot {
-        snapshot_from_service(&self.service)
+        snapshot_from_service(&self.service, &self.received.borrow())
     }
 
     fn notify(&self, event: UiEvent) {
@@ -550,11 +574,26 @@ impl WebBackend {
     fn event(&self, event: AppEvent) {
         let ordered = self.service.emit(event.clone());
         match event {
-            AppEvent::StateChanged(_) | AppEvent::FilesReceived { .. } => {
+            AppEvent::StateChanged(_) => {
                 self.notify(UiEvent::Snapshot {
                     sequence: ordered.sequence,
                     snapshot: self.snapshot(),
                 })
+            }
+            AppEvent::FilesReceived { items } => {
+                let items = items
+                    .into_iter()
+                    .map(|item| UiReceivedItem {
+                        name: item.name,
+                        size: item.size,
+                        local_path_or_handle: item.local_path_or_handle,
+                    })
+                    .collect::<Vec<_>>();
+                self.received.borrow_mut().extend(items.clone());
+                self.notify(UiEvent::Files {
+                    sequence: ordered.sequence,
+                    items,
+                });
             }
             AppEvent::TextReceived { text } => self.notify(UiEvent::Text {
                 sequence: ordered.sequence,
@@ -989,6 +1028,16 @@ where
     future_to_promise(async move { future.await.map(|_| JsValue::UNDEFINED) })
 }
 
+fn qr_bitmap(url: String) -> Result<JsValue, JsValue> {
+    let image = generate_qr_rgba(&url, 256).map_err(to_js)?;
+    serde_wasm_bindgen::to_value(&UiQrBitmap {
+        width: image.width,
+        height: image.height,
+        rgba_pixels: image.rgba_pixels,
+    })
+    .map_err(|error| JsValue::from_str(&error.to_string()))
+}
+
 #[wasm_bindgen]
 pub fn install_backend() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
@@ -1057,6 +1106,12 @@ pub fn install_backend() -> Result<(), JsValue> {
     };
     install_function(&object, "sendFiles", send_files.as_ref().unchecked_ref())?;
     send_files.forget();
+    let qr_code = Closure::wrap(Box::new(move |url: String| {
+        let result = qr_bitmap(url);
+        future_to_promise(async move { result })
+    }) as Box<dyn FnMut(String) -> Promise>);
+    install_function(&object, "qrCode", qr_code.as_ref().unchecked_ref())?;
+    qr_code.forget();
     let cancel = {
         let backend = backend.clone();
         Closure::wrap(Box::new(move |id: String| {
@@ -1095,7 +1150,10 @@ pub fn install_backend() -> Result<(), JsValue> {
     Reflect::set(&window, &JsValue::from_str("__ponletBackend"), &object).map(|_| ())
 }
 
-fn snapshot_from_service(service: &BackendService) -> UiSnapshot {
+fn snapshot_from_service(
+    service: &BackendService,
+    received: &[UiReceivedItem],
+) -> UiSnapshot {
     let snapshot = service.snapshot();
     let app = snapshot.app;
     let (state, peer_name, invite_url, expires, can_send, can_disconnect, transfer, error) =
@@ -1200,6 +1258,7 @@ fn snapshot_from_service(service: &BackendService) -> UiSnapshot {
         transfer,
         error,
         transport: app.transport_path,
+        received: received.to_vec(),
     }
 }
 

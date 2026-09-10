@@ -12,5 +12,19 @@ export function validateSnapshot(snapshot: BackendSnapshot): BackendSnapshot {
   if (!new Set(["direct-udp", "webrtc", "derp", "unknown"]).has(snapshot.transport)) {
     throw new Error("Invalid Ponlet transport path");
   }
+  if (!Array.isArray(snapshot.received)) {
+    throw new Error("Invalid received item list");
+  }
+  for (const item of snapshot.received) {
+    if (
+      !item ||
+      typeof item.name !== "string" ||
+      !Number.isSafeInteger(item.size) ||
+      item.size < 0 ||
+      typeof item.localPathOrHandle !== "string"
+    ) {
+      throw new Error("Invalid received item");
+    }
+  }
   return snapshot;
 }

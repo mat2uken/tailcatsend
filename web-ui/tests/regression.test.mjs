@@ -107,6 +107,12 @@ it("forwards the native picker without requiring a JavaScript File object", asyn
   expect(picked).toBe(1);
 });
 
+it("forwards the QR renderer without adding a JavaScript QR dependency", async () => {
+  const bitmap = { width: 2, height: 2, rgbaPixels: [0, 0, 0, 255, 255, 255, 255, 255] };
+  const backend = createBackend(bridge({ qrCode: async () => bitmap }));
+  await expect(backend.qrCode?.("https://example.test/#i=abc")).resolves.toEqual(bitmap);
+});
+
 it("unsupported API version and unavailable clipboard reject", async () => {
   const backend = createBackend(
     bridge({ snapshot: async () => ({ ...initialSnapshot(), apiVersion: 2 }) }),
@@ -171,6 +177,19 @@ it("text events advance the cursor and duplicate delivery is ignored", async () 
   expect(session.view.snapshot.sequence).toBe(5);
   expect(session.view.messages.length).toBe(1);
   expect(session.view.lastReceivedText).toBe("hello");
+});
+
+it("keeps received file metadata in the UI snapshot", async () => {
+  const session = new Session(bridge(), () => {});
+  await session.start();
+  session.applyEvent({
+    type: "files",
+    sequence: 2,
+    items: [{ name: "report.txt", size: 12, localPathOrHandle: "opfs:/Ponlet/report.txt" }],
+  });
+  expect(session.view.snapshot.received).toEqual([
+    { name: "report.txt", size: 12, localPathOrHandle: "opfs:/Ponlet/report.txt" },
+  ]);
 });
 
 it("old transfer completion cannot clear the currently active transfer", async () => {

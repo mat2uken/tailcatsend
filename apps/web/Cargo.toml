@@ -12,6 +12,7 @@ tailsend-core = { workspace = true }
 tailsend-protocol = { workspace = true }
 tailsend-transport-api = { workspace = true }
 tailsend-platform-api = { workspace = true }
+tailsend-qr = { workspace = true }
 tailsend-transfer = { workspace = true }
 wasm-bindgen = { workspace = true }
 wasm-bindgen-futures = { workspace = true }

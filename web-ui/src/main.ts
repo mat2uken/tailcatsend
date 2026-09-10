@@ -8,6 +8,7 @@ import "./style.css";
 const {
   a,
   button,
+  canvas,
   div,
   footer,
   header,
@@ -20,6 +21,8 @@ const {
   progress,
   section,
   span,
+  ul,
+  li,
   textarea,
 } = van.tags;
 
@@ -33,13 +36,18 @@ const uiText = isJapanese
       copy: "コピー",
       share: "共有",
       save: "保存",
+      copyPath: "保存先をコピー",
+      receivedFiles: "受信ファイル",
+      scan: "カメラで読取",
+      scanUnavailable: "このWebViewではカメラQR読取を利用できません。URLを貼り付けてください。",
+      qrLabel: "招待QRコード",
       invitation: "招待URLを貼り付け",
       connect: "接続",
       createInvite: "招待を作成",
       disconnect: "切断",
       settings: "設定",
       close: "閉じる",
-      settingsDescription: "この移行用UIの設定画面は準備中です。",
+      settingsDescription: "通信経路と保存先は接続されたbackendが管理します。テレメトリ設定はこの端末に保存されます。",
       message: "メッセージ",
       transfer: "転送",
       messages: "メッセージ",
@@ -58,13 +66,18 @@ const uiText = isJapanese
       copy: "Copy",
       share: "Share",
       save: "Save",
+      copyPath: "Copy save location",
+      receivedFiles: "Received files",
+      scan: "Scan with camera",
+      scanUnavailable: "Camera QR scanning is unavailable in this WebView. Paste the URL instead.",
+      qrLabel: "Invitation QR code",
       invitation: "Paste invitation URL",
       connect: "Connect",
       createInvite: "Create invite",
       disconnect: "Disconnect",
       settings: "Settings",
       close: "Close",
-      settingsDescription: "Settings are not available in this migration UI yet.",
+      settingsDescription: "The backend controls transport and storage. Telemetry preference is stored on this device.",
       message: "Message",
       transfer: "Transfer",
       messages: "Messages",
@@ -129,6 +142,8 @@ const status = span({ class: "status" });
 const transport = span({ class: "transport-path" });
 const peer = span({ class: "peer-name" });
 const invite = a({ class: "invite-link", target: "_blank", rel: "noreferrer" });
+const qrCanvas = canvas({ class: "invite-qr", width: 256, height: 256, hidden: true });
+const qrLabel = p({ class: "qr-label" }, uiText.qrLabel);
 const log = div({ class: "message-log", role: "log" });
 const transferName = span({ class: "transfer-name" });
 const transferProgress = progress({ max: 1, value: 0 });
@@ -141,7 +156,9 @@ const textInput = textarea({ class: "composer", rows: 3, placeholder: uiText.mes
 const copyTextButton = button({ class: "secondary", type: "button" }, uiText.copy);
 const shareTextButton = button({ class: "secondary", type: "button" }, uiText.share);
 const saveTextButton = button({ class: "secondary", type: "button" }, uiText.save);
+const receivedList = ul({ class: "received-list" });
 const joinInput = input({ class: "join-input", placeholder: uiText.invitation });
+const scanButton = button({ class: "secondary", type: "button" }, uiText.scan);
 const invitationFromHash = window.location.hash.startsWith("#i=")
   ? `${window.location.origin}${window.location.pathname}${window.location.hash}`
   : "";
@@ -158,12 +175,31 @@ const settingsButton = button(
 );
 const settingsDialog = document.createElement("dialog");
 let settingsReturnFocus: HTMLElement | null = null;
+const telemetryToggle = input({ type: "checkbox" });
+telemetryToggle.checked = localStorage.getItem("ponlet.telemetry") !== "off";
 settingsDialog.className = "settings-dialog";
 settingsDialog.append(
   h2(uiText.settings),
   p(uiText.settingsDescription),
+  label({ class: "settings-toggle" }, telemetryToggle, isJapanese ? "テレメトリを許可" : "Allow telemetry"),
   button({ type: "button", onclick: () => closeSettings() }, uiText.close),
 );
+
+const scannerDialog = document.createElement("dialog");
+const scannerVideo = document.createElement("video");
+scannerVideo.className = "scanner-video";
+scannerVideo.autoplay = true;
+scannerVideo.playsInline = true;
+scannerDialog.className = "scanner-dialog";
+scannerDialog.append(
+  h2(uiText.scan),
+  scannerVideo,
+  p({ class: "scanner-status" }, ""),
+  button({ type: "button", onclick: () => closeScanner() }, uiText.close),
+);
+let scannerStream: MediaStream | undefined;
+let scannerFrame = 0;
+let scannerReturnFocus: HTMLElement | null = null;
 
 function closeSettings(): void {
   if (typeof settingsDialog.close === "function") {
@@ -173,6 +209,106 @@ function closeSettings(): void {
   }
   settingsReturnFocus?.focus();
   settingsReturnFocus = null;
+}
+
+function closeScanner(): void {
+  if (scannerFrame) {
+    cancelAnimationFrame(scannerFrame);
+    scannerFrame = 0;
+  }
+  scannerStream?.getTracks().forEach((track) => track.stop());
+  scannerStream = undefined;
+  scannerVideo.srcObject = null;
+  if (typeof scannerDialog.close === "function") {
+    scannerDialog.close();
+  } else {
+    scannerDialog.removeAttribute("open");
+  }
+  scannerReturnFocus?.focus();
+  scannerReturnFocus = null;
+}
+
+type BarcodeDetectorLike = {
+  detect(video: HTMLVideoElement): Promise<Array<{ rawValue?: string }>>;
+};
+type BarcodeDetectorConstructorLike = new (options?: { formats?: Array<string> }) => BarcodeDetectorLike;
+
+async function scanInvitation(): Promise<string | null> {
+  const Detector = (globalThis as typeof globalThis & {
+    BarcodeDetector?: BarcodeDetectorConstructorLike;
+  }).BarcodeDetector;
+  if (!Detector || !navigator.mediaDevices?.getUserMedia) {
+    throw new Error(uiText.scanUnavailable);
+  }
+  scannerReturnFocus = document.activeElement as HTMLElement | null;
+  if (typeof scannerDialog.showModal === "function") {
+    scannerDialog.showModal();
+  } else {
+    scannerDialog.setAttribute("open", "");
+  }
+  scannerStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+  scannerVideo.srcObject = scannerStream;
+  await scannerVideo.play();
+  const detector = new Detector({ formats: ["qr_code"] });
+  return new Promise<string | null>((resolve) => {
+    const poll = async (): Promise<void> => {
+      if (!scannerStream) {
+        resolve(null);
+        return;
+      }
+      try {
+        const codes = await detector.detect(scannerVideo);
+        const value = codes.find((code) => typeof code.rawValue === "string")?.rawValue;
+        if (value) {
+          resolve(value);
+          closeScanner();
+          return;
+        }
+      } catch {
+        // Camera frames can be unavailable while the WebView rotates or resumes.
+      }
+      scannerFrame = requestAnimationFrame(() => void poll());
+    };
+    void poll();
+  });
+}
+
+let qrRequest = 0;
+let qrUrl = "";
+async function renderInviteQr(url: string | null): Promise<void> {
+  const request = ++qrRequest;
+  if (!url || !backend.qrCode) {
+    qrCanvas.hidden = true;
+    qrLabel.hidden = true;
+    qrUrl = "";
+    return;
+  }
+  if (url === qrUrl) {
+    return;
+  }
+  qrUrl = url;
+  try {
+    const bitmap = await backend.qrCode(url);
+    if (request !== qrRequest) {
+      return;
+    }
+    const context = qrCanvas.getContext("2d");
+    if (!context) {
+      throw new Error("Canvas is unavailable");
+    }
+    qrCanvas.width = bitmap.width;
+    qrCanvas.height = bitmap.height;
+    const pixels = new Uint8ClampedArray(bitmap.rgbaPixels);
+    context.putImageData(new ImageData(pixels, bitmap.width, bitmap.height), 0, 0);
+    qrCanvas.hidden = false;
+    qrLabel.hidden = false;
+  } catch (error) {
+    qrCanvas.hidden = true;
+    qrLabel.hidden = true;
+    if (request === qrRequest) {
+      snapshot.val = { ...snapshot.val, error: String(error) };
+    }
+  }
 }
 
 function transportLabel(path: TransportPath): string {
@@ -190,6 +326,7 @@ function transportLabel(path: TransportPath): string {
 
 van.derive(() => {
   const value = snapshot.val;
+  void renderInviteQr(value.inviteUrl);
   status.textContent =
     value.error ??
     (value.state === "ready"
@@ -211,6 +348,8 @@ van.derive(() => {
   createButton.disabled = busy || value.state === "booting" || value.state === "error";
   sendButton.disabled = busy || !value.canSend || !textDraft.val.trim();
   fileButton.disabled = busy || !value.canSend;
+  scanButton.disabled = busy || !("BarcodeDetector" in globalThis);
+  scanButton.title = scanButton.disabled && !("BarcodeDetector" in globalThis) ? uiText.scanUnavailable : "";
   cancelButton.hidden = !hasTransfer;
   copyTextButton.disabled =
     shareTextButton.disabled =
@@ -225,6 +364,20 @@ van.derive(() => {
     transferProgress.value = 0;
     transferBytes.textContent = "";
   }
+});
+
+van.derive(() => {
+  receivedList.replaceChildren(
+    ...snapshot.val.received.map((item) => {
+      const pathButton = button({ class: "secondary", type: "button" }, uiText.copyPath);
+      pathButton.addEventListener("click", () => void run(() => backend.copyText(item.localPathOrHandle)));
+      return li(
+        { class: "received-item" },
+        div({ class: "received-item-meta" }, item.name, span({ class: "received-item-size" }, `${item.size.toLocaleString()} bytes`)),
+        pathButton,
+      );
+    }),
+  );
 });
 
 van.derive(() => {
@@ -287,6 +440,16 @@ connectButton.addEventListener("click", () => {
     void perform(() => backend.join(invite));
   }
 });
+scanButton.addEventListener("click", () => {
+  void perform(async () => {
+    const invite = await scanInvitation();
+    if (invite) {
+      joinDraft.val = invite;
+      joinInput.value = invite;
+      await backend.join(invite);
+    }
+  });
+});
 createButton.addEventListener("click", () => void perform(() => backend.createInvite()));
 disconnectButton.addEventListener("click", () => void run(() => backend.disconnect()));
 settingsButton.addEventListener("click", () => {
@@ -302,6 +465,9 @@ settingsButton.addEventListener("click", () => {
 settingsDialog.addEventListener("cancel", (event) => {
   event.preventDefault();
   closeSettings();
+});
+telemetryToggle.addEventListener("change", () => {
+  localStorage.setItem("ponlet.telemetry", telemetryToggle.checked ? "on" : "off");
 });
 copyTextButton.addEventListener("click", () => {
   if (lastReceivedText.val) {
@@ -322,7 +488,7 @@ const popover = div(
   { id: "invite-popover", popover: "auto", class: "popover" },
   isJapanese ? "招待URLをコピーしました" : "Invitation copied",
 );
-document.body.append(settingsDialog, popover);
+document.body.append(settingsDialog, scannerDialog, popover);
 invite.addEventListener("click", (event) => {
   event.preventDefault();
   const inviteUrl = snapshot.val.inviteUrl;
@@ -349,10 +515,13 @@ document.body.append(
       { class: "connection-card" },
       status,
       transport,
+      qrLabel,
+      qrCanvas,
       div(
         { class: "connection-actions" },
         joinInput,
         connectButton,
+        scanButton,
         createButton,
         disconnectButton,
       ),
@@ -370,6 +539,8 @@ document.body.append(
         transferBytes,
         cancelButton,
       ),
+      h2(uiText.receivedFiles),
+      receivedList,
     ),
     section(
       { class: "chat-card" },
