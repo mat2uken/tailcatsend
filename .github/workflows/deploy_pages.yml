@@ -1,20 +1,115 @@
-name: Deploy Cloudflare Pages
+name: Deploy Web to Cloudflare Pages
 
+# Builds the WebAssembly web client (Go tailcat bridge + Rust/Slint UI)
+# from source and deploys it to Cloudflare Pages. The built WASM artifacts
+# are no longer committed to dist/; CI always builds them fresh so web
+# source changes (apps/web, crates, ui, tailcat) deploy automatically.
 on:
   push:
     branches:
       - main
     paths:
+      - 'crates/**'
+      - 'apps/web/**'
+      - 'ui/**'
+      - 'tailcat/**'
+      - 'vendor/**'
       - 'dist/**'
+      - 'functions/**'
+      - 'cloudflare/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
       - '.github/workflows/deploy_pages.yml'
   workflow_dispatch:
 
+concurrency:
+  group: deploy-web-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  deploy:
+  build-and-deploy:
+    name: Build WASM & Deploy
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Apply Tailcat Patches
+        run: |
+          if [ -f tailcat/patches/0001-android-selinux-netmon-fallback.patch ]; then
+            git -C tailcat/pkg/tailcat apply --ignore-space-change --ignore-whitespace ../../patches/0001-android-selinux-netmon-fallback.patch
+          fi
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.x'
+          cache-dependency-path: tailcat/go.sum
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+
+      - name: Install wasm-bindgen-cli
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli@0.2.127
+
+      - name: Build Go Tailcat WASM Bridge
+        run: |
+          # Build tags are extracted from scripts/update_tailcat.sh
+          # (WasmTags from tailcat/pkg/tailcat/internal/buildtags.WasmTags())
+          # so CI and local builds always stay in sync.
+          WASM_TAGS=$(sed -n 's/^WASM_TAGS="\(.*\)"$/\1/p' scripts/update_tailcat.sh)
+          echo "Using WASM_TAGS: $WASM_TAGS"
+          mkdir -p dist/assets
+          (cd tailcat && GOOS=js GOARCH=wasm go build -trimpath -tags "$WASM_TAGS" -ldflags "-s -w" -o ../dist/assets/tailcat.wasm ./bridge/web/main.go)
+
+          echo "Optimizing tailcat.wasm with wasm-opt -Oz..."
+          npx --yes wasm-opt -Oz --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext dist/assets/tailcat.wasm -o dist/assets/tailcat.wasm
+
+          gzip -9 -c dist/assets/tailcat.wasm > dist/assets/tailcat.wasm.gz
+          du -h dist/assets/tailcat.wasm dist/assets/tailcat.wasm.gz
+
+      - name: Refresh wasm_exec.js
+        run: |
+          # Ship the wasm_exec.js matching the Go toolchain used above.
+          if [ -f "$(go env GOROOT)/lib/wasm/wasm_exec.js" ]; then
+            cp "$(go env GOROOT)/lib/wasm/wasm_exec.js" dist/assets/wasm_exec.js
+          else
+            cp "$(go env GOROOT)/misc/wasm/wasm_exec.js" dist/assets/wasm_exec.js
+          fi
+
+      - name: Build Rust Slint Web App
+        run: |
+          cargo build -p tailsend-web --target wasm32-unknown-unknown --release
+          wasm-bindgen --target web --out-dir dist/pkg target/wasm32-unknown-unknown/release/tailsend_web.wasm
+          gzip -9 -c dist/pkg/tailsend_web_bg.wasm > dist/pkg/tailsend_web_bg.wasm.gz
+          du -h dist/pkg/tailsend_web_bg.wasm dist/pkg/tailsend_web_bg.wasm.gz
+
+      - name: Verify WASM Sizes (Cloudflare 25 MiB limit)
+        run: |
+          set -e
+          for f in dist/assets/tailcat.wasm.gz dist/pkg/tailsend_web_bg.wasm.gz; do
+            SIZE=$(stat -c%s "$f")
+            LIMIT=$((25 * 1024 * 1024))
+            if [ "$SIZE" -gt "$LIMIT" ]; then
+              echo "::error::$f is $SIZE bytes, exceeding the 25 MiB Cloudflare Pages limit"
+              exit 1
+            fi
+            echo "OK: $f is $SIZE bytes"
+          done
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3

@@ -12,6 +12,14 @@ libtailcat*.a
 libtailcat*.h
 *.wasm
 !*.wasm.gz
+
+# Generated web build artifacts (built by CI in deploy_pages.yml)
+dist/assets/tailcat.wasm.gz
+dist/assets/wasm_exec.js
+dist/pkg/tailsend_web.js
+dist/pkg/tailsend_web.d.ts
+dist/pkg/tailsend_web_bg.wasm.d.ts
+dist/pkg/tailsend_web_bg.wasm.gz
 scratch/
 
 # Node / JS
