@@ -1,16 +1,18 @@
 import van from "vanjs-core";
-import isPresent from "@nkzw/core/isPresent";
 import { createBackend, initializeBrowserBackend } from "@backend";
-import { initialSnapshot, type PonletBackend, type TransportPath } from "./api/application-api";
+import { initialSnapshot, type PonletBackend } from "./api/application-api";
 import { Session, type Message } from "./session";
 import { showToast } from "./lib/toast";
 import { checkForUpdate } from "./update/client";
+import { uiText, transportLabel } from "./i18n";
+import { createSettingsDialog } from "./components/settings-dialog";
+import { createScannerDialog } from "./components/scanner-dialog";
+import { createQrView } from "./components/qr-view";
 import "./style.css";
 
 const {
   a,
   button,
-  canvas,
   div,
   footer,
   header,
@@ -27,79 +29,6 @@ const {
   li,
   textarea,
 } = van.tags;
-
-const isJapanese = navigator.language.toLowerCase().startsWith("ja");
-const uiText = isJapanese
-  ? {
-      app: "Ponlet",
-      cancel: "キャンセル",
-      send: "送信",
-      chooseFile: "ファイルを選択",
-      copy: "コピー",
-      share: "共有",
-      save: "保存",
-      copyPath: "保存先をコピー",
-      openFile: "開く",
-      receivedFiles: "受信ファイル",
-      scan: "カメラで読取",
-      scanUnavailable: "このWebViewではカメラQR読取を利用できません。URLを貼り付けてください。",
-      qrLabel: "招待QRコード",
-      invitation: "招待URLを貼り付け",
-      connect: "接続",
-      createInvite: "招待を作成",
-      disconnect: "切断",
-      settings: "設定",
-      close: "閉じる",
-      settingsDescription:
-        "通信経路と保存先は接続されたbackendが管理します。テレメトリ設定はこの端末に保存されます。",
-      message: "メッセージ",
-      transfer: "転送",
-      messages: "メッセージ",
-      preparing: "安全なP2P通信を準備中…",
-      ready: "接続待機中",
-      connected: "接続済み",
-      waiting: "相手を待機中",
-      peer: "相手",
-      saved: "招待URLをコピー",
-      copiedPath: "保存先をコピーしました",
-      copiedMessage: "メッセージをコピーしました",
-      copiedInvite: "招待URLをコピーしました",
-    }
-  : {
-      app: "Ponlet",
-      cancel: "Cancel",
-      send: "Send",
-      chooseFile: "Choose file",
-      copy: "Copy",
-      share: "Share",
-      save: "Save",
-      copyPath: "Copy save location",
-      openFile: "Open",
-      receivedFiles: "Received files",
-      scan: "Scan with camera",
-      scanUnavailable: "Camera QR scanning is unavailable in this WebView. Paste the URL instead.",
-      qrLabel: "Invitation QR code",
-      invitation: "Paste invitation URL",
-      connect: "Connect",
-      createInvite: "Create invite",
-      disconnect: "Disconnect",
-      settings: "Settings",
-      close: "Close",
-      settingsDescription:
-        "The backend controls transport and storage. Telemetry preference is stored on this device.",
-      message: "Message",
-      transfer: "Transfer",
-      messages: "Messages",
-      preparing: "Preparing secure P2P network…",
-      ready: "Ready to connect",
-      connected: "Connected",
-      waiting: "Waiting for peer",
-      peer: "Peer",
-      saved: "Copy invitation",
-      copiedPath: "Save location copied",
-      copiedMessage: "Message copied",
-      copiedInvite: "Invitation copied",
-    };
 
 let backend: PonletBackend = createBackend();
 const snapshot = van.state(initialSnapshot());
@@ -150,12 +79,19 @@ window.addEventListener("pagehide", (event) => {
   }
 });
 
+const settings = createSettingsDialog();
+const scanner = createScannerDialog();
+const qrView = createQrView({
+  getBackend: () => backend,
+  onError: (error) => {
+    snapshot.val = { ...snapshot.val, error: String(error) };
+  },
+});
+
 const status = span({ class: "status" });
 const transport = span({ class: "transport-path" });
 const peer = span({ class: "peer-name" });
 const invite = a({ class: "invite-link", target: "_blank", rel: "noreferrer" });
-const qrCanvas = canvas({ class: "invite-qr", width: 256, height: 256, hidden: true });
-const qrLabel = p({ class: "qr-label" }, uiText.qrLabel);
 const log = div({ class: "message-log", role: "log" });
 const transferName = span({ class: "transfer-name" });
 const transferProgress = progress({ max: 1, value: 0 });
@@ -185,170 +121,10 @@ const settingsButton = button(
   { class: "icon-button", type: "button", "aria-label": uiText.settings },
   "⚙",
 );
-const settingsDialog = document.createElement("dialog");
-let settingsReturnFocus: HTMLElement | null = null;
-const telemetryToggle = input({ type: "checkbox" });
-telemetryToggle.checked = localStorage.getItem("ponlet.telemetry") !== "off";
-settingsDialog.className = "settings-dialog";
-settingsDialog.append(
-  h2(uiText.settings),
-  p(uiText.settingsDescription),
-  label(
-    { class: "settings-toggle" },
-    telemetryToggle,
-    isJapanese ? "テレメトリを許可" : "Allow telemetry",
-  ),
-  button({ type: "button", onclick: () => closeSettings() }, uiText.close),
-);
-
-const scannerDialog = document.createElement("dialog");
-const scannerVideo = document.createElement("video");
-scannerVideo.className = "scanner-video";
-scannerVideo.autoplay = true;
-scannerVideo.playsInline = true;
-scannerDialog.className = "scanner-dialog";
-scannerDialog.append(
-  h2(uiText.scan),
-  scannerVideo,
-  p({ class: "scanner-status" }, ""),
-  button({ type: "button", onclick: () => closeScanner() }, uiText.close),
-);
-let scannerStream: MediaStream | undefined;
-let scannerFrame = 0;
-let scannerReturnFocus: HTMLElement | null = null;
-
-function closeSettings(): void {
-  if (typeof settingsDialog.close === "function") {
-    settingsDialog.close();
-  } else {
-    settingsDialog.removeAttribute("open");
-  }
-  settingsReturnFocus?.focus();
-  settingsReturnFocus = null;
-}
-
-function closeScanner(): void {
-  if (scannerFrame) {
-    cancelAnimationFrame(scannerFrame);
-    scannerFrame = 0;
-  }
-  scannerStream?.getTracks().forEach((track) => track.stop());
-  scannerStream = undefined;
-  scannerVideo.srcObject = null;
-  if (typeof scannerDialog.close === "function") {
-    scannerDialog.close();
-  } else {
-    scannerDialog.removeAttribute("open");
-  }
-  scannerReturnFocus?.focus();
-  scannerReturnFocus = null;
-}
-
-type BarcodeDetectorLike = {
-  detect(video: HTMLVideoElement): Promise<Array<{ rawValue?: string }>>;
-};
-type BarcodeDetectorConstructorLike = new (options?: {
-  formats?: Array<string>;
-}) => BarcodeDetectorLike;
-
-async function scanInvitation(): Promise<string | null> {
-  const Detector = (
-    globalThis as typeof globalThis & {
-      BarcodeDetector?: BarcodeDetectorConstructorLike;
-    }
-  ).BarcodeDetector;
-  if (!Detector || !navigator.mediaDevices?.getUserMedia) {
-    throw new Error(uiText.scanUnavailable);
-  }
-  scannerReturnFocus = document.activeElement as HTMLElement | null;
-  if (typeof scannerDialog.showModal === "function") {
-    scannerDialog.showModal();
-  } else {
-    scannerDialog.setAttribute("open", "");
-  }
-  scannerStream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: "environment" },
-  });
-  scannerVideo.srcObject = scannerStream;
-  await scannerVideo.play();
-  const detector = new Detector({ formats: ["qr_code"] });
-  return new Promise<string | null>((resolve) => {
-    const poll = async (): Promise<void> => {
-      if (!scannerStream) {
-        resolve(null);
-        return;
-      }
-      try {
-        const codes = await detector.detect(scannerVideo);
-        const value = codes.find((code) => typeof code.rawValue === "string")?.rawValue;
-        if (value) {
-          resolve(value);
-          closeScanner();
-          return;
-        }
-      } catch {
-        // Camera frames can be unavailable while the WebView rotates or resumes.
-      }
-      scannerFrame = requestAnimationFrame(() => void poll());
-    };
-    void poll();
-  });
-}
-
-let qrRequest = 0;
-let qrUrl = "";
-async function renderInviteQr(url: string | null): Promise<void> {
-  const request = ++qrRequest;
-  if (!isPresent(url) || url.length === 0 || !backend.qrCode) {
-    qrCanvas.hidden = true;
-    qrLabel.hidden = true;
-    qrUrl = "";
-    return;
-  }
-  if (url === qrUrl) {
-    return;
-  }
-  qrUrl = url;
-  try {
-    const bitmap = await backend.qrCode(url);
-    if (request !== qrRequest) {
-      return;
-    }
-    const context = qrCanvas.getContext("2d");
-    if (!context) {
-      throw new Error("Canvas is unavailable");
-    }
-    qrCanvas.width = bitmap.width;
-    qrCanvas.height = bitmap.height;
-    const pixels = new Uint8ClampedArray(bitmap.rgbaPixels);
-    context.putImageData(new ImageData(pixels, bitmap.width, bitmap.height), 0, 0);
-    qrCanvas.hidden = false;
-    qrLabel.hidden = false;
-  } catch (error) {
-    qrCanvas.hidden = true;
-    qrLabel.hidden = true;
-    if (request === qrRequest) {
-      snapshot.val = { ...snapshot.val, error: String(error) };
-    }
-  }
-}
-
-function transportLabel(path: TransportPath): string {
-  if (path === "direct-udp") {
-    return isJapanese ? "WireGuard UDP" : "WireGuard UDP";
-  }
-  if (path === "webrtc") {
-    return isJapanese ? "WebRTC DataChannel" : "WebRTC DataChannel";
-  }
-  if (path === "derp") {
-    return "DERP relay";
-  }
-  return "";
-}
 
 van.derive(() => {
   const value = snapshot.val;
-  void renderInviteQr(value.inviteUrl);
+  void qrView.renderInviteQr(value.inviteUrl);
   status.textContent =
     value.error ??
     (value.state === "ready"
@@ -478,7 +254,7 @@ connectButton.addEventListener("click", () => {
 });
 scanButton.addEventListener("click", () => {
   void perform(async () => {
-    const invite = await scanInvitation();
+    const invite = await scanner.openScanner(scanButton);
     if (invite) {
       joinDraft.val = invite;
       joinInput.value = invite;
@@ -489,21 +265,7 @@ scanButton.addEventListener("click", () => {
 createButton.addEventListener("click", () => void perform(() => backend.createInvite()));
 disconnectButton.addEventListener("click", () => void run(() => backend.disconnect()));
 settingsButton.addEventListener("click", () => {
-  const activeElement = document.activeElement;
-  settingsReturnFocus =
-    activeElement && activeElement.nodeType === 1 ? (activeElement as HTMLElement) : settingsButton;
-  if (typeof settingsDialog.showModal === "function") {
-    settingsDialog.showModal();
-  } else {
-    settingsDialog.setAttribute("open", "");
-  }
-});
-settingsDialog.addEventListener("cancel", (event) => {
-  event.preventDefault();
-  closeSettings();
-});
-telemetryToggle.addEventListener("change", () => {
-  localStorage.setItem("ponlet.telemetry", telemetryToggle.checked ? "on" : "off");
+  settings.openSettings(settingsButton);
 });
 copyTextButton.addEventListener("click", () => {
   if (lastReceivedText.val) {
@@ -523,7 +285,7 @@ saveTextButton.addEventListener("click", () => {
     void run(() => backend.saveText(lastReceivedText.val));
   }
 });
-document.body.append(settingsDialog, scannerDialog);
+document.body.append(settings.dialog, scanner.dialog);
 invite.addEventListener("click", (event) => {
   event.preventDefault();
   const inviteUrl = snapshot.val.inviteUrl;
@@ -548,8 +310,8 @@ document.body.append(
       { class: "connection-card" },
       status,
       transport,
-      qrLabel,
-      qrCanvas,
+      qrView.label,
+      qrView.canvas,
       div(
         { class: "connection-actions" },
         joinInput,
