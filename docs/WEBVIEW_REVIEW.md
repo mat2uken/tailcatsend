@@ -20,7 +20,7 @@ UI と転送処理の責務は分かれ、ファイル本文を UI の JSON、Ba
 | Browser smoke | 2 タブ WebRTC／DERP の招待、テキスト、ファイル、SHA-256 |
 | Android実機 smoke | Sony XQ-DQ44 と Chromium の WebRTC／DERP 双方向転送 |
 | native bridge 改修後の Android 再検証 | `a4d2143` で再生成した APK、WebRTC／DERP 双方向転送、131,071 byte と SHA-256一致 |
-| 最新HEADの Android 再検証 | `48f0c35` で再生成・再インストールした APK、WebRTC／DERP 双方向転送、131,071 byte と SHA-256一致 |
+| `8c1ddc6` Android実機再検証 | Sony XQ-DQ44 (`QV770139JG`) にdebug APKを再生成・再インストールし、WebRTC／DERPの両端 `connected`、双方向テキスト、131,071 byte、SHA-256一致 |
 | 最新HEADの Browser 再検証 | WebRTC／DERP 双方向転送、131,089／98,321 byte と SHA-256一致 |
 | `a12b873` Browser 再検証 | 通常経路は両端 `webrtc`、DERP固定は両端 `derp`。双方向転送とSHA-256一致 |
 | `b08d585` Browser 再検証 | 更新署名鍵検査後も通常経路 `webrtc`、DERP固定 `derp` で双方向転送とSHA-256一致 |

@@ -61,6 +61,7 @@ macOS bundleとSony XQ-DQ44の実行では、`PONLET_TRANSPORT=derp` で双方�
 - `c67683c` のPages配布用WASMサイズ対応と公開パスURL解決後にも同じブラウザ2タブE2Eを再実行し、通常経路は両端 `webrtc`、DERP固定は両端 `derp` のまま双方向転送とSHA-256一致を確認した。
 - `274e66f` でTauriの直接bundle buildが生成済みGo archiveを参照するように修正し、macOS arm64 bundleの起動と招待待機への遷移を現行HEADで確認した。配布署名と実機転送は別の確認が必要である。
 - `cd web-ui && PONLET_ANDROID_SERIAL=<serial> npm run test:e2e:android` では Sony XQ-DQ44 の Android Tauri WebView とWorker化した Chromiumを WebRTCで接続し、双方向テキストと131,071 byteファイルのSHA-256一致を確認する。`PONLET_TEST_TRANSPORT=derp` を付けた `npm run test:e2e:android:derp` では同じ入力を DERP relayで再実行する。
+- `8c1ddc6` で Android debug APKを再生成し、Sony XQ-DQ44 (`QV770139JG`, Android 15) へ再インストールした。`test:e2e:android` は両端 `connected / webrtc`、`test:e2e:android:derp` は両端 `connected / derp` で通過し、いずれも双方向テキスト、`browser-to-android-日本語.bin` (131,071 bytes)、SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` が一致した。
 - `adb7b65` 後にも Android APK を再ビルドして上記2コマンドを実行し、WebRTC／DERP ともに両端の経路表示、双方向テキスト、131,071 byteファイル、SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` の一致を確認した。
 - `a4d2143` と `ffb753c` の後に Android debug APK を再生成・再インストールし、WebRTC／DERP の同じ E2E を再実行した。両経路で `connected`、双方向テキスト、131,071 byteファイル、SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` の一致を確認した。`./scripts/build_tauri_mobile.sh ios-sim debug` で iOS 18.5 iPhone 16 simulator bundle も再生成し、起動待機画面を確認した。
 - `a12b873` で Android arm64 release APKを再生成し、debug keystoreで一時署名して `emulator-5554` へインストールした。「Ready to connect」から「Waiting for peer」への招待待機遷移を確認した。これはAndroid EmulatorのUI確認であり、Sony実機の通信やストア署名の確認ではない。
@@ -80,7 +81,7 @@ iOS 実機は Bundle ID `jp.yasagure.ponlet` の署名・Provisioning Profile �
 
 Linux cross check は aarch64 用 sysroot と `pkg-config` の `libdbus` 設定不足で停止し、Windows target と Windows／Linux／iOS の実機はこの環境にない。Pages の実デプロイ、署名鍵・公開設定を使った更新切替、起動失敗からの復元、性能と総メモリの測定は未実施である。
 
-最新の Android 再検証は Sony XQ-DQ44 が `adb` から切断され、接続中の `emulator-5554` も debug APK の internal storage 不足でインストールできなかった。Android の過去の実機結果はそのまま保持し、現在のSHAで再実行した証拠とは分けている。
+最新の Android 再検証では Sony XQ-DQ44 (`QV770139JG`) を再接続し、`8c1ddc6` の debug APKを再生成・再インストールした。WebRTC／DERPの両方で実通信E2Eを完了した。WireGuard UDPの転送完了、全OS組み合わせ、取消後の再転送は引き続き未確認である。
 
 ## 再現コマンド
 

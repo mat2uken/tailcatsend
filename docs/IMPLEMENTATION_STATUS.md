@@ -53,6 +53,8 @@ Web 2タブの実通信E2Eには `npm run test:e2e:real:derp` を追加した。
 
 Worker化後も `npm run test:e2e:real` と `npm run test:e2e:real:derp` が同じ入力とSHA-256で通過した。Sony XQ-DQ44 (Android 15) とWorker化した Chromiumの実機E2Eも `npm run test:e2e:android` (WebRTC) と `npm run test:e2e:android:derp` (DERP) で通過し、131,071 byteのファイル保存と端末上のSHA-256を確認した。
 
+`8c1ddc6` で Android debug APK (`apps/tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk`) を現行ソースから再生成し、Sony XQ-DQ44 (Android 15, `QV770139JG`) へ再インストールした。`PONLET_ANDROID_SERIAL=QV770139JG npm run test:e2e:android` は両端 `connected / webrtc`、双方向テキスト、`browser-to-android-日本語.bin` (131,071 bytes)、SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` の一致で通過した。同じAPKで `npm run test:e2e:android:derp` も両端 `connected / derp` と同じファイルハッシュで通過した。
+
 `ec2d3ee` では実通信E2Eが終端の経路表示を検査するようにし、現行のブラウザ2タブを再実行した。通常実行は両端 `webrtc`、DERP強制実行は両端 `derp` で、双方向テキスト、131,089／98,321 byte のファイル、既存のSHA-256一致を確認した。自動経路では端点ごとに `webrtc` と `derp` が分かれる場合も成功とし、`unknown` は失敗にする。
 
 `cc804c3` の更新確認時間切れ修正後にブラウザ2タブの実通信を再実行した。通常の自動選択は今回両端 `derp`、DERP固定実行も両端 `derp` となり、双方向テキスト、131,089／98,321 byte のファイル、SHA-256 `1ec3437cee3cccf3647e130524ade52848571960a3340ae33573beef17d330b3`／`5641ff21ca1a2dd16b585d026f69d26b23c537e49f0cdca944bf3b9203655753` の一致を確認した。
@@ -101,7 +103,7 @@ Worker化後も `npm run test:e2e:real` と `npm run test:e2e:real:derp` が同�
 
 - Tauri の2端末間で、保存後の開く、共有先選択、取消後の再転送。開く、保存先コピー、テキストのコピー／保存、取消そのものは macOS↔Android で確認済み。
 - iOS 実機のロック解除後起動とファイル操作。iOS Simulator の bundle 生成と、署名済み IPA のインストールは別に記録する。
-- WireGuard UDP、WebRTC DataChannel、DERP relay をそれぞれ指定した同一条件の転送。UI は制御接続ではなく各データ stream の bridge 報告を表示するが、強制切替の成功を意味しない。
+- WireGuard UDP、WebRTC DataChannel、DERP relay をそれぞれ指定した同一条件の全環境転送。Android／Webでは WebRTC と DERP の同一入力を確認済みで、WireGuard UDPの転送完了と全組み合わせは未確認である。
 - Windows、macOS、Linux、iOS、Android、Web の全組み合わせ、低容量保存先、巨大ファイル、100回の接続・取消・切断後の参照解放。
 - Cloudflare Pages の実デプロイ、manifest署名と公開設定の配布、失敗版の隔離・復元、速度・CPU・総メモリの受入値。ブラウザ側の検証済み版保存と次回切替処理は実装済みだが、Pagesの署名鍵・配布設定を使った実行は未実施。
 
@@ -109,6 +111,6 @@ Worker化後も `npm run test:e2e:real` と `npm run test:e2e:real:derp` が同�
 
 `cargo check -p tailsend-tauri` は aarch64-apple-ios、aarch64-apple-ios-sim、x86_64-apple-ios、wasm32-unknown-unknown で通過した。aarch64-unknown-linux-gnu は Rust のエラーではなく、実行環境に cross sysroot と `pkg-config` の `libdbus` 設定がないため停止している。Windows target と各 OS の実機はこの環境にない。
 
-最新の Android 再検証は Sony XQ-DQ44 が `adb` から切断され、接続中の `emulator-5554` も 327 MiB の debug APK を internal storage に展開できず停止した。過去の物理端末結果をこの状態の証拠として再利用していない。
+最新の Android 再検証では Sony XQ-DQ44 (`QV770139JG`) を再接続し、`8c1ddc6` の debug APKを再生成・再インストールした。WebRTC／DERPともに両端 `connected`、双方向テキスト、131,071 byteファイル、SHA-256一致を確認した。WireGuard UDPの転送完了、他OSとの全組み合わせ、取消後の再転送は未確認である。
 
 上記はビルド成功やブラウザ2タブの WebRTC smoke だけでは完了扱いにしない。端末、commit、通信経路、入力ファイル、受信ハッシュ、保存物、所要時間を同じ記録へ残してから判定する。
