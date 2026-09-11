@@ -29,6 +29,7 @@ UI と転送処理の責務は分かれ、ファイル本文を UI の JSON、Ba
 | Tauri実機 direct-udp | macOS bundle と Sony XQ-DQ44 の両端 `direct-udp`、131,071 byte双方向ファイル、SHA-256一致 |
 | Tauri実機 DERP | macOS bundle と Sony XQ-DQ44 の双方向テキスト、64 MiB取消、保存物の後処理 |
 | Android取消・再転送 | Chromium↔Sony XQ-DQ44 の64 MiB取消、`.part`残存なし、同一接続で131,071 byte再転送とSHA-256一致 |
+| Tauri 2取消・再転送 | macOS bundle↔Sony XQ-DQ44 の双方向途中取消、`.part`除去、同一接続の再転送とSHA-256一致 |
 | `eb8b543` macOS bundle | update config の埋め込み先を含む Release bundle を再生成・起動し、WebViewの「接続待機中」を確認 |
 | `1f4030f` iOS Simulator | iPhone 16 simulator で最新UIを起動し、招待作成後の「相手を待機中」遷移を画面確認 |
 | `a12b873` macOS bundle | arm64 bundleを再生成し、WebView起動と招待作成後の「相手を待機中」遷移を確認 |
@@ -39,7 +40,7 @@ UI と転送処理の責務は分かれ、ファイル本文を UI の JSON、Ba
 
 ## 未完了の受入項目
 
-- Tauri 2端末の共有先選択、取消後の再転送。Chromium↔Android の取消後再転送は確認済み。開く、保存先コピー、テキストのコピー／保存、取消自体と通常転送は macOS↔Android で確認済み。
+- Tauri 2端末の共有先選択。取消後の再転送、開く、保存先コピー、テキストのコピー／保存、取消自体と通常転送は macOS↔Android で確認済み。遠隔取消時に送信commandが `Transfer failed` となる表示分類は追加確認が必要。
 - iOS 実機起動と実機ファイル操作。
 - WireGuard UDP、WebRTC、DERP を `PONLET_TRANSPORT` の起動固定または再現条件で分けた全 OS 組み合わせ。macOS↔Android の direct-udp と Android↔Web の WebRTC／DERP は確認済みだが、組み合わせ全体は未完了。
 - Cloudflare Pages 実デプロイ、署名付き更新、失敗版隔離と復帰。

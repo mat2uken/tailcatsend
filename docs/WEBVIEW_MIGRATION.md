@@ -64,6 +64,7 @@ macOS bundleとSony XQ-DQ44の実行では、`PONLET_TRANSPORT=derp` で双方�
 - `8c1ddc6` で Android debug APKを再生成し、Sony XQ-DQ44 (`QV770139JG`, Android 15) へ再インストールした。`test:e2e:android` は両端 `connected / webrtc`、`test:e2e:android:derp` は両端 `connected / derp` で通過し、いずれも双方向テキスト、`browser-to-android-日本語.bin` (131,071 bytes)、SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` が一致した。
 - `PONLET_TRANSPORT=direct-udp` で起動した macOS bundle と Sony XQ-DQ44 (`QV770139JG`) の両端が `direct-udp` のままファイル転送を完了した。`direct-udp-roundtrip-日本語.bin` (131,071 bytes) の macOS→Android／Android→macOS 双方向保存と SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` の一致を確認した。
 - `cd web-ui && PONLET_ANDROID_SERIAL=QV770139JG PONLET_ANDROID_CDP_PORT=9224 npm run test:e2e:android:cancel` で Chromium→Sony XQ-DQ44 の WebRTC 転送を途中取消した。64 MiB の取消対象は確定ファイルと `.part` を残さず、同じ接続で `cancel-retransfer-1789101354360-日本語.bin` (131,071 bytes) を再送して SHA-256 `104bfa7bbd07eb278be833f71ad3ce0a256e5893481497b64cc5abf324c830b6` の一致を確認した。
+- 2026-09-11 に macOS arm64 Tauri bundle と Sony XQ-DQ44 (`QV770139JG`) を同じ接続で使い、Tauri 2端末間の取消後再転送を双方向で実施した。macOS→Android は `cancel-64m.bin` (67,108,864 bytes) を 52,690,944 bytes 付近で取消し、Android側の一時ファイルが削除された後に確定ファイルがないことを確認した。同じ接続で `tauri-cancel-retransfer-20260911-日本語.bin` (131,071 bytes) を再送し、SHA-256 `26611906c0bdd9c797dba923fcc5dd2cb7a1c035b4260b8bd5a30bb2a6e4a670` が一致した。Android→macOS は `android-cancel-512m.bin` (536,870,912 bytes) を 305,550,072 bytes 付近で取消し、macOS側の確定ファイルと `.part` がないことを確認した。同じ接続で `tauri-android-cancel-retransfer-20260911-日本語.bin` (131,071 bytes) を再送し、SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` が一致した。両方向で接続は `connected` に戻ったが、遠隔取消を受けたAndroidの送信commandは `Transfer failed` を返したため、送信側の表示分類は追加確認項目として残す。
 - `adb7b65` 後にも Android APK を再ビルドして上記2コマンドを実行し、WebRTC／DERP ともに両端の経路表示、双方向テキスト、131,071 byteファイル、SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` の一致を確認した。
 - `a4d2143` と `ffb753c` の後に Android debug APK を再生成・再インストールし、WebRTC／DERP の同じ E2E を再実行した。両経路で `connected`、双方向テキスト、131,071 byteファイル、SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` の一致を確認した。`./scripts/build_tauri_mobile.sh ios-sim debug` で iOS 18.5 iPhone 16 simulator bundle も再生成し、起動待機画面を確認した。
 - `a12b873` で Android arm64 release APKを再生成し、debug keystoreで一時署名して `emulator-5554` へインストールした。「Ready to connect」から「Waiting for peer」への招待待機遷移を確認した。これはAndroid EmulatorのUI確認であり、Sony実機の通信やストア署名の確認ではない。
@@ -72,7 +73,7 @@ macOS bundleとSony XQ-DQ44の実行では、`PONLET_TRANSPORT=derp` で双方�
 
 ## 残っている検証
 
-1. Tauri 2端末での共有先選択、取消後の再転送（Chromium↔Android の取消後再転送は確認済み。開く、保存先コピー、テキストのコピー／保存、取消自体は macOS↔Android の両方向で確認済み）。
+1. Tauri 2端末での共有先選択（取消後の再転送、開く、保存先コピー、テキストのコピー／保存、取消自体は macOS↔Android で確認済み。遠隔取消時の送信commandの表示分類は追加確認が必要）。
 2. iOS 実機のロック解除後起動、picker、保存、share/open。
 3. Windows、macOS、Linux、iOS、Android、Web の組み合わせを、Direct UDP、WebRTC、DERP に分けた同一入力で実行する。macOS↔Android の direct-udp と Android↔Web の WebRTC／DERP は確認済みだが、全組み合わせは未完了である。
 4. 各データ stream の Go bridge path report が接続後に安定すること、経路別の速度・CPU・総メモリを測る。`unknown` の表示だけでは経路試験を通過としない。
