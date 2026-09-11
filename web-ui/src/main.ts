@@ -3,7 +3,7 @@ import isPresent from "@nkzw/core/isPresent";
 import { createBackend, initializeBrowserBackend } from "@backend";
 import { initialSnapshot, type PonletBackend, type TransportPath } from "./api/application-api";
 import { Session, type Message } from "./session";
-import { placeAnchor } from "./lib/position";
+import { showToast } from "./lib/toast";
 import { checkForUpdate } from "./update/client";
 import "./style.css";
 
@@ -61,6 +61,9 @@ const uiText = isJapanese
       waiting: "相手を待機中",
       peer: "相手",
       saved: "招待URLをコピー",
+      copiedPath: "保存先をコピーしました",
+      copiedMessage: "メッセージをコピーしました",
+      copiedInvite: "招待URLをコピーしました",
     }
   : {
       app: "Ponlet",
@@ -93,6 +96,9 @@ const uiText = isJapanese
       waiting: "Waiting for peer",
       peer: "Peer",
       saved: "Copy invitation",
+      copiedPath: "Save location copied",
+      copiedMessage: "Message copied",
+      copiedInvite: "Invitation copied",
     };
 
 let backend: PonletBackend = createBackend();
@@ -390,7 +396,11 @@ van.derive(() => {
       const openButton = button({ class: "secondary", type: "button" }, uiText.openFile);
       pathButton.addEventListener(
         "click",
-        () => void run(() => backend.copyText(item.localPathOrHandle)),
+        () =>
+          void run(async () => {
+            await backend.copyText(item.localPathOrHandle);
+            showToast(uiText.copiedPath);
+          }),
       );
       openButton.addEventListener("click", () => void run(() => backend.openReceivedItem(item)));
       return li(
@@ -497,7 +507,10 @@ telemetryToggle.addEventListener("change", () => {
 });
 copyTextButton.addEventListener("click", () => {
   if (lastReceivedText.val) {
-    void run(() => backend.copyText(lastReceivedText.val));
+    void run(async () => {
+      await backend.copyText(lastReceivedText.val);
+      showToast(uiText.copiedMessage);
+    });
   }
 });
 shareTextButton.addEventListener("click", () => {
@@ -510,11 +523,7 @@ saveTextButton.addEventListener("click", () => {
     void run(() => backend.saveText(lastReceivedText.val));
   }
 });
-const popover = div(
-  { id: "invite-popover", popover: "auto", class: "popover" },
-  isJapanese ? "招待URLをコピーしました" : "Invitation copied",
-);
-document.body.append(settingsDialog, scannerDialog, popover);
+document.body.append(settingsDialog, scannerDialog);
 invite.addEventListener("click", (event) => {
   event.preventDefault();
   const inviteUrl = snapshot.val.inviteUrl;
@@ -523,9 +532,7 @@ invite.addEventListener("click", (event) => {
   }
   void run(async () => {
     await backend.copyText(inviteUrl);
-    popover.showPopover?.();
-    placeAnchor(invite, popover);
-    window.setTimeout(() => popover.hidePopover?.(), 1200);
+    showToast(uiText.copiedInvite, { anchor: invite, duration: 1200 });
   });
 });
 
