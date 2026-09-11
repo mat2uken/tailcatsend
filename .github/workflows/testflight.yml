@@ -44,6 +44,16 @@ jobs:
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version 2.10.0 --locked
 
+      - name: Set monotonic iOS build number
+        run: |
+          today_ymd=$(TZ='Asia/Tokyo' date +%Y%m%d)
+          run_slot=$((GITHUB_RUN_NUMBER % 100))
+          if [ "$run_slot" -eq 0 ]; then
+            run_slot=1
+          fi
+          printf 'PONLET_IOS_BUILD_NUMBER=%s%02d\n' "$today_ymd" "$run_slot" >> "$GITHUB_ENV"
+          echo "Using iOS build number ${today_ymd}$(printf '%02d' "$run_slot")"
+
       # Certificate/profile installation is kept in the CI secret store. The
       # Tauri CLI consumes APPLE_* signing variables when creating the IPA.
       - name: Install Apple signing material

@@ -85,12 +85,17 @@ if [[ -x "${tauri_binary}" ]]; then
   cp "${tauri_binary}" "${repo_dir}/target/release/tailsend"
 elif [[ -x "${tauri_binary}.exe" ]]; then
   cp "${tauri_binary}.exe" "${repo_dir}/target/release/tailsend.exe"
-  if [[ "${windows_native}" == true ]]; then
-    cp "${out_dir}/tailcat.dll" "${repo_dir}/target/release/tailcat.dll"
-  fi
 else
   echo "Tauri CLI did not produce ${tauri_binary}" >&2
   exit 1
+fi
+
+if [[ "${windows_native}" == true ]]; then
+  # Keep the Go runtime beside the Rust executable. The Tauri CLI may expose
+  # the Windows binary under either the suffixed or unsuffixed path, so this
+  # copy must not depend on which branch selected the executable above.
+  test -f "${out_dir}/tailcat.dll"
+  cp "${out_dir}/tailcat.dll" "${repo_dir}/target/release/tailcat.dll"
 fi
 
 echo "Tauri desktop shell built with Go bridge from ${go_output}"

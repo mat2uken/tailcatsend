@@ -153,6 +153,9 @@ else
     echo "xcodegen is required to regenerate the Tauri iOS project" >&2
     exit 1
   fi
+  if [[ -n "${PONLET_IOS_BUILD_NUMBER:-}" ]]; then
+    tauri_args+=(--build-number "${PONLET_IOS_BUILD_NUMBER}")
+  fi
   # The Tauri CLI moves the archive's app into this directory. Remove only
   # the previous generated product so a repeated build is deterministic.
   if [[ "${mobile_target}" == "aarch64-sim" ]]; then
