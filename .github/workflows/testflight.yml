@@ -64,9 +64,11 @@ jobs:
           TEAM_ID=$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" | plutil -extract TeamIdentifier.0 raw -)
           cp "$RUNNER_TEMP/profile.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/${UUID}.mobileprovision"
           echo "APPLE_DEVELOPMENT_TEAM=$TEAM_ID" >> "$GITHUB_ENV"
+          IOS_CERTIFICATE_B64=$(base64 -i "$RUNNER_TEMP/certificate.p12" | tr -d '\n')
+          IOS_MOBILE_PROVISION_B64=$(base64 -i "$RUNNER_TEMP/profile.mobileprovision" | tr -d '\n')
           echo "IOS_CERTIFICATE_PASSWORD=$P12_PASSWORD" >> "$GITHUB_ENV"
-          echo "IOS_CERTIFICATE=$RUNNER_TEMP/certificate.p12" >> "$GITHUB_ENV"
-          echo "IOS_MOBILE_PROVISION=$RUNNER_TEMP/profile.mobileprovision" >> "$GITHUB_ENV"
+          echo "IOS_CERTIFICATE=$IOS_CERTIFICATE_B64" >> "$GITHUB_ENV"
+          echo "IOS_MOBILE_PROVISION=$IOS_MOBILE_PROVISION_B64" >> "$GITHUB_ENV"
 
       - name: Build IPA with Tauri
         run: ./scripts/build_tauri_mobile.sh ios release
