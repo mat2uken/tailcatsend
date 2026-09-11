@@ -59,8 +59,14 @@ if [[ "${windows_native}" == true ]]; then
     386) machine=X86 ;;
     *) echo "Unsupported Windows architecture: ${host_arch}" >&2; exit 2 ;;
   esac
-  "${lib_tool}" /def:"${def_file}" /machine:"${machine}" /out:"${out_dir}/tailcat.lib"
-  test -f "${out_dir}/tailcat.lib"
+  def_file_win="$(cygpath -w "${def_file}")"
+  lib_file="${out_dir}/tailcat.lib"
+  lib_file_win="$(cygpath -w "${lib_file}")"
+  MSYS_NO_PATHCONV=1 "${lib_tool}" \
+    "/def:${def_file_win}" \
+    "/machine:${machine}" \
+    "/out:${lib_file_win}"
+  test -f "${lib_file}"
 fi
 
 export PONLET_TAILCAT_LIB_DIR="${out_dir}"
