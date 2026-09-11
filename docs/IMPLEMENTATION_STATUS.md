@@ -55,6 +55,22 @@ Worker化後も `npm run test:e2e:real` と `npm run test:e2e:real:derp` が同�
 
 `8c1ddc6` で Android debug APK (`apps/tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk`) を現行ソースから再生成し、Sony XQ-DQ44 (Android 15, `QV770139JG`) へ再インストールした。`PONLET_ANDROID_SERIAL=QV770139JG npm run test:e2e:android` は両端 `connected / webrtc`、双方向テキスト、`browser-to-android-日本語.bin` (131,071 bytes)、SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` の一致で通過した。同じAPKで `npm run test:e2e:android:derp` も両端 `connected / derp` と同じファイルハッシュで通過した。
 
+2026-09-11 に `PONLET_TRANSPORT=direct-udp` で起動した macOS bundle (`target/release/bundle/macos/Ponlet.app`) と Sony XQ-DQ44 (`QV770139JG`) を再接続した。macOS UI と Android snapshot の両方が転送中も `direct-udp`（UI表示は `WireGuard UDP`）となり、macOS→Android と Android→macOS の `direct-udp-roundtrip-日本語.bin` (131,071 bytes) を確認した。macOS の保存物 `/Users/kenichim/Downloads/Ponlet/direct-udp-roundtrip-日本語.bin` と Android の `received/direct-udp-roundtrip-日本語.bin` は SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` で一致した。
+
+同じ現行 Android debug APK と Chromium を `cd web-ui && PONLET_ANDROID_SERIAL=QV770139JG PONLET_ANDROID_CDP_PORT=9224 npm run test:e2e:android:cancel` で接続し、64 MiB の送信を開始した状態で取消した。送信側・受信側は `connected` へ戻り、取消対象の確定ファイルと `.part` は残らなかった。その後、同じ接続で `cancel-retransfer-1789101354360-日本語.bin` (131,071 bytes) を再送し、Android 保存物の SHA-256 `104bfa7bbd07eb278be833f71ad3ce0a256e5893481497b64cc5abf324c830b6` が一致した。経路は両端 `webrtc` で、再現スクリプトは `tests/e2e/test_android_browser_cancel.mjs` に固定した。
+
+現時点の実通信組み合わせは次の通りである。
+
+| 組み合わせ | 経路 | 結果 |
+| --- | --- | --- |
+| Web↔Web | WebRTC DataChannel | 確認済み。双方向テキスト、131,089／98,321 byte、SHA-256一致 |
+| Web↔Web | DERP relay | 確認済み。同一入力、両端 `derp`、SHA-256一致 |
+| Web↔Android (Sony XQ-DQ44) | WebRTC DataChannel | 確認済み。双方向テキスト、131,071 byte、SHA-256一致 |
+| Web↔Android (Sony XQ-DQ44) | DERP relay | 確認済み。同一入力、両端 `derp`、SHA-256一致 |
+| macOS Tauri↔Android (Sony XQ-DQ44) | WireGuard UDP | 確認済み。双方向ファイル、両端 `direct-udp`、SHA-256一致 |
+| macOS Tauri↔Android (Sony XQ-DQ44) | DERP relay | 確認済み。双方向テキスト、64 MiB取消、保存物の後処理 |
+| Windows／Linux／iOS実機を含む組み合わせ | 各経路 | 実機または必要な build 環境がこの作業環境にないため未実施 |
+
 `ec2d3ee` では実通信E2Eが終端の経路表示を検査するようにし、現行のブラウザ2タブを再実行した。通常実行は両端 `webrtc`、DERP強制実行は両端 `derp` で、双方向テキスト、131,089／98,321 byte のファイル、既存のSHA-256一致を確認した。自動経路では端点ごとに `webrtc` と `derp` が分かれる場合も成功とし、`unknown` は失敗にする。
 
 `cc804c3` の更新確認時間切れ修正後にブラウザ2タブの実通信を再実行した。通常の自動選択は今回両端 `derp`、DERP固定実行も両端 `derp` となり、双方向テキスト、131,089／98,321 byte のファイル、SHA-256 `1ec3437cee3cccf3647e130524ade52848571960a3340ae33573beef17d330b3`／`5641ff21ca1a2dd16b585d026f69d26b23c537e49f0cdca944bf3b9203655753` の一致を確認した。
@@ -103,7 +119,7 @@ Worker化後も `npm run test:e2e:real` と `npm run test:e2e:real:derp` が同�
 
 - Tauri の2端末間で、保存後の開く、共有先選択、取消後の再転送。開く、保存先コピー、テキストのコピー／保存、取消そのものは macOS↔Android で確認済み。
 - iOS 実機のロック解除後起動とファイル操作。iOS Simulator の bundle 生成と、署名済み IPA のインストールは別に記録する。
-- WireGuard UDP、WebRTC DataChannel、DERP relay をそれぞれ指定した同一条件の全環境転送。Android／Webでは WebRTC と DERP の同一入力を確認済みで、WireGuard UDPの転送完了と全組み合わせは未確認である。
+- WireGuard UDP、WebRTC DataChannel、DERP relay をそれぞれ指定した同一条件の全環境転送。macOS↔Android の WireGuard UDP 双方向ファイルと Android↔Web の WebRTC／DERP 転送は確認済みだが、全 OS 組み合わせは未確認である。
 - Windows、macOS、Linux、iOS、Android、Web の全組み合わせ、低容量保存先、巨大ファイル、100回の接続・取消・切断後の参照解放。
 - Cloudflare Pages の実デプロイ、manifest署名と公開設定の配布、失敗版の隔離・復元、速度・CPU・総メモリの受入値。ブラウザ側の検証済み版保存と次回切替処理は実装済みだが、Pagesの署名鍵・配布設定を使った実行は未実施。
 
@@ -111,6 +127,6 @@ Worker化後も `npm run test:e2e:real` と `npm run test:e2e:real:derp` が同�
 
 `cargo check -p tailsend-tauri` は aarch64-apple-ios、aarch64-apple-ios-sim、x86_64-apple-ios、wasm32-unknown-unknown で通過した。aarch64-unknown-linux-gnu は Rust のエラーではなく、実行環境に cross sysroot と `pkg-config` の `libdbus` 設定がないため停止している。Windows target と各 OS の実機はこの環境にない。
 
-最新の Android 再検証では Sony XQ-DQ44 (`QV770139JG`) を再接続し、`8c1ddc6` の debug APKを再生成・再インストールした。WebRTC／DERPともに両端 `connected`、双方向テキスト、131,071 byteファイル、SHA-256一致を確認した。WireGuard UDPの転送完了、他OSとの全組み合わせ、取消後の再転送は未確認である。
+最新の Android 再検証では Sony XQ-DQ44 (`QV770139JG`) を再接続し、`8c1ddc6` の debug APKを再生成・再インストールした。WebRTC／DERPともに両端 `connected`、双方向テキスト、131,071 byteファイル、SHA-256一致を確認した。続く direct-udp 実行では macOS↔Android の双方向ファイルと同一 SHA-256 を確認し、Android↔Web では取消後の再転送も確認した。Windows／Linux／iOS 実機を含む全組み合わせと、Tauri 2端末間での取消後再転送は未確認である。
 
 上記はビルド成功やブラウザ2タブの WebRTC smoke だけでは完了扱いにしない。端末、commit、通信経路、入力ファイル、受信ハッシュ、保存物、所要時間を同じ記録へ残してから判定する。

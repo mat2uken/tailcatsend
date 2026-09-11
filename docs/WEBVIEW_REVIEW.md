@@ -26,7 +26,9 @@ UI と転送処理の責務は分かれ、ファイル本文を UI の JSON、Ba
 | `b08d585` Browser 再検証 | 更新署名鍵検査後も通常経路 `webrtc`、DERP固定 `derp` で双方向転送とSHA-256一致 |
 | `c67683c` Browser 再検証 | Pages配布用WASMサイズ対応後も通常経路 `webrtc`、DERP固定 `derp` で双方向転送とSHA-256一致 |
 | `274e66f` macOS bundle | Go archive参照先修正後にarm64 bundleを生成し、WebView起動と招待待機への遷移を確認 |
-| Tauri実機 smoke | macOS bundle と Sony XQ-DQ44 の direct-udp 表示、DERP転送、取消 |
+| Tauri実機 direct-udp | macOS bundle と Sony XQ-DQ44 の両端 `direct-udp`、131,071 byte双方向ファイル、SHA-256一致 |
+| Tauri実機 DERP | macOS bundle と Sony XQ-DQ44 の双方向テキスト、64 MiB取消、保存物の後処理 |
+| Android取消・再転送 | Chromium↔Sony XQ-DQ44 の64 MiB取消、`.part`残存なし、同一接続で131,071 byte再転送とSHA-256一致 |
 | `eb8b543` macOS bundle | update config の埋め込み先を含む Release bundle を再生成・起動し、WebViewの「接続待機中」を確認 |
 | `1f4030f` iOS Simulator | iPhone 16 simulator で最新UIを起動し、招待作成後の「相手を待機中」遷移を画面確認 |
 | `a12b873` macOS bundle | arm64 bundleを再生成し、WebView起動と招待作成後の「相手を待機中」遷移を確認 |
@@ -37,9 +39,9 @@ UI と転送処理の責務は分かれ、ファイル本文を UI の JSON、Ba
 
 ## 未完了の受入項目
 
-- Tauri 2端末の共有先選択、取消後の再転送。開く、保存先コピー、テキストのコピー／保存、取消自体と通常転送は macOS↔Android で確認済み。
+- Tauri 2端末の共有先選択、取消後の再転送。Chromium↔Android の取消後再転送は確認済み。開く、保存先コピー、テキストのコピー／保存、取消自体と通常転送は macOS↔Android で確認済み。
 - iOS 実機起動と実機ファイル操作。
-- WireGuard UDP、WebRTC、DERP を `PONLET_TRANSPORT` の起動固定または再現条件で分けた全 OS 組み合わせ。固定入口は実装済みだが、組み合わせの転送結果は未完了。
+- WireGuard UDP、WebRTC、DERP を `PONLET_TRANSPORT` の起動固定または再現条件で分けた全 OS 組み合わせ。macOS↔Android の direct-udp と Android↔Web の WebRTC／DERP は確認済みだが、組み合わせ全体は未完了。
 - Cloudflare Pages 実デプロイ、署名付き更新、失敗版隔離と復帰。
 - 速度中央値、入力応答 p95、Go heap、WebView を含む総メモリ、bundle サイズの同一条件比較。
 - iOS実機は Bundle ID `jp.yasagure.ponlet` の Provisioning Profile 不足、Linux cross check は aarch64 sysroot／`pkg-config` 不足、Windows実機は検証環境不在で未完了。
