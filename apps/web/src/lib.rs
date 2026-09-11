@@ -1080,13 +1080,16 @@ impl WebBackend {
     }
 
     fn finish(&self, id: [u8; 16], result: Result<(), TransferError>) -> Result<(), JsValue> {
-        let cancelled =
-            matches!(&result, Err(TransferError::Cancelled)) && self.service.is_cancelled(id);
+        let cancelled = result.is_err() && self.service.is_cancelled(id);
         let failed = result.is_err() && !cancelled;
         if let Err(error) = result {
             self.event(AppEvent::TransferCancelled {
                 transfer_id: id,
-                reason: error.to_string(),
+                reason: if cancelled {
+                    "Transfer cancelled by user".to_string()
+                } else {
+                    error.to_string()
+                },
             });
         } else {
             self.event(AppEvent::TransferCompleted { transfer_id: id });
@@ -1183,9 +1186,14 @@ async fn receive_text(
     backend.event(AppEvent::TransportChanged(transport_path));
     let _ = stream.close().await;
     if let Err(error) = result {
+        let cancelled = backend.service.is_cancelled(id);
         backend.event(AppEvent::TransferCancelled {
             transfer_id: id,
-            reason: error.to_string(),
+            reason: if cancelled {
+                "Transfer cancelled by user".to_string()
+            } else {
+                error.to_string()
+            },
         });
     }
     backend.service.finish_transfer(id);
@@ -1241,7 +1249,11 @@ async fn receive_file(
         }
         Err(error) => backend.event(AppEvent::TransferCancelled {
             transfer_id: id,
-            reason: error.to_string(),
+            reason: if backend.service.is_cancelled(id) {
+                "Transfer cancelled by user".to_string()
+            } else {
+                error.to_string()
+            },
         }),
     }
     backend.service.finish_transfer(id);

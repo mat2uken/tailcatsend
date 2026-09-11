@@ -354,12 +354,13 @@ impl TauriRuntime {
                 transfer_id,
                 reason,
             } => {
+                let cancelled = reason == "Transfer cancelled by user";
                 let _ = app.emit(
                     APP_EVENT,
                     UiEvent::Terminal {
                         sequence: ordered.sequence,
                         id: id_string(transfer_id),
-                        status: "cancelled",
+                        status: if cancelled { "cancelled" } else { "failed" },
                         message: Some(reason),
                     },
                 );
@@ -1133,17 +1134,23 @@ async fn receive_text(runtime: Arc<TauriState>, app: AppHandle, mut stream: Box<
     let _ = stream.close().await;
     runtime.backend.finish_transfer(transfer_id);
     if let Err(error) = result {
+        let cancelled = runtime.backend.is_cancelled(transfer_id);
+        let reason = if cancelled {
+            "Transfer cancelled by user".to_string()
+        } else {
+            error.to_string()
+        };
         let ordered = runtime.backend.emit(AppEvent::TransferCancelled {
             transfer_id,
-            reason: error.to_string(),
+            reason: reason.clone(),
         });
         let _ = app.emit(
             APP_EVENT,
             UiEvent::Terminal {
                 sequence: ordered.sequence,
                 id: id_string(transfer_id),
-                status: "failed",
-                message: Some(error.to_string()),
+                status: if cancelled { "cancelled" } else { "failed" },
+                message: Some(reason),
             },
         );
     }
@@ -1220,17 +1227,23 @@ async fn receive_file(runtime: Arc<TauriState>, app: AppHandle, mut stream: Box<
             );
         }
         Err(error) => {
+            let cancelled = runtime.backend.is_cancelled(transfer_id);
+            let reason = if cancelled {
+                "Transfer cancelled by user".to_string()
+            } else {
+                error.to_string()
+            };
             let ordered = runtime.backend.emit(AppEvent::TransferCancelled {
                 transfer_id,
-                reason: error.to_string(),
+                reason: reason.clone(),
             });
             let _ = app.emit(
                 APP_EVENT,
                 UiEvent::Terminal {
                     sequence: ordered.sequence,
                     id: id_string(transfer_id),
-                    status: "failed",
-                    message: Some(error.to_string()),
+                    status: if cancelled { "cancelled" } else { "failed" },
+                    message: Some(reason),
                 },
             );
         }
@@ -1248,12 +1261,10 @@ fn finish_outgoing(
 ) -> Result<(), String> {
     let event = match result {
         Ok(()) => AppEvent::TransferCompleted { transfer_id },
-        Err(TransferError::Cancelled) if cancel.load(Ordering::Acquire) => {
-            AppEvent::TransferCancelled {
-                transfer_id,
-                reason: "cancelled by user".to_string(),
-            }
-        }
+        Err(_error) if cancel.load(Ordering::Acquire) => AppEvent::TransferCancelled {
+            transfer_id,
+            reason: "Transfer cancelled by user".to_string(),
+        },
         Err(error) => AppEvent::TransferCancelled {
             transfer_id,
             reason: error.to_string(),
