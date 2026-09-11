@@ -198,3 +198,45 @@ it("returns timeout when service worker registration does not settle", async () 
     });
   }
 });
+
+it("returns timeout when an update fetch ignores the abort signal", async () => {
+  const originalCaches = globalThis.caches;
+  const originalFetch = globalThis.fetch;
+  const originalConfig = window.__PONLET_UPDATE_CONFIG__;
+  const originalWorker = window.navigator.serviceWorker;
+  vi.stubGlobal("caches", memoryCacheStorage());
+  const worker = { postMessage: vi.fn() };
+  Object.defineProperty(window.navigator, "serviceWorker", {
+    configurable: true,
+    value: {
+      ready: Promise.resolve({ active: worker }),
+      register: vi.fn(async () => ({ active: worker })),
+    },
+  });
+  globalThis.fetch = vi.fn(() => new Promise(() => {}));
+  window.__PONLET_UPDATE_CONFIG__ = {
+    apiVersion: 1,
+    currentRevision: 1,
+    distribution: "web",
+    manifestUrl: "https://updates.example/manifest.json",
+    publicKey: { kty: "EC", crv: "P-256", x: "x", y: "y" },
+    signatureUrl: "https://updates.example/manifest.sig",
+    target: "browser",
+    timeoutMs: 10,
+  };
+  try {
+    await expect(checkForUpdate()).resolves.toEqual({
+      error: "update check timed out",
+      status: "timeout",
+    });
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+  } finally {
+    globalThis.caches = originalCaches;
+    globalThis.fetch = originalFetch;
+    window.__PONLET_UPDATE_CONFIG__ = originalConfig;
+    Object.defineProperty(window.navigator, "serviceWorker", {
+      configurable: true,
+      value: originalWorker,
+    });
+  }
+});

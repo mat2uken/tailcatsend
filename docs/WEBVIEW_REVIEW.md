@@ -15,7 +15,7 @@ UI と転送処理の責務は分かれ、ファイル本文を UI の JSON、Ba
 | `cargo test --workspace` | Slint 削除後の全 crate、55 Rust tests を実行 |
 | `cargo check -p tailsend-web --target wasm32-unknown-unknown` | Browser service の compile |
 | Tauri/Desktop check | Go bridge と WebView adapter の link |
-| Web UI lint/typecheck/unit/build | web/tauri 両 mode、Vitest 29件、Oxlint/Oxfmt |
+| Web UI lint/typecheck/unit/build | web/tauri 両 mode、Vitest 30件、Oxlint/Oxfmt |
 | Browser smoke | 2 タブ WebRTC／DERP の招待、テキスト、ファイル、SHA-256 |
 | Android実機 smoke | Sony XQ-DQ44 と Chromium の WebRTC／DERP 双方向転送 |
 | native bridge 改修後の Android 再検証 | `a4d2143` で再生成した APK、WebRTC／DERP 双方向転送、131,071 byte と SHA-256一致 |

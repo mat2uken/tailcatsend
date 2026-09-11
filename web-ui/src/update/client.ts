@@ -172,7 +172,7 @@ function withAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
 }
 
 async function fetchBytes(url: string, maxBytes: number, signal: AbortSignal): Promise<Uint8Array> {
-  const response = await fetch(url, { cache: "no-store", signal });
+  const response = await withAbort(fetch(url, { cache: "no-store", signal }), signal);
   if (!response.ok) {
     throw new ManifestError(`update fetch failed (${response.status})`);
   }
@@ -180,7 +180,7 @@ async function fetchBytes(url: string, maxBytes: number, signal: AbortSignal): P
   if (length !== undefined && length > maxBytes) {
     throw new ManifestError("update file is too large");
   }
-  const bytes = new Uint8Array(await response.arrayBuffer());
+  const bytes = new Uint8Array(await withAbort(response.arrayBuffer(), signal));
   if (bytes.byteLength > maxBytes) {
     throw new ManifestError("update file is too large");
   }
@@ -206,7 +206,7 @@ async function stageFiles(
   if (!manifest.files.some((file) => file.path === "index.html")) {
     throw new ManifestError("release does not contain index.html");
   }
-  const cache = await caches.open(releaseCacheName(manifest.release_id));
+  const cache = await withAbort(caches.open(releaseCacheName(manifest.release_id)), signal);
   const sourceBase = new URL(config.fileBaseUrl ?? "./", config.manifestUrl);
   const appBase = new URL("./", document.baseURI);
   try {
@@ -216,7 +216,7 @@ async function stageFiles(
       if (appUrl.origin !== location.origin) {
         throw new ManifestError(`release path is outside the application: ${file.path}`);
       }
-      const response = await fetch(sourceUrl, { cache: "no-store", signal });
+      const response = await withAbort(fetch(sourceUrl, { cache: "no-store", signal }), signal);
       if (!response.ok) {
         throw new ManifestError(`update file fetch failed (${response.status})`);
       }
@@ -224,26 +224,31 @@ async function stageFiles(
       if (length !== undefined && length > MAX_FILE_BYTES) {
         throw new ManifestError(`update file is too large: ${file.path}`);
       }
-      const bytes = new Uint8Array(await response.clone().arrayBuffer());
+      const bytes = new Uint8Array(await withAbort(response.clone().arrayBuffer(), signal));
       if (bytes.byteLength > MAX_FILE_BYTES || bytes.byteLength !== file.size) {
         throw new ManifestError(`update file size mismatch: ${file.path}`);
       }
-      if ((await sha256Hex(bytes)) !== file.sha256) {
+      if ((await withAbort(sha256Hex(bytes), signal)) !== file.sha256) {
         throw new ManifestError(`update file hash mismatch: ${file.path}`);
       }
       await withAbort(cache.put(appUrl.toString(), response), signal);
     }
   } catch (error) {
-    await caches.delete(releaseCacheName(manifest.release_id));
+    await withAbort(caches.delete(releaseCacheName(manifest.release_id)), signal).catch(
+      () => undefined,
+    );
     throw error;
   }
 }
 
 async function markPendingRelease(releaseId: string, signal: AbortSignal): Promise<void> {
-  const control = await caches.open(CONTROL_CACHE_NAME);
-  await control.put(
-    PENDING_RELEASE_KEY,
-    new Response(releaseId, { headers: { "content-type": "text/plain" } }),
+  const control = await withAbort(caches.open(CONTROL_CACHE_NAME), signal);
+  await withAbort(
+    control.put(
+      PENDING_RELEASE_KEY,
+      new Response(releaseId, { headers: { "content-type": "text/plain" } }),
+    ),
+    signal,
   );
   const registration = await withAbort(navigator.serviceWorker.ready, signal);
   registration.active?.postMessage({ releaseId, type: "stage" });
@@ -255,7 +260,7 @@ async function checkAndStage(config: UpdateConfig, signal: AbortSignal): Promise
     fetchBytes(config.manifestUrl, MAX_MANIFEST_BYTES, signal),
     fetchSignature(config.signatureUrl, signal),
   ]);
-  await verifyManifestSignature(config.publicKey, manifestBytes, signature);
+  await withAbort(verifyManifestSignature(config.publicKey, manifestBytes, signature), signal);
   const manifest = decodeManifest(manifestBytes);
   try {
     checkCompatibility(manifest, config);
