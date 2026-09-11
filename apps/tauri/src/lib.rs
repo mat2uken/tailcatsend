@@ -1206,10 +1206,13 @@ async fn receive_file(runtime: Arc<TauriState>, app: AppHandle, mut stream: Box<
                     items: vec![item],
                 },
             );
+            let completed = runtime
+                .backend
+                .emit(AppEvent::TransferCompleted { transfer_id });
             let _ = app.emit(
                 APP_EVENT,
                 UiEvent::Terminal {
-                    sequence: ordered.sequence,
+                    sequence: completed.sequence,
                     id: id_string(transfer_id),
                     status: "completed",
                     message: None,

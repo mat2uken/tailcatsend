@@ -1233,9 +1233,12 @@ async fn receive_file(
     backend.event(AppEvent::TransportChanged(transport_path));
     let _ = stream.close().await;
     match result {
-        Ok(received) => backend.event(AppEvent::FilesReceived {
-            items: vec![received.item],
-        }),
+        Ok(received) => {
+            backend.event(AppEvent::FilesReceived {
+                items: vec![received.item],
+            });
+            backend.event(AppEvent::TransferCompleted { transfer_id: id });
+        }
         Err(error) => backend.event(AppEvent::TransferCancelled {
             transfer_id: id,
             reason: error.to_string(),
