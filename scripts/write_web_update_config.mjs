@@ -11,14 +11,15 @@ const signatureUrl =
   process.env.PONLET_UPDATE_SIGNATURE_URL ||
   (privateKeyPem ? "./ponlet-manifest.sig" : undefined);
 let publicKeyJwk = process.env.PONLET_UPDATE_PUBLIC_KEY_JWK || undefined;
+let derivedPublicKey;
 
-if (!publicKeyJwk && privateKeyPem) {
+if (privateKeyPem) {
   const privateKey = createPrivateKey({ key: privateKeyPem, format: "pem" });
-  const publicKey = createPublicKey(privateKey).export({ format: "jwk" });
-  if (publicKey.kty !== "EC" || publicKey.crv !== "P-256") {
+  derivedPublicKey = createPublicKey(privateKey).export({ format: "jwk" });
+  if (derivedPublicKey.kty !== "EC" || derivedPublicKey.crv !== "P-256") {
     throw new Error("PONLET_UPDATE_PRIVATE_KEY_PEM must be a P-256 EC key");
   }
-  publicKeyJwk = JSON.stringify(publicKey);
+  publicKeyJwk ??= JSON.stringify(derivedPublicKey);
 }
 
 if (!manifestUrl || !signatureUrl || !publicKeyJwk) {
@@ -38,6 +39,12 @@ try {
 }
 if (!publicKey || typeof publicKey !== "object" || Array.isArray(publicKey)) {
   throw new Error("PONLET_UPDATE_PUBLIC_KEY_JWK must be a JSON object");
+}
+if (
+  derivedPublicKey &&
+  ["kty", "crv", "x", "y"].some((field) => publicKey[field] !== derivedPublicKey[field])
+) {
+  throw new Error("PONLET_UPDATE_PUBLIC_KEY_JWK does not match the signing secret");
 }
 
 const integer = (name, fallback) => {
