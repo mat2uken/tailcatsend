@@ -65,6 +65,50 @@ if [[ "${platform}" == "ios" || "${platform}" == "ios-sim" ]]; then
   cp "${archive_dir}/libtailcat.a" \
     "${externals_dir}/arm64/${configuration}/libtailcat.a"
 else
+  android_properties="${repo_dir}/apps/tauri/gen/android/app/tauri.properties"
+  if [[ -f "${android_properties}" ]]; then
+    app_version="$(python3 - "${repo_dir}/apps/tauri/tauri.conf.json" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    print(json.load(source)["version"])
+PY
+)"
+    android_version_code="$(python3 - "${app_version}" <<'PY'
+import sys
+
+parts = [int(part) for part in sys.argv[1].split(".")[:3]]
+parts += [0] * (3 - len(parts))
+major, minor, patch = parts
+print(major * 1_000_000 + minor * 1_000 + patch)
+PY
+)"
+    python3 - "${android_properties}" "${app_version}" "${android_version_code}" <<'PY'
+from pathlib import Path
+import sys
+
+path, version_name, version_code = sys.argv[1:]
+lines = []
+seen_name = False
+seen_code = False
+for line in Path(path).read_text().splitlines():
+    if line.startswith("tauri.android.versionName="):
+        lines.append(f"tauri.android.versionName={version_name}")
+        seen_name = True
+    elif line.startswith("tauri.android.versionCode="):
+        lines.append(f"tauri.android.versionCode={version_code}")
+        seen_code = True
+    else:
+        lines.append(line)
+if not seen_name:
+    lines.append(f"tauri.android.versionName={version_name}")
+if not seen_code:
+    lines.append(f"tauri.android.versionCode={version_code}")
+Path(path).write_text("\n".join(lines) + "\n")
+PY
+    echo "Android version ${app_version} (${android_version_code})"
+  fi
   android_home="${ANDROID_HOME:-${HOME}/Library/Android/sdk}"
   ndk_root="${ANDROID_NDK_ROOT:-${android_home}/ndk/28.2.13676358}"
   toolchain_root="$(find "${ndk_root}/toolchains/llvm/prebuilt" -mindepth 1 -maxdepth 1 -type d -print -quit)"

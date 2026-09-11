@@ -10,6 +10,7 @@ mkdir -p "${out_dir}"
 host_os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 host_arch="$(go env GOARCH)"
 build_mode=c-archive
+windows_native=false
 case "${host_os}" in
   darwin)
     export CGO_ENABLED=1 GOOS=darwin GOARCH="${host_arch}"
@@ -23,6 +24,7 @@ case "${host_os}" in
     export CGO_ENABLED=1 GOOS=windows GOARCH="${host_arch}"
     go_output="${out_dir}/tailcat.dll"
     build_mode=c-shared
+    windows_native=true
     ;;
   *)
     echo "Unsupported host OS: ${host_os}" >&2
@@ -31,6 +33,35 @@ case "${host_os}" in
 esac
 
 (cd "${repo_dir}/tailcat" && go build -trimpath -buildmode="${build_mode}" -o "${go_output}" ./bridge/native)
+
+if [[ "${windows_native}" == true ]]; then
+  # Go emits the Windows DLL and C header, while the MSVC linker used by the
+  # Rust target needs an import library. Build the import library from the
+  # exported C ABI so the DLL remains a separate runtime file.
+  header="${out_dir}/tailcat.h"
+  def_file="${out_dir}/tailcat.def"
+  test -f "${header}"
+  {
+    printf 'LIBRARY tailcat.dll\nEXPORTS\n'
+    sed -nE 's/^extern [^ ]+ (tc_[A-Za-z0-9_]+)\(.*/\1/p' "${header}" | sort -u
+  } > "${def_file}"
+  lib_tool="$(command -v lib.exe || true)"
+  if [[ -z "${lib_tool}" ]]; then
+    lib_tool="$(find '/c/Program Files/Microsoft Visual Studio' -type f -iname 'lib.exe' -print -quit 2>/dev/null || true)"
+  fi
+  if [[ -z "${lib_tool}" ]]; then
+    echo 'MSVC lib.exe is required to create tailcat.lib' >&2
+    exit 1
+  fi
+  case "${host_arch}" in
+    amd64) machine=X64 ;;
+    arm64) machine=ARM64 ;;
+    386) machine=X86 ;;
+    *) echo "Unsupported Windows architecture: ${host_arch}" >&2; exit 2 ;;
+  esac
+  "${lib_tool}" /def:"${def_file}" /machine:"${machine}" /out:"${out_dir}/tailcat.lib"
+  test -f "${out_dir}/tailcat.lib"
+fi
 
 export PONLET_TAILCAT_LIB_DIR="${out_dir}"
 export PONLET_TAILCAT_LIB_NAME=tailcat
@@ -48,6 +79,9 @@ if [[ -x "${tauri_binary}" ]]; then
   cp "${tauri_binary}" "${repo_dir}/target/release/tailsend"
 elif [[ -x "${tauri_binary}.exe" ]]; then
   cp "${tauri_binary}.exe" "${repo_dir}/target/release/tailsend.exe"
+  if [[ "${windows_native}" == true ]]; then
+    cp "${out_dir}/tailcat.dll" "${repo_dir}/target/release/tailcat.dll"
+  fi
 else
   echo "Tauri CLI did not produce ${tauri_binary}" >&2
   exit 1

@@ -42,7 +42,8 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path tailsend-windows-x86_64 | Out-Null
-          Copy-Item target/release/tailsend.exe tailsend-windows-x86_64/ -ErrorAction SilentlyContinue
+          Copy-Item target/release/tailsend.exe tailsend-windows-x86_64/ -ErrorAction Stop
+          Copy-Item target/release/tailcat.dll tailsend-windows-x86_64/ -ErrorAction Stop
           Compress-Archive -Path tailsend-windows-x86_64/* -DestinationPath tailsend-windows-x86_64.zip
       - uses: actions/upload-artifact@v4
         with:
@@ -173,7 +174,7 @@ jobs:
 
   build-ios:
     name: iOS arm64
-    runs-on: macos-15
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
         with: { submodules: true }
@@ -183,6 +184,12 @@ jobs:
         with: { node-version: "24", cache: npm, cache-dependency-path: web-ui/package-lock.json }
       - uses: dtolnay/rust-toolchain@stable
         with: { targets: aarch64-apple-ios }
+      - name: Select Xcode 26
+        run: |
+          XCODE_APP=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n 1 || true)
+          test -n "$XCODE_APP"
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
+          xcodebuild -version
       - run: brew install xcodegen
       - run: cargo install tauri-cli --version 2.10.0 --locked
       - name: Install Apple signing material

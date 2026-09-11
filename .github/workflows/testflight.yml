@@ -8,7 +8,7 @@ on:
 jobs:
   testflight:
     name: Build and upload Tauri iOS app
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 60
     steps:
       - name: Checkout repository
@@ -34,8 +34,11 @@ jobs:
           cache: npm
           cache-dependency-path: web-ui/package-lock.json
 
-      - name: Select Xcode and install XcodeGen
+      - name: Select Xcode 26 and install XcodeGen
         run: |
+          XCODE_APP=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n 1 || true)
+          test -n "$XCODE_APP"
+          sudo xcode-select -s "$XCODE_APP/Contents/Developer"
           xcodebuild -version
           brew install xcodegen
       - name: Install Tauri CLI
