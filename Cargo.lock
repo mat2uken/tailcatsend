@@ -4048,6 +4048,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "tailsend-ipc"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "tailsend-native-bridge"
 version = "0.1.0"
 
@@ -4105,11 +4112,14 @@ dependencies = [
  "async-trait",
  "base64 0.22.1",
  "bytes",
+ "futures",
+ "jni",
  "log",
  "rand 0.8.8",
  "serde",
  "serde_json",
  "tailsend-core",
+ "tailsend-ipc",
  "tailsend-native-transport",
  "tailsend-platform-api",
  "tailsend-protocol",

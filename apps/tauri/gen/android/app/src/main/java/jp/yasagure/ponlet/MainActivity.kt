@@ -7,5 +7,11 @@ class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    PonletPort.attachToContentView(this)
+  }
+
+  override fun onResume() {
+    super.onResume()
+    PonletPort.attachToContentView(this)
   }
 }

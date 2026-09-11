@@ -91,7 +91,7 @@ if (!privateKeyPem) {
 const releaseId = process.env.PONLET_UPDATE_RELEASE_ID || process.env.GITHUB_SHA || "release-0";
 assertSafeRelativePath(releaseId, "release_id");
 const revision = nonNegativeInteger("PONLET_UPDATE_REVISION", process.env.GITHUB_RUN_NUMBER ?? "0");
-const minApiVersion = nonNegativeInteger("PONLET_UPDATE_API_VERSION", "1");
+const minApiVersion = nonNegativeInteger("PONLET_UPDATE_API_VERSION", "2");
 if (minApiVersion > 65_535) {
   throw new Error("PONLET_UPDATE_API_VERSION is too large");
 }

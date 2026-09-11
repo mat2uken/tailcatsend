@@ -9,16 +9,18 @@
 | UI | `web-ui/` の VanJS + TypeScript + 標準 HTML/CSS。Vite mode `web` と `tauri` で同じソースを出力 |
 | Rust service | `tailsend-core`、`tailsend-transfer`、platform/transport API。招待、進捗、取消、保存完了を共通化 |
 | Browser | `apps/web` の Rust WASM と OPFS を Dedicated Workerへ配置し、Window 側 Go Tailcat WASMを MessagePort で中継。File 読み出し、WebRTC bridge を接続 |
-| Native | `apps/tauri` の Tauri command/event、Go c-archive/c-shared、native file handle。`apps/desktop` は Tauri 起動のみ |
+| Native | `apps/tauri` の binary custom scheme、Android `WebMessageListener` port、JSON＋Tauri invoke fallback、Go c-archive/c-shared、native file handle。`apps/desktop` は Tauri 起動のみ |
 | Mobile | `apps/tauri/gen/apple` と `apps/tauri/gen/android`。旧 `apps/ios`、`apps/android`、Slint UI は削除済み |
 | 配布 | Pages workflow が UI、Go WASM、Rust service WASM を release build から配置。更新検証 crate は署名とファイル検査まで実装 |
 
 ## 直近の変更
 
 - `NAME` ヘッダーの分割受信、ヘッダーと本文の同時受信、部分 read/write、0 byte、早期 EOF、取消、保存確定を共通 Rust へ移した。
-- Tauri の送信 picker、受信保存、QR bitmap、受信一覧を Rust command/event と VanJS に接続した。ファイル本文は invoke JSON に載せない。
-- Browser adapter は Go bridge の接続後に Rust WASM service を起動し、snapshot/event/API version を検証してから UI に渡す。
-- Browser adapter は Go bridge を Window に残し、Rust WASM service と OPFS を Dedicated Workerで起動する。WorkerとのI/Oは MessagePortを使い、stream本文は TransferableなArrayBufferで受け渡す。Workerを作成できないWebViewだけは同一Window adapterへ切り替える。
+- Tauri の送信 picker、受信保存、QR bitmap、受信一覧を共通 dispatcher と VanJS に接続した。ファイル本文は invoke JSON に載せない。
+- Browser adapter は Go bridge の接続後に Rust WASM service を起動し、API v2 の snapshot/event を検証してから UI に渡す。操作・応答・通知は Dedicated Worker の同じ MessagePort 上の binary frame に統一する。
+- WorkerとのI/Oは MessagePort を使い、stream本文は Transferable な ArrayBufferで受け渡す。Dedicated Worker と MessagePort を利用できない WebView は browser backend として起動せず、native WebView のみ JSON＋Tauri invoke fallback を持つ。
+- Native の高速経路は Android の `ponletbin` ArrayBuffer port、対応しない WebView の `ponletbin://localhost/rpc` POST の順に選び、初期 probe に失敗したときだけ JSON＋Tauri invoke へ切り替える。通知は同じ binary RPC の `WaitEvent` を到着まで待ち、応答後すぐ次の受信待ちを発行する。
+- binary frame は要求番号、購読番号、sequence、message kind を持ち、通知は最大32件の再生と gap 検出時の snapshot 再同期を行う。QR は固定寸法ヘッダー＋RGBA bytes として `Uint8Array` を返す。
 - Webの送信FileSourceは共通Rustの再利用バッファへ直接読み出す`read_into`を実装し、本文チャンクの一時`Bytes`割当を避ける。
 - Go bridge の server status は peer 情報を明示的に取得する。接続通知時の値だけでなく、Rust stream がデータ開始時に再取得するため、受信側も実際の経路へ追随する。
 - `vanjslitetemplate` の Vite 8、Vitest、Oxlint、Oxfmt、`@nkzw/oxlint-config`、`vanjs-core` 構成を採用した。mode ごとの outDir と ES2018 target は維持する。

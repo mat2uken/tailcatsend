@@ -1,5 +1,5 @@
 /** Metadata and operations shared by browser and native adapters. */
-export const APPLICATION_API_VERSION = 1 as const;
+export const APPLICATION_API_VERSION = 2 as const;
 
 export type SessionState =
   | "ready"
@@ -19,7 +19,7 @@ export interface ReceivedItem {
 
 export interface QrBitmap {
   height: number;
-  rgbaPixels: Array<number>;
+  rgbaPixels: Uint8Array;
   width: number;
 }
 
@@ -70,7 +70,7 @@ export interface PonletBackend {
   /** Open the native picker and start a transfer without exposing file bytes to JS. */
   pickAndSendFiles?: () => Promise<void>;
   /** Render an invitation without adding a JavaScript QR dependency. */
-  qrCode?: (url: string) => Promise<QrBitmap>;
+  qrCode: (url: string) => Promise<QrBitmap>;
   saveText(text: string): Promise<void>;
   sendFiles(files: Array<File>): Promise<void>;
   sendText(text: string): Promise<void>;
@@ -81,7 +81,7 @@ export interface PonletBackend {
 
 export function initialSnapshot(): BackendSnapshot {
   return {
-    apiVersion: 1,
+    apiVersion: APPLICATION_API_VERSION,
     sequence: 0,
     state: "booting",
     transport: "unknown",

@@ -1,0 +1,8 @@
+[package]
+name = "tailsend-ipc"
+version = "0.1.0"
+description = "Ponlet binary WebView IPC frame codec"
+edition = "2021"
+
+[dependencies]
+thiserror = { workspace = true }

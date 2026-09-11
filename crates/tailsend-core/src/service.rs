@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use crate::{AppEvent, AppSnapshot, SessionState};
 use tailsend_transport_api::{CancellationCallback, TransportPath};
 
-const DEFAULT_EVENT_QUEUE: usize = 64;
+const DEFAULT_EVENT_QUEUE: usize = 32;
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(200);
 
 /// Metadata delivered to a UI or another platform adapter.
@@ -30,7 +30,7 @@ pub struct BackendSnapshot {
 impl Default for BackendSnapshot {
     fn default() -> Self {
         Self {
-            api_version: 1,
+            api_version: 2,
             sequence: 0,
             app: AppSnapshot::default(),
         }

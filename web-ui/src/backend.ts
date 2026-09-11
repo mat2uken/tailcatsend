@@ -68,6 +68,7 @@ function unavailableBackend(): PonletBackend {
     sendFiles: unavailable,
     cancelTransfer: unavailable,
     disconnect: unavailable,
+    qrCode: unavailable,
     openReceivedItem: unavailable,
     copyText,
     shareText,
@@ -94,6 +95,7 @@ export function createBackend(
     "cancelTransfer",
     "disconnect",
     "dispose",
+    "qrCode",
   ] as const;
   if (required.some((method) => typeof bridge[method] !== "function")) {
     return unavailableBackend();
@@ -122,6 +124,6 @@ export function createBackend(
     saveText: (text) => (native.saveText ? native.saveText(text) : saveText(text)),
     dispose: () => native.dispose(),
     ...(native.pickAndSendFiles ? { pickAndSendFiles: () => native.pickAndSendFiles!() } : {}),
-    ...(native.qrCode ? { qrCode: (url) => native.qrCode!(url) } : {}),
+    qrCode: (url) => native.qrCode!(url),
   };
 }

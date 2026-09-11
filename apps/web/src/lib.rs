@@ -161,6 +161,10 @@ struct WebStream {
     /// loop consumes the bytes first and observes the status on the next
     /// read, matching the native C ABI adapter.
     pending_read_status: Option<PendingReadStatus>,
+    read_buffer: Uint8Array,
+    read_offset: usize,
+    read_length: usize,
+    write_buffer: Uint8Array,
 }
 
 enum PendingReadStatus {
@@ -181,6 +185,18 @@ impl WebStream {
             .map(|code| TransportPath::from_code(code as u8))
             .filter(|path| *path != TransportPath::Unknown)
             .unwrap_or(self.transport_path)
+    }
+
+    fn drain_read_buffer(&mut self, buffer: &mut [u8]) -> usize {
+        let available = self.read_length.saturating_sub(self.read_offset);
+        let count = available.min(buffer.len());
+        if count > 0 {
+            self.read_buffer
+                .subarray(self.read_offset as u32, (self.read_offset + count) as u32)
+                .copy_to(&mut buffer[..count]);
+            self.read_offset += count;
+        }
+        count
     }
 }
 
@@ -210,20 +226,36 @@ impl DuplexStream for WebStream {
         if self.closed.get() {
             return Err(TransportError::Closed);
         }
+        if buffer.is_empty() {
+            return Ok(0);
+        }
+        if self.read_offset < self.read_length {
+            return Ok(self.drain_read_buffer(buffer));
+        }
         if let Some(status) = self.pending_read_status.take() {
             return match status {
                 PendingReadStatus::Eof => Ok(0),
                 PendingReadStatus::Error(error) => Err(error),
             };
         }
-        let read = function(&self.connection, "read")?
-            .call1(
+        let read_into = function(&self.connection, "readInto")?;
+        let read = read_into
+            .call2(
                 &self.connection,
-                &JsValue::from_f64(buffer.len() as f64),
+                &self.read_buffer,
+                &JsValue::from_f64(self.read_buffer.length() as f64),
             )
             .map_err(js_error)?;
         let value = promise(read).await?;
-        let (bytes, status) = decode_read_result(&value)?;
+        let (count, status) = decode_read_into_result(&value)?;
+        if count > self.read_buffer.length() as usize {
+            return Err(TransportError::Internal(format!(
+                "Tailcat readInto overrun: {count} > {}",
+                self.read_buffer.length()
+            )));
+        }
+        self.read_offset = 0;
+        self.read_length = count;
         if let Some((code, message)) = status {
             self.pending_read_status = Some(if code == 1 {
                 PendingReadStatus::Eof
@@ -231,25 +263,27 @@ impl DuplexStream for WebStream {
                 PendingReadStatus::Error(transport_status_error(code, &message))
             });
         }
-        let Some(bytes) = bytes else {
-            return match self.pending_read_status.take() {
-                Some(PendingReadStatus::Eof) | None => Ok(0),
-                Some(PendingReadStatus::Error(error)) => Err(error),
-            };
-        };
-        let count = bytes.length() as usize;
-        if count > buffer.len() {
-            return Err(TransportError::Internal(format!(
-                "Tailcat read overrun: {count} > {}",
-                buffer.len()
-            )));
+        if self.read_length > 0 {
+            return Ok(self.drain_read_buffer(buffer));
         }
-        bytes.copy_to(&mut buffer[..count]);
-        Ok(count)
+        match self.pending_read_status.take() {
+            Some(PendingReadStatus::Eof) => Ok(0),
+            Some(PendingReadStatus::Error(error)) => Err(error),
+            None => Err(TransportError::Io("Tailcat read made no progress".into())),
+        }
     }
 
     async fn write_all(&mut self, buffer: &[u8]) -> Result<(), TransportError> {
-        let _ = self.write(buffer).await?;
+        let mut offset = 0;
+        while offset < buffer.len() {
+            let written = self.write(&buffer[offset..]).await?;
+            if written == 0 {
+                return Err(TransportError::Io("Tailcat write made no progress".into()));
+            }
+            offset = offset
+                .checked_add(written)
+                .ok_or_else(|| TransportError::Internal("Tailcat write count overflow".into()))?;
+        }
         Ok(())
     }
 
@@ -257,7 +291,11 @@ impl DuplexStream for WebStream {
         if self.closed.get() {
             return Err(TransportError::Closed);
         }
-        let bytes = Uint8Array::new_with_length(buffer.len() as u32);
+        let bytes = if buffer.len() <= 64 * 1024 {
+            self.write_buffer.subarray(0, buffer.len() as u32)
+        } else {
+            Uint8Array::new_with_length(buffer.len() as u32)
+        };
         bytes.copy_from(buffer);
         let write = function(&self.connection, "write")?
             .call1(&self.connection, &bytes)
@@ -325,6 +363,10 @@ impl Listener for WebListener {
                 closed: Rc::new(Cell::new(false)),
                 transport_path,
                 pending_read_status: None,
+                read_buffer: Uint8Array::new_with_length(64 * 1024),
+                read_offset: 0,
+                read_length: 0,
+                write_buffer: Uint8Array::new_with_length(64 * 1024),
             }),
             port,
         })
@@ -414,44 +456,30 @@ impl TailcatTransport for WebTransport {
             closed: Rc::new(Cell::new(false)),
             transport_path,
             pending_read_status: None,
+            read_buffer: Uint8Array::new_with_length(64 * 1024),
+            read_offset: 0,
+            read_length: 0,
+            write_buffer: Uint8Array::new_with_length(64 * 1024),
         }))
     }
 }
 
-fn decode_read_result(
+fn decode_read_into_result(
     value: &JsValue,
-) -> Result<(Option<Uint8Array>, Option<(u8, String)>), TransportError> {
-    if value.is_null() || value.is_undefined() {
-        return Ok((None, None));
-    }
-    if let Ok(bytes) = value.clone().dyn_into::<Uint8Array>() {
-        return Ok((Some(bytes), None));
-    }
-    let bytes_value = property(value, "bytes")?;
-    let bytes = if bytes_value.is_null() || bytes_value.is_undefined() {
-        None
-    } else {
-        Some(
-            bytes_value
-                .dyn_into::<Uint8Array>()
-                .map_err(|_| TransportError::Protocol("Tailcat read result has invalid bytes".into()))?,
-        )
-    };
+) -> Result<(usize, Option<(u8, String)>), TransportError> {
+    let count = property(value, "count")?
+        .as_f64()
+        .ok_or_else(|| TransportError::Protocol("Tailcat readInto result has no count".into()))?
+        as usize;
     let code = property(value, "code")?
         .as_f64()
-        .ok_or_else(|| TransportError::Protocol("Tailcat read result has no status".into()))?
+        .ok_or_else(|| TransportError::Protocol("Tailcat readInto result has no status".into()))?
         as u8;
     let message = property(value, "error")?.as_string().unwrap_or_default();
-    Ok((bytes, Some((code, message))))
+    Ok((count, (code != 0).then_some((code, message))))
 }
 
 fn decode_write_result(value: &JsValue, buffer_len: usize) -> Result<usize, TransportError> {
-    if value.is_undefined() || value.is_null() {
-        // Older Go bridges resolved write() with undefined after a complete
-        // write. Keep that bridge compatible while newer builds return the
-        // accepted byte count.
-        return Ok(buffer_len);
-    }
     if let Some(written) = value.as_f64() {
         let written = written as usize;
         if written > buffer_len {
@@ -727,7 +755,7 @@ struct WebBackend {
 
 impl WebBackend {
     fn new() -> Rc<Self> {
-        let service = BackendService::default();
+        let service = BackendService::new(32);
         service.set_state(SessionState::Disconnected {
             reason: "ready".into(),
         });

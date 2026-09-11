@@ -33,10 +33,10 @@ const (
 	transportDERP      = transportpath.DERP
 	transportUnknown   = transportpath.Unknown
 
-	streamOK       = 0
-	streamEOF      = 1
-	streamTimeout  = 2
-	streamNetwork  = 20
+	streamOK      = 0
+	streamEOF     = 1
+	streamTimeout = 2
+	streamNetwork = 20
 )
 
 func main() {
@@ -262,6 +262,7 @@ func pingUntil(ctx context.Context, cl *tailcat.Client) error {
 
 func makeJSConn(c net.Conn, port uint16, transport uint8, currentTransport func() uint8, onClose func()) js.Value {
 	buf := make([]byte, 64<<10)
+	writeBuf := make([]byte, 64<<10)
 	return js.ValueOf(map[string]any{
 		"port":          int(port),
 		"transportType": int(transport),
@@ -271,44 +272,53 @@ func makeJSConn(c net.Conn, port uint16, transport uint8, currentTransport func(
 			}
 			return int(currentTransport())
 		}),
-		"read": js.FuncOf(func(this js.Value, args []js.Value) any {
+		"readInto": js.FuncOf(func(this js.Value, args []js.Value) any {
+			if len(args) < 1 || args[0].Type() != js.TypeObject {
+				return rejectedPromise(errors.New("readInto requires a Uint8Array"))
+			}
 			return makePromise(func() (any, error) {
 				limit := len(buf)
-				if len(args) > 0 && args[0].Type() == js.TypeNumber {
-					requested := args[0].Int()
+				byteLength := args[0].Get("byteLength")
+				if byteLength.Type() != js.TypeNumber {
+					return nil, errors.New("readInto requires a Uint8Array")
+				}
+				targetLength := byteLength.Int()
+				if targetLength <= 0 {
+					return map[string]any{"count": 0, "code": streamOK}, nil
+				}
+				if targetLength < limit {
+					limit = targetLength
+				}
+				if len(args) > 1 && args[1].Type() == js.TypeNumber {
+					requested := args[1].Int()
 					if requested > 0 && requested < limit {
 						limit = requested
 					}
 				}
 				n, err := c.Read(buf[:limit])
+				result := map[string]any{"count": n, "code": streamStatus(err)}
+				if err != nil && !errors.Is(err, io.EOF) {
+					result["error"] = err.Error()
+				}
 				if n > 0 {
-					u8 := js.Global().Get("Uint8Array").New(n)
-					js.CopyBytesToJS(u8, buf[:n])
-					// Preserve a data-plus-error read. Rust consumes the bytes and
-					// reports the status on the following read instead of treating a
-					// truncated stream as a clean EOF.
-					if err != nil {
-						return map[string]any{
-							"bytes": u8,
-							"code":  streamStatus(err),
-							"error": err.Error(),
-						}, nil
-					}
-					return u8, nil
+					js.CopyBytesToJS(args[0], buf[:n])
 				}
-				if err == nil || errors.Is(err, io.EOF) {
-					return js.Null(), nil
-				}
-				return nil, err
+				return result, nil
 			})
 		}),
 		"write": js.FuncOf(func(this js.Value, args []js.Value) any {
 			if len(args) != 1 {
 				return rejectedPromise(errors.New("write requires a Uint8Array"))
 			}
-			b := make([]byte, args[0].Get("length").Int())
-			js.CopyBytesToGo(b, args[0])
+			length := args[0].Get("length").Int()
 			return makePromise(func() (any, error) {
+				b := writeBuf
+				if length > len(b) {
+					b = make([]byte, length)
+				} else {
+					b = b[:length]
+				}
+				js.CopyBytesToGo(b, args[0])
 				written, err := c.Write(b)
 				if err != nil {
 					return map[string]any{

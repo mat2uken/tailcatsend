@@ -1,4 +1,14 @@
 import type { BackendEvent, BackendSnapshot, QrBitmap } from "./api/application-api";
+import {
+  decodeFrame,
+  encodeFrame,
+  jsonBytes,
+  MessageKind,
+  Opcode,
+  parseJson,
+  qrPayload,
+  type IpcFrame,
+} from "./ipc";
 
 /**
  * The worker keeps Rust state and OPFS in one execution context. Go stays in
@@ -39,43 +49,22 @@ export type TransferWorkerEvent =
 export const MAX_IN_FLIGHT_CHUNKS = 2;
 export const CHUNK_SIZE = 64 * 1024;
 
-export type WorkerMethod =
-  | "snapshot"
-  | "createInvite"
-  | "join"
-  | "sendText"
-  | "sendFiles"
-  | "cancelTransfer"
-  | "disconnect"
-  | "dispose"
-  | "qrCode";
-
 export interface WorkerInitMessage {
   goPort: MessagePort;
+  rpcPort: MessagePort;
   type: "init";
   wasmUrl: string;
 }
 
-export interface WorkerCallMessage {
-  args: Array<unknown>;
-  id: number;
-  method: WorkerMethod;
-  type: "call";
-}
-
-export interface WorkerDisposeMessage {
-  id: number;
-  type: "dispose";
-}
-
-export type BrowserWorkerMessage = WorkerInitMessage | WorkerCallMessage | WorkerDisposeMessage;
+export type BrowserWorkerMessage = WorkerInitMessage;
 
 export type BrowserWorkerResponse =
   | { type: "ready"; ok: true }
-  | { type: "ready"; ok: false; error: string }
-  | { type: "response"; id: number; ok: true; value: unknown }
-  | { type: "response"; id: number; ok: false; error: string }
-  | { type: "event"; event: BackendEvent };
+  | {
+      type: "ready";
+      ok: false;
+      error: string;
+    };
 
 export type GoCommand =
   | {
@@ -94,7 +83,15 @@ export type GoCommand =
       verbose: boolean;
     }
   | { type: "listener-close"; requestId: number; listenerId: string }
-  | { type: "stream-read"; requestId: number; connectionId: string; length: number }
+  | {
+      type: "stream-read";
+      requestId: number;
+      connectionId: string;
+      length: number;
+      buffer: ArrayBuffer;
+      byteOffset: number;
+      byteLength: number;
+    }
   | {
       type: "stream-write";
       requestId: number;
@@ -135,9 +132,9 @@ interface GoListenerDescriptor {
 }
 
 interface GoReadResult {
-  buffer: ArrayBuffer | null;
-  byteLength: number;
-  byteOffset: number;
+  buffer?: ArrayBuffer | null;
+  byteLength?: number;
+  byteOffset?: number;
   statusCode?: number;
   statusMessage?: string;
   transportType: number;
@@ -187,7 +184,9 @@ let goPort: MessagePort | undefined;
 let goRequestId = 0;
 let listenerId = 0;
 let backend: RustBackend | undefined;
-let unsubscribe: (() => void) | undefined;
+let rpcPort: MessagePort | undefined;
+const queuedEvents: Array<BackendEvent> = [];
+let eventFlushScheduled = false;
 const goPending = new Map<
   number,
   { resolve: (value: unknown) => void; reject: (error: Error) => void }
@@ -198,8 +197,81 @@ function workerPost(message: BrowserWorkerResponse): void {
   (globalThis as unknown as { postMessage(value: unknown): void }).postMessage(message);
 }
 
+function postRpc(frame: IpcFrame): void {
+  const port = rpcPort;
+  if (!port) {
+    return;
+  }
+  const bytes = encodeFrame(frame);
+  port.postMessage(bytes.buffer, [bytes.buffer]);
+}
+
+function responseFrame(request: IpcFrame, status: number, payload: Uint8Array): IpcFrame {
+  return {
+    kind: MessageKind.Response,
+    opcode: request.opcode,
+    requestId: request.requestId,
+    sequence: request.sequence,
+    status,
+    payload,
+  };
+}
+
+function responseError(request: IpcFrame, error: unknown): IpcFrame {
+  return responseFrame(request, 1, new TextEncoder().encode(errorText(error)));
+}
+
+function flushRpcEvents(): void {
+  eventFlushScheduled = false;
+  if (!rpcPort || queuedEvents.length === 0) {
+    return;
+  }
+  const events = queuedEvents.splice(0, 32);
+  postRpc({
+    kind: MessageKind.Event,
+    opcode: Opcode.WaitEvent,
+    requestId: BigInt(0),
+    sequence: BigInt(events.at(-1)?.sequence ?? 0),
+    status: 0,
+    payload: jsonBytes(events),
+  });
+  if (queuedEvents.length > 0) {
+    eventFlushScheduled = true;
+    queueMicrotask(flushRpcEvents);
+  }
+}
+
+function queueRpcEvent(event: BackendEvent): void {
+  queuedEvents.push(event);
+  if (!eventFlushScheduled) {
+    eventFlushScheduled = true;
+    queueMicrotask(flushRpcEvents);
+  }
+}
+
+function normalizeQr(value: QrBitmap): QrBitmap {
+  return {
+    width: value.width,
+    height: value.height,
+    rgbaPixels:
+      Object.prototype.toString.call(value.rgbaPixels) === "[object Uint8Array]"
+        ? value.rgbaPixels
+        : Uint8Array.from(value.rgbaPixels),
+  };
+}
+
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+  return error && typeof error === "object" && "message" in error
+    ? String((error as { message: unknown }).message)
+    : String(error);
+}
+
+function isArrayBuffer(value: unknown): value is ArrayBuffer {
+  return Object.prototype.toString.call(value) === "[object ArrayBuffer]";
+}
+
+function isUint8Array(value: unknown): value is Uint8Array {
+  return Object.prototype.toString.call(value) === "[object Uint8Array]";
 }
 
 function postGo(command: GoCommand, transfer: Array<Transferable> = []): Promise<unknown> {
@@ -223,12 +295,10 @@ function transportType(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
-function isArrayBuffer(value: unknown): value is ArrayBuffer {
-  return Object.prototype.toString.call(value) === "[object ArrayBuffer]";
-}
-
 function connectionProxy(descriptor: GoConnectionDescriptor): GoConnectionProxy {
   let currentTransport = descriptor.transportType;
+  let readBuffer: ArrayBuffer | undefined;
+  let writeBuffer: ArrayBuffer | undefined;
   const updateTransport = (value: unknown): void => {
     currentTransport = transportType(value, currentTransport);
   };
@@ -236,14 +306,38 @@ function connectionProxy(descriptor: GoConnectionDescriptor): GoConnectionProxy 
     port: descriptor.port,
     getTransport: () => currentTransport,
     read: async (length) => {
-      const result = (await postGo({
-        type: "stream-read",
-        requestId: ++goRequestId,
-        connectionId: descriptor.connectionId,
-        length,
-      })) as GoReadResult;
+      const buffer =
+        readBuffer && readBuffer.byteLength >= length
+          ? readBuffer
+          : new ArrayBuffer(Math.max(CHUNK_SIZE, length));
+      readBuffer = undefined;
+      let result: GoReadResult;
+      try {
+        result = (await postGo(
+          {
+            type: "stream-read",
+            requestId: ++goRequestId,
+            connectionId: descriptor.connectionId,
+            length,
+            buffer,
+            byteOffset: 0,
+            byteLength: Math.min(buffer.byteLength, Math.max(0, length)),
+          },
+          [buffer],
+        )) as GoReadResult;
+      } catch (error) {
+        // Transferring a buffer detaches it. A failed request must therefore
+        // drop this slot and allocate a fresh one on the next read.
+        readBuffer = undefined;
+        throw error;
+      }
+      if (isArrayBuffer(result.buffer)) {
+        readBuffer = result.buffer;
+      }
       updateTransport(result.transportType);
-      if (!result.buffer || result.byteLength === 0) {
+      const byteLength = result.byteLength ?? 0;
+      const byteOffset = result.byteOffset ?? 0;
+      if (!result.buffer || byteLength === 0) {
         if (typeof result.statusCode === "number" && result.statusCode !== 0) {
           return {
             bytes: null,
@@ -253,7 +347,7 @@ function connectionProxy(descriptor: GoConnectionDescriptor): GoConnectionProxy 
         }
         return null;
       }
-      const bytes = new Uint8Array(result.buffer, result.byteOffset, result.byteLength);
+      const bytes = new Uint8Array(result.buffer, byteOffset, byteLength);
       if (typeof result.statusCode === "number" && result.statusCode !== 0) {
         return {
           bytes,
@@ -264,19 +358,36 @@ function connectionProxy(descriptor: GoConnectionDescriptor): GoConnectionProxy 
       return bytes;
     },
     write: async (bytes) => {
-      const buffer = bytes.buffer;
-      const transfer = isArrayBuffer(buffer) ? [buffer] : [];
-      const result = await postGo(
-        {
-          type: "stream-write",
-          requestId: ++goRequestId,
-          connectionId: descriptor.connectionId,
-          buffer: buffer as ArrayBuffer,
-          byteOffset: bytes.byteOffset,
-          byteLength: bytes.byteLength,
-        },
-        transfer,
-      );
+      const buffer =
+        writeBuffer && writeBuffer.byteLength >= bytes.byteLength
+          ? writeBuffer
+          : new ArrayBuffer(Math.max(CHUNK_SIZE, bytes.byteLength));
+      writeBuffer = undefined;
+      new Uint8Array(buffer, 0, bytes.byteLength).set(bytes);
+      let result: unknown;
+      try {
+        result = await postGo(
+          {
+            type: "stream-write",
+            requestId: ++goRequestId,
+            connectionId: descriptor.connectionId,
+            buffer,
+            byteOffset: 0,
+            byteLength: bytes.byteLength,
+          },
+          [buffer],
+        );
+      } catch (error) {
+        writeBuffer = undefined;
+        throw error;
+      }
+      if (
+        result &&
+        typeof result === "object" &&
+        isArrayBuffer((result as { buffer?: unknown }).buffer)
+      ) {
+        writeBuffer = (result as { buffer: ArrayBuffer }).buffer;
+      }
       return result;
     },
     closeWrite: () =>
@@ -372,6 +483,34 @@ function installGoProxy(port: MessagePort): void {
 
 async function initialize(message: WorkerInitMessage): Promise<void> {
   installGoProxy(message.goPort);
+  rpcPort = message.rpcPort;
+  rpcPort.start();
+  rpcPort.onmessage = (event: MessageEvent<unknown>): void => {
+    const data = event.data as { frame?: unknown; attachments?: Array<unknown> };
+    const raw = data && typeof data === "object" && "frame" in data ? data.frame : event.data;
+    const bytes = isArrayBuffer(raw)
+      ? new Uint8Array(raw)
+      : isUint8Array(raw)
+        ? raw
+        : ArrayBuffer.isView(raw)
+          ? new Uint8Array(raw.buffer, raw.byteOffset, raw.byteLength)
+          : undefined;
+    if (!bytes) {
+      return;
+    }
+    let frame: IpcFrame;
+    try {
+      frame = decodeFrame(bytes);
+    } catch {
+      return;
+    }
+    void handleRpcFrame(
+      frame,
+      data && typeof data === "object" && "attachments" in data ? (data.attachments ?? []) : [],
+    )
+      .then(postRpc)
+      .catch((error) => postRpc(responseError(frame, error)));
+  };
   const module = (await import(/* @vite-ignore */ message.wasmUrl)) as unknown as {
     default(input?: unknown): Promise<unknown>;
     install_backend(): void;
@@ -382,24 +521,71 @@ async function initialize(message: WorkerInitMessage): Promise<void> {
   if (!backend) {
     throw new Error("Rust WebAssembly service did not install the worker adapter");
   }
-  unsubscribe = backend.subscribe((event) => workerPost({ type: "event", event }));
+  backend.subscribe(queueRpcEvent);
   workerPost({ type: "ready", ok: true });
 }
 
-async function callBackend(message: WorkerCallMessage | WorkerDisposeMessage): Promise<unknown> {
+async function handleRpcFrame(frame: IpcFrame, attachments: Array<unknown>): Promise<IpcFrame> {
   if (!backend) {
     throw new Error("Rust WebAssembly service is not ready");
   }
-  if (message.type === "dispose") {
-    unsubscribe?.();
-    unsubscribe = undefined;
-    return backend.dispose();
+  if (
+    frame.kind !== MessageKind.Request &&
+    frame.kind !== MessageKind.Subscribe &&
+    frame.kind !== MessageKind.Unsubscribe &&
+    frame.kind !== MessageKind.WaitEvent
+  ) {
+    throw new Error("invalid IPC request kind");
   }
-  const method = backend[message.method];
-  if (typeof method !== "function") {
-    throw new Error(`Rust backend method ${message.method} is unavailable`);
+  if (
+    (frame.kind === MessageKind.Subscribe && frame.opcode !== Opcode.Subscribe) ||
+    (frame.kind === MessageKind.Unsubscribe && frame.opcode !== Opcode.Unsubscribe)
+  ) {
+    throw new Error("invalid IPC subscription operation");
   }
-  return (method as unknown as (...args: Array<unknown>) => unknown).apply(backend, message.args);
+  if (frame.kind === MessageKind.WaitEvent) {
+    if (frame.opcode !== Opcode.WaitEvent) {
+      throw new Error("invalid IPC wait operation");
+    }
+    // Worker notifications are pushed on the same MessagePort. A wait request
+    // is acknowledged without an empty poll so the caller can keep one
+    // subscription loop for ports and custom schemes.
+    return responseFrame(frame, 0, new Uint8Array());
+  }
+  let value: unknown = undefined;
+  if (frame.payload.byteLength > 0) {
+    value = parseJson<unknown>(frame.payload);
+  }
+  switch (frame.opcode) {
+    case Opcode.Snapshot:
+      return responseFrame(frame, 0, jsonBytes(await backend.snapshot()));
+    case Opcode.CreateInvite:
+      await backend.createInvite();
+      return responseFrame(frame, 0, new Uint8Array());
+    case Opcode.Join:
+      await backend.join(value as string);
+      return responseFrame(frame, 0, new Uint8Array());
+    case Opcode.SendText:
+      await backend.sendText(value as string);
+      return responseFrame(frame, 0, new Uint8Array());
+    case Opcode.SendFiles:
+      await backend.sendFiles((attachments.length > 0 ? attachments : value) as Array<File>);
+      return responseFrame(frame, 0, new Uint8Array());
+    case Opcode.QrCode:
+      return responseFrame(frame, 0, qrPayload(normalizeQr(await backend.qrCode(value as string))));
+    case Opcode.CancelTransfer:
+      await backend.cancelTransfer(value as string);
+      return responseFrame(frame, 0, new Uint8Array());
+    case Opcode.Disconnect:
+      await backend.disconnect();
+      return responseFrame(frame, 0, new Uint8Array());
+    case Opcode.Subscribe:
+      return responseFrame(frame, 0, jsonBytes(await backend.snapshot()));
+    case Opcode.Unsubscribe:
+      return responseFrame(frame, 0, new Uint8Array());
+    default:
+      throw new Error(`Rust backend method for opcode ${frame.opcode} is unavailable`);
+  }
 }
 
 (
@@ -408,16 +594,9 @@ async function callBackend(message: WorkerCallMessage | WorkerDisposeMessage): P
   }
 ).onmessage = (event: MessageEvent<BrowserWorkerMessage>): void => {
   const message = event.data;
-  if (message.type === "init") {
-    void initialize(message).catch((error) => {
-      workerPost({ type: "ready", ok: false, error: errorText(error) });
-    });
-    return;
-  }
-  const id = message.id;
-  void callBackend(message)
-    .then((value) => workerPost({ type: "response", id, ok: true, value }))
-    .catch((error) => workerPost({ type: "response", id, ok: false, error: errorText(error) }));
+  void initialize(message).catch((error) => {
+    workerPost({ type: "ready", ok: false, error: errorText(error) });
+  });
 };
 
 export function postChunk(

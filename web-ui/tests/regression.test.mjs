@@ -31,6 +31,7 @@ function bridge(overrides = {}) {
     sendFiles: async () => {},
     cancelTransfer: async () => {},
     disconnect: async () => {},
+    qrCode: async () => ({ width: 1, height: 1, rgbaPixels: Uint8Array.of(0, 0, 0, 255) }),
     openReceivedItem: async () => {},
     dispose: async () => {},
     ...overrides,
@@ -82,6 +83,9 @@ it("class adapters keep prototype methods and their receiver", async () => {
     async sendFiles() {}
     async cancelTransfer() {}
     async disconnect() {}
+    async qrCode() {
+      return { width: 1, height: 1, rgbaPixels: Uint8Array.of(0, 0, 0, 255) };
+    }
     async dispose() {
       this.calls.push("dispose");
     }
@@ -102,6 +106,12 @@ it("class adapters keep prototype methods and their receiver", async () => {
     "unsubscribe",
     "dispose",
   ]);
+});
+
+it("requires the binary QR renderer in every injected adapter", async () => {
+  const backend = createBackend(bridge({ qrCode: undefined }));
+  await expect(backend.snapshot()).resolves.toMatchObject({ state: "error" });
+  await expect(backend.qrCode("https://example.test")).rejects.toThrow(/unavailable/);
 });
 
 it("forwards the native picker without requiring a JavaScript File object", async () => {
@@ -138,7 +148,7 @@ it("opens received items through the adapter without exposing file bytes", async
 
 it("unsupported API version and unavailable clipboard reject", async () => {
   const backend = createBackend(
-    bridge({ snapshot: async () => ({ ...initialSnapshot(), apiVersion: 2 }) }),
+    bridge({ snapshot: async () => ({ ...initialSnapshot(), apiVersion: 1 }) }),
   );
   await expect(backend.snapshot()).rejects.toThrow(/API version/);
   navigatorWith();

@@ -55,7 +55,7 @@ const integer = (name, fallback) => {
   return Number(value);
 };
 const config = {
-  apiVersion: integer("PONLET_UPDATE_API_VERSION", "1"),
+  apiVersion: integer("PONLET_UPDATE_API_VERSION", "2"),
   currentRevision: integer("PONLET_UPDATE_CURRENT_REVISION", "0"),
   distribution: process.env.PONLET_UPDATE_DISTRIBUTION || "web",
   ...(process.env.PONLET_UPDATE_FILE_BASE_URL

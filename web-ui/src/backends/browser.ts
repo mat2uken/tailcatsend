@@ -1,13 +1,8 @@
-import type { BackendEvent, BackendSnapshot, QrBitmap } from "../api/application-api";
+import type { BackendSnapshot, QrBitmap } from "../api/application-api";
 import type { NativeBridge } from "../backend";
+import { BinaryRpcClient, Opcode, PortBinaryTransport } from "../ipc";
 import { resolvePublicUrl } from "../lib/public-url";
-import type {
-  BrowserWorkerMessage,
-  BrowserWorkerResponse,
-  GoCommand,
-  GoMessage,
-  WorkerMethod,
-} from "../worker";
+import type { BrowserWorkerMessage, BrowserWorkerResponse, GoCommand, GoMessage } from "../worker";
 
 /** Browser composition root for the Rust WASM service. */
 export { createBackend } from "../backend";
@@ -33,7 +28,7 @@ interface GoConnection {
   closeWrite(): Promise<unknown>;
   getTransport?(): number;
   port?: number;
-  read(length: number): Promise<Uint8Array | ArrayBuffer | GoReadValue | null>;
+  readInto(destination: Uint8Array, length?: number): Promise<GoReadIntoValue>;
   transportType?: number;
   write(bytes: Uint8Array): Promise<unknown>;
 }
@@ -41,11 +36,6 @@ interface GoConnection {
 interface GoBridge {
   dial(options: Record<string, unknown>): Promise<GoConnection>;
   listen(options: Record<string, unknown>): Promise<GoListener>;
-}
-
-interface PendingWorkerCall {
-  reject(error: Error): void;
-  resolve(value: unknown): void;
 }
 
 function globalGo(): GoConstructor | undefined {
@@ -139,39 +129,10 @@ function currentTransport(connection: GoConnection): number {
   }
 }
 
-function isArrayBuffer(value: unknown): value is ArrayBuffer {
-  return Object.prototype.toString.call(value) === "[object ArrayBuffer]";
-}
-
-function asBytes(value: Uint8Array | ArrayBuffer | null): Uint8Array | null {
-  if (value == null) {
-    return null;
-  }
-  return ArrayBuffer.isView(value) ? value : new Uint8Array(value);
-}
-
-interface GoReadValue {
-  bytes?: Uint8Array | ArrayBuffer | null;
+interface GoReadIntoValue {
   code?: number;
+  count?: number;
   error?: string;
-}
-
-function decodeGoRead(value: unknown): { bytes: Uint8Array | null; code?: number; error?: string } {
-  if (value == null) {
-    return { bytes: null };
-  }
-  if (ArrayBuffer.isView(value) || isArrayBuffer(value)) {
-    return { bytes: asBytes(value as Uint8Array | ArrayBuffer) };
-  }
-  if (typeof value === "object") {
-    const result = value as GoReadValue;
-    return {
-      bytes: asBytes(result.bytes ?? null),
-      code: typeof result.code === "number" ? result.code : undefined,
-      error: typeof result.error === "string" ? result.error : undefined,
-    };
-  }
-  throw new Error("Tailcat read returned an invalid result");
 }
 
 async function handleGoMessage(
@@ -280,25 +241,32 @@ async function handleGoMessage(
   }
   try {
     if (message.type === "stream-read") {
-      const decoded = decodeGoRead(await connection.read(message.length));
-      const bytes = decoded.bytes;
-      const buffer = bytes?.buffer;
-      const transfer = isArrayBuffer(buffer) ? [buffer] : [];
+      const target = new Uint8Array(message.buffer, message.byteOffset, message.byteLength);
+      const result = await connection.readInto(target, message.length);
+      const count = result.count;
+      const code = result.code;
+      const error = result.error;
+      if (typeof count !== "number" || !Number.isSafeInteger(count)) {
+        throw new Error("Tailcat readInto returned an invalid count");
+      }
+      if (count < 0 || count > target.byteLength) {
+        throw new Error(`Tailcat readInto overrun: ${count} > ${target.byteLength}`);
+      }
       post(
         {
           type: "response",
           requestId: message.requestId,
           ok: true,
           value: {
-            buffer: buffer ?? null,
-            byteOffset: bytes?.byteOffset ?? 0,
-            byteLength: bytes?.byteLength ?? 0,
-            statusCode: decoded.code,
-            statusMessage: decoded.error,
+            buffer: message.buffer,
+            byteOffset: message.byteOffset,
+            byteLength: count,
+            statusCode: code,
+            statusMessage: error,
             transportType: currentTransport(connection),
           },
         },
-        transfer,
+        [message.buffer],
       );
     } else if (message.type === "stream-write") {
       const bytes = new Uint8Array(message.buffer, message.byteOffset, message.byteLength);
@@ -309,12 +277,19 @@ async function handleGoMessage(
           : typeof result === "object" && result !== null
             ? result
             : { written: bytes.byteLength, code: 0 };
-      post({
-        type: "response",
-        requestId: message.requestId,
-        ok: true,
-        value: { ...value, transportType: currentTransport(connection) },
-      });
+      post(
+        {
+          type: "response",
+          requestId: message.requestId,
+          ok: true,
+          value: {
+            ...value,
+            buffer: message.buffer,
+            transportType: currentTransport(connection),
+          },
+        },
+        [message.buffer],
+      );
     } else if (message.type === "stream-close-write") {
       await connection.closeWrite();
       post({ type: "response", requestId: message.requestId, ok: true, value: undefined });
@@ -336,10 +311,10 @@ async function handleGoMessage(
 function startWorkerBackend(wasmUrl: string): Promise<NativeBridge> {
   const worker = new Worker(new URL("../worker.ts", import.meta.url), { type: "module" });
   const goChannel = new MessageChannel();
+  const rpcChannel = new MessageChannel();
   const bridge = globalTailcat();
-  const listeners = new Set<(event: BackendEvent) => void>();
-  const pending = new Map<number, PendingWorkerCall>();
-  let nextId = 0;
+  const rpcTransport = new PortBinaryTransport(rpcChannel.port1, true);
+  const rpc = new BinaryRpcClient(rpcTransport);
   let readyResolve: (() => void) | undefined;
   let readyReject: ((error: Error) => void) | undefined;
   let settled = false;
@@ -358,11 +333,9 @@ function startWorkerBackend(wasmUrl: string): Promise<NativeBridge> {
       settled = true;
       readyReject?.(error);
     }
-    for (const call of pending.values()) {
-      call.reject(error);
-    }
-    pending.clear();
+    rpc.close();
     goChannel.port1.close();
+    rpcChannel.port1.close();
     worker.terminate();
   };
   worker.onerror = (event) => {
@@ -379,22 +352,6 @@ function startWorkerBackend(wasmUrl: string): Promise<NativeBridge> {
         rejectAll(new Error(message.error));
       }
       return;
-    }
-    if (message.type === "event") {
-      for (const listener of listeners) {
-        listener(message.event);
-      }
-      return;
-    }
-    const call = pending.get(message.id);
-    if (!call) {
-      return;
-    }
-    pending.delete(message.id);
-    if (message.ok) {
-      call.resolve(message.value);
-    } else {
-      call.reject(new Error(message.error));
     }
   };
   const goPost = (message: GoMessage, transfer: Array<Transferable> = []): void => {
@@ -419,43 +376,47 @@ function startWorkerBackend(wasmUrl: string): Promise<NativeBridge> {
   };
   goChannel.port1.start();
   worker.postMessage(
-    { type: "init", goPort: goChannel.port2, wasmUrl } satisfies BrowserWorkerMessage,
-    [goChannel.port2],
+    {
+      type: "init",
+      goPort: goChannel.port2,
+      rpcPort: rpcChannel.port2,
+      wasmUrl,
+    } satisfies BrowserWorkerMessage,
+    [goChannel.port2, rpcChannel.port2],
   );
 
-  const call = (method: WorkerMethod, args: Array<unknown> = []): Promise<unknown> => {
-    const id = ++nextId;
-    return new Promise((resolve, reject) => {
-      pending.set(id, { resolve, reject });
-      worker.postMessage({ type: "call", id, method, args } satisfies BrowserWorkerMessage);
-    });
-  };
   const workerBackend = async (): Promise<NativeBridge> => {
     await ready;
     let disposed = false;
     return {
-      snapshot: () => call("snapshot") as Promise<BackendSnapshot>,
-      subscribe: (listener) => {
-        listeners.add(listener);
-        return () => listeners.delete(listener);
-      },
-      createInvite: () => call("createInvite") as Promise<void>,
-      join: (invite) => call("join", [invite]) as Promise<void>,
-      sendText: (text) => call("sendText", [text]) as Promise<void>,
-      sendFiles: (files) => call("sendFiles", [files]) as Promise<void>,
-      cancelTransfer: (id) => call("cancelTransfer", [id]) as Promise<void>,
-      disconnect: () => call("disconnect") as Promise<void>,
-      qrCode: (url) => call("qrCode", [url]) as Promise<QrBitmap>,
+      snapshot: () => rpc.call<BackendSnapshot>(Opcode.Snapshot),
+      subscribe: (listener) => rpc.subscribe(listener),
+      createInvite: () => rpc.call(Opcode.CreateInvite),
+      join: (invite) => rpc.call(Opcode.Join, invite),
+      sendText: (text) => rpc.call(Opcode.SendText, text),
+      sendFiles: (files) =>
+        rpc.call(
+          Opcode.SendFiles,
+          files.map((file) => ({ name: file.name, size: file.size, type: file.type })),
+          files,
+        ),
+      cancelTransfer: (id) => rpc.call(Opcode.CancelTransfer, id),
+      disconnect: () => rpc.call(Opcode.Disconnect),
+      qrCode: (url) => rpc.call<QrBitmap>(Opcode.QrCode, url),
       dispose: async () => {
         if (disposed) {
           return;
         }
         disposed = true;
         try {
-          await call("dispose");
+          await rpc.call(Opcode.Disconnect);
+        } catch {
+          // The worker may already be stopping during pagehide. Closing the
+          // port below still releases all pending requests in that case.
         } finally {
-          listeners.clear();
+          rpc.close();
           goChannel.port1.close();
+          rpcChannel.port1.close();
           worker.terminate();
         }
       },
@@ -467,8 +428,9 @@ function startWorkerBackend(wasmUrl: string): Promise<NativeBridge> {
 /**
  * Load the Rust service after the static UI has been parsed. Go remains in the
  * window and is proxied to a Dedicated Worker, where Rust state and OPFS run
- * together. Older WebViews without module Worker support use the direct
- * adapter as a compatibility path.
+ * together. The Worker/MessagePort path is required for the browser backend;
+ * the JSON invoke adapter is the only compatibility path kept for native
+ * WebViews.
  */
 export function initializeBrowserBackend(): Promise<void> {
   if (window.__ponletBackend) {
@@ -477,17 +439,11 @@ export function initializeBrowserBackend(): Promise<void> {
   initialization ??= (async () => {
     await loadTailcatBridge();
     const moduleUrl = publicUrl("wasm/tailsend_web.js");
-    if (typeof Worker === "function" && typeof MessageChannel === "function") {
-      const bridge = await startWorkerBackend(moduleUrl);
-      window.__ponletBackend = bridge;
-      return;
+    if (typeof Worker !== "function" || typeof MessageChannel !== "function") {
+      throw new Error("Ponlet requires Dedicated Worker and MessagePort support");
     }
-    const wasm = await import(/* @vite-ignore */ moduleUrl);
-    await wasm.default();
-    wasm.install_backend();
-    if (!window.__ponletBackend) {
-      throw new Error("Rust WebAssembly service did not install the browser adapter");
-    }
+    const bridge = await startWorkerBackend(moduleUrl);
+    window.__ponletBackend = bridge;
   })();
   return initialization;
 }

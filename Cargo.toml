@@ -11,6 +11,7 @@ members = [
     "crates/tailsend-updates",
     "crates/tailsend-native-bridge",
     "crates/tailsend-native-transport",
+    "crates/tailsend-ipc",
     "apps/desktop",
     "apps/web",
     "apps/tauri",
@@ -28,6 +29,7 @@ tailsend-telemetry = { path = "crates/tailsend-telemetry" }
 tailsend-updates = { path = "crates/tailsend-updates" }
 tailsend-native-bridge = { path = "crates/tailsend-native-bridge" }
 tailsend-native-transport = { path = "crates/tailsend-native-transport" }
+tailsend-ipc = { path = "crates/tailsend-ipc" }
 
 # Async & Serialization
 ciborium = "0.2"
