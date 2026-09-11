@@ -1259,18 +1259,23 @@ fn finish_outgoing(
     result: Result<(), TransferError>,
     cancel: Arc<AtomicBool>,
 ) -> Result<(), String> {
-    let event = match result {
-        Ok(()) => AppEvent::TransferCompleted { transfer_id },
-        Err(_error) if cancel.load(Ordering::Acquire) => AppEvent::TransferCancelled {
-            transfer_id,
-            reason: "Transfer cancelled by user".to_string(),
-        },
-        Err(error) => AppEvent::TransferCancelled {
-            transfer_id,
-            reason: error.to_string(),
-        },
+    let (event, failed) = match result {
+        Ok(()) => (AppEvent::TransferCompleted { transfer_id }, false),
+        Err(_error) if cancel.load(Ordering::Acquire) => (
+            AppEvent::TransferCancelled {
+                transfer_id,
+                reason: "Transfer cancelled by user".to_string(),
+            },
+            false,
+        ),
+        Err(error) => (
+            AppEvent::TransferCancelled {
+                transfer_id,
+                reason: error.to_string(),
+            },
+            true,
+        ),
     };
-    let failed = !matches!(&event, AppEvent::TransferCompleted { .. });
     runtime.publish(app, event);
     runtime.finish_transfer(transfer_id);
     set_idle_from_backend(&runtime.backend, app, &runtime.received);
