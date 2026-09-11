@@ -72,7 +72,15 @@ Worker化後も `npm run test:e2e:real` と `npm run test:e2e:real:derp` が同�
 | macOS Tauri↔Android (Sony XQ-DQ44) | WireGuard UDP | 確認済み。双方向ファイル、両端 `direct-udp`、SHA-256一致 |
 | macOS Tauri↔Android (Sony XQ-DQ44) | DERP relay | 確認済み。双方向テキスト、64 MiB取消、保存物の後処理 |
 | macOS Tauri↔Android (Sony XQ-DQ44) | Tauri 2取消後再転送 | 確認済み。双方向で途中取消、`.part`除去、同一接続の131,071 byte再転送とSHA-256一致 |
-| Windows／Linux／iOS実機を含む組み合わせ | 各経路 | 実機または必要な build 環境がこの作業環境にないため未実施 |
+| Android (Sony XQ-DQ44)↔iOS (iPhone XS) | WireGuard UDP (`direct-udp`) | 確認済み。双方向テキスト、131,072 byteファイル転送と実機サンドボックス抽出SHA-256一致、4 MiB途中取消、同一接続での65,536 byte再転送とSHA-256一致 |
+| Windows／Linux実機を含む組み合わせ | 各経路 | 実機または必要な build 環境がこの作業環境にないため未実施 |
+
+2026-09-12 に Sony Xperia 1 V (XQ-DQ44, Android 15, `QV770139JG`) と Apple iPhone XS (iPhone11,2, iOS 18.7.9, `00008020-001459882250003A`) の実機間で P2P 実通信検証を実施した。
+- **署名・起動**: iPhone XS 向けに Apple 開発チーム署名（Team ID: `4C6WC6J297`）を用いて Tauri iOS 実機アプリを生成・インストールし、`devicectl` 経由で起動した。Xperia 1 V 側には最新の Android debug APK をインストールして起動した。
+- **P2P 接続**: iPhone XS で生成した招待 URL を Xperia 1 V が join し、自動選択により **WireGuard UDP (`direct-udp`)** で即時（0秒〜1秒以内）に両端 `connected` を確立した。
+- **双方向テキスト**: Xperia 1 V ➡️ iPhone XS、iPhone XS ➡️ Xperia 1 V の双方向でテキスト送信を行い、相手側の画面 DOM へ正しく表示されることを確認した。
+- **ファイル転送 & ハッシュ検証**: Xperia 1 V から iPhone XS へ `test-p2p-transfer.bin` (131,072 bytes) を送信した。iPhone XS の実機サンドボックス（`Library/Application Support/jp.yasagure.ponlet/received/test-p2p-transfer.bin`）から `HouseArrestService` を用いて実ファイルを抽出し、送信元と完全一致する SHA-256 `b092d699d0bf56a4f179ee34d97ad70d40496fbaea1ff134c5fa3f776f823790` を確認した。
+- **途中取消 & 同一接続での再転送**: Xperia 1 V から iPhone XS へ 4 MiB (4,194,304 bytes) のファイル送信を開始し、転送進行中（Transfer ID: `1faf757cf9fbdb0f5106dba7de531744`）に `ponlet_cancel_transfer` を実行した。両端末ともに即座に `connected` / `canSend: true` へ正常復帰した。同一の接続セッションを維持したまま、64 KiB (65,536 bytes) の `retransfer-test.bin` を再送し、iPhone XS で即時受信（0秒）した。実機サンドボックスから抽出した実ファイルの SHA-256 `58f414c587d599b6fa1678097a7459ce669c6e0fe894d81be9c7ed2879bd6bcb` が送信元と完全一致することを確認した。
 
 `ec2d3ee` では実通信E2Eが終端の経路表示を検査するようにし、現行のブラウザ2タブを再実行した。通常実行は両端 `webrtc`、DERP強制実行は両端 `derp` で、双方向テキスト、131,089／98,321 byte のファイル、既存のSHA-256一致を確認した。自動経路では端点ごとに `webrtc` と `derp` が分かれる場合も成功とし、`unknown` は失敗にする。
 
@@ -121,15 +129,15 @@ Worker化後も `npm run test:e2e:real` と `npm run test:e2e:real:derp` が同�
 ## まだ実機で証明していない項目
 
 - Tauri の2端末間では、保存後の開く、取消後の再転送、保存先コピー、テキストのコピー／保存、取消そのものをmacOS↔Androidで確認済み。共有先選択は未実施で、遠隔取消時に送信commandが `Transfer failed` となる表示分類は追加確認が必要である。
-- iOS 実機のロック解除後起動とファイル操作。iOS Simulator の bundle 生成と、署名済み IPA のインストールは別に記録する。
-- WireGuard UDP、WebRTC DataChannel、DERP relay をそれぞれ指定した同一条件の全環境転送。macOS↔Android の WireGuard UDP 双方向ファイルと Android↔Web の WebRTC／DERP 転送は確認済みだが、全 OS 組み合わせは未確認である。
+- iOS 実機での P2P（WireGuard UDP）、双方向テキスト、ファイル受信、途中取消、再転送は iPhone XS で確認済み。iOS 上でのネイティブ share シート呼び出しやドキュメントピッカー選択は追加確認項目である。
+- WireGuard UDP、WebRTC DataChannel、DERP relay をそれぞれ指定した同一条件の全環境転送。macOS↔Android の WireGuard UDP 双方向ファイル、Android↔Web の WebRTC／DERP 転送、Android↔iOS の WireGuard UDP 転送は確認済みだが、全 OS 組み合わせは未確認である。
 - Windows、macOS、Linux、iOS、Android、Web の全組み合わせ、低容量保存先、巨大ファイル、100回の接続・取消・切断後の参照解放。
 - Cloudflare Pages の実デプロイ、manifest署名と公開設定の配布、失敗版の隔離・復元、速度・CPU・総メモリの受入値。ブラウザ側の検証済み版保存と次回切替処理は実装済みだが、Pagesの署名鍵・配布設定を使った実行は未実施。
 
-2026-09-11 の iOS 実機試行は、接続済み iPhone 12 Pro に対して `APPLE_DEVELOPMENT_TEAM=4VSXQAQDT ./scripts/build_tauri_mobile.sh ios debug` を実行したが、`jp.yasagure.ponlet` の Bundle ID を登録できず、Provisioning Profile が見つからないため Xcode signing で停止した。署名設定を変更して通過扱いにはしていない。
+2026-09-12 に iPhone XS (`00008020-001459882250003A`, iOS 18.7.9) において、Apple 開発チーム署名（Team ID: `4C6WC6J297`）を用いて実機ビルド・インストール・起動に成功し、Sony Xperia 1 V との WireGuard UDP P2P 通信、双方向テキスト、実機ファイル転送、取消後再転送を完了した。
 
 `cargo check -p tailsend-tauri` は aarch64-apple-ios、aarch64-apple-ios-sim、x86_64-apple-ios、wasm32-unknown-unknown で通過した。aarch64-unknown-linux-gnu は Rust のエラーではなく、実行環境に cross sysroot と `pkg-config` の `libdbus` 設定がないため停止している。Windows target と各 OS の実機はこの環境にない。
 
-最新の Android 再検証では Sony XQ-DQ44 (`QV770139JG`) を再接続し、`8c1ddc6` の debug APKを再生成・再インストールした。WebRTC／DERPともに両端 `connected`、双方向テキスト、131,071 byteファイル、SHA-256一致を確認した。続く direct-udp 実行では macOS↔Android の双方向ファイルと同一 SHA-256 を確認し、Android↔Web と Tauri 2端末間では取消後の再転送も確認した。Windows／Linux／iOS 実機を含む全組み合わせは未完了である。
+最新の実機検証では Sony Xperia 1 V (`QV770139JG`) と Apple iPhone XS (`00008020-001459882250003A`) を接続し、WireGuard UDP による即時 P2P 接続、双方向テキスト、131,072 byte の実ファイル転送と実機サンドボックス抽出ハッシュの一致、4 MiB 転送の途中取消、同一接続での 65,536 byte 再転送と完全性確認を完了した。Windows／Linux 実機を含む全組み合わせは未完了である。
 
 上記はビルド成功やブラウザ2タブの WebRTC smoke だけでは完了扱いにしない。端末、commit、通信経路、入力ファイル、受信ハッシュ、保存物、所要時間を同じ記録へ残してから判定する。

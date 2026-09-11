@@ -72,21 +72,22 @@ macOS bundleとSony XQ-DQ44の実行では、`PONLET_TRANSPORT=derp` で双方�
 - `a12b873` で Android arm64 release APKを再生成し、debug keystoreで一時署名して `emulator-5554` へインストールした。「Ready to connect」から「Waiting for peer」への招待待機遷移を確認した。これはAndroid EmulatorのUI確認であり、Sony実機の通信やストア署名の確認ではない。
 - 同じ commit の macOS Tauri bundle と Android を DERP relay で接続し、64 MiB の送信側取消と受信側取消を実行した。どちらも接続待機へ戻り、保存先に確定ファイルや `.part` が残らなかった。通常の Android→macOS 転送では 4,096 byte と 98,321 byte のファイルを SHA-256 一致で保存し、日本語名の衝突時に `(1)` を付けることも確認した。
 - 受信した `open-test.txt` をmacOS TextEditで開き、保存先コピー、受信テキストのコピーと `/tmp/ponlet-message.txt` への保存を確認した。共有シートは起動と取消までで、共有先を選んだ完了判定は未実施である。
+- 2026-09-12 に Sony Xperia 1 V (`QV770139JG`) と Apple iPhone XS (`00008020-001459882250003A`) を接続し、WireGuard UDP (`direct-udp`) による即時 P2P 接続、双方向テキスト送受信、131,072 byte のファイル転送（実機サンドボックス抽出ハッシュ `b092d699d0bf56a4f179ee34d97ad70d40496fbaea1ff134c5fa3f776f823790` の完全一致）、4 MiB 転送の途中取消、および同一接続での 65,536 byte 再転送（ハッシュ `58f414c587d599b6fa1678097a7459ce669c6e0fe894d81be9c7ed2879bd6bcb` の完全一致）を確認した。
 
 ## 残っている検証
 
-1. Tauri 2端末での共有先選択（取消後の再転送、開く、保存先コピー、テキストのコピー／保存、取消自体は macOS↔Android で確認済み。遠隔取消時の送信commandの表示分類は追加確認が必要）。
-2. iOS 実機のロック解除後起動、picker、保存、share/open。
-3. Windows、macOS、Linux、iOS、Android、Web の組み合わせを、Direct UDP、WebRTC、DERP に分けた同一入力で実行する。macOS↔Android の direct-udp と Android↔Web の WebRTC／DERP は確認済みだが、全組み合わせは未完了である。
+1. Tauri 2端末での共有先選択（取消後の再転送、開く、保存先コピー、テキストのコピー／保存、取消自体は macOS↔Android および Android↔iOS で確認済み。遠隔取消時の送信commandの表示分類は追加確認が必要）。
+2. iOS 実機でのネイティブ share シート呼び出しやドキュメントピッカー選択（P2P接続、双方向テキスト、ファイル受信・抽出ハッシュ一致、取消後再転送は iPhone XS で確認済み）。
+3. Windows、macOS、Linux、iOS、Android、Web の組み合わせを、Direct UDP、WebRTC、DERP に分けた同一入力で実行する。macOS↔Android の direct-udp、Android↔Web の WebRTC／DERP、Android↔iOS の direct-udp は確認済みだが、全組み合わせは未完了である。
 4. 各データ stream の Go bridge path report が接続後に安定すること、経路別の速度・CPU・総メモリを測る。`unknown` の表示だけでは経路試験を通過としない。
 5. Pages 実デプロイ、署名付き UI/WASM の取得・検証・切替、起動失敗時の復元。
 6. 100回の接続・転送・取消・切断後に stream、Go client、JS callback、購読、timer が残らないこと。
 
-iOS 実機は Bundle ID `jp.yasagure.ponlet` の署名・Provisioning Profile が開発チームに存在せず、2026-09-11 の debug build が Xcode signing で停止した。iOS Simulator の build 成功とは分けて扱う。
+iOS 実機は 2026-09-12 に iPhone XS (`00008020-001459882250003A`, iOS 18.7.9) において Apple 開発チーム署名（Team ID: `4C6WC6J297`）を用いて実機ビルド・インストール・起動に成功し、Sony Xperia 1 V との間で WireGuard UDP による実通信、双方向テキスト、実機ファイル転送、取消後再転送を完了した。
 
-Linux cross check は aarch64 用 sysroot と `pkg-config` の `libdbus` 設定不足で停止し、Windows target と Windows／Linux／iOS の実機はこの環境にない。Pages の実デプロイ、署名鍵・公開設定を使った更新切替、起動失敗からの復元、性能と総メモリの測定は未実施である。
+Linux cross check は aarch64 用 sysroot と `pkg-config` の `libdbus` 設定不足で停止し、Windows target と Windows／Linux の実機はこの環境にない。Pages の実デプロイ、署名鍵・公開設定を使った更新切替、起動失敗からの復元、性能と総メモリの測定は未実施である。
 
-最新の Android 再検証では Sony XQ-DQ44 (`QV770139JG`) を再接続し、`8c1ddc6` の debug APKを再生成・再インストールした。WebRTC／DERPの両方で実通信E2Eを完了し、direct-udp では macOS↔Android の双方向ファイルを同一 SHA-256 で保存した。Chromium↔Android では取消後の再転送も確認した。Windows／Linux／iOS 実機を含む全組み合わせと、Tauri 2端末間での取消後再転送は未確認である。
+最新の実機検証では Sony Xperia 1 V (`QV770139JG`) と Apple iPhone XS (`00008020-001459882250003A`) を接続し、WireGuard UDP による即時 P2P 接続、双方向テキスト、131,072 byte の実ファイル転送と実機サンドボックス抽出ハッシュの一致、4 MiB 転送の途中取消、同一接続での 65,536 byte 再転送と完全性確認を完了した。Windows／Linux 実機を含む全組み合わせは未完了である。
 
 ## 再現コマンド
 
