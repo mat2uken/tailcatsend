@@ -12,6 +12,15 @@ apply_one() {
   [[ -f "${patch_file}" ]] || return 0
   label="$(basename "${patch_file}")"
 
+  # Check the reverse before trying the portable patch fallback. GNU patch
+  # treats an already-applied diff as a successful dry run and may then apply
+  # it in reverse when stdin is non-interactive, leaving duplicate package
+  # declarations in generated Go sources.
+  if git -C "${checkout}" apply --reverse --check --unidiff-zero "${patch_file}" >/dev/null 2>&1; then
+    printf 'Already applied %s to %s\n' "${label}" "${checkout}"
+    return 0
+  fi
+
   if git -C "${checkout}" apply --check --unidiff-zero "${patch_file}" >/dev/null 2>&1; then
     git -C "${checkout}" apply --unidiff-zero "${patch_file}"
     printf 'Applied %s to %s\n' "${label}" "${checkout}"
