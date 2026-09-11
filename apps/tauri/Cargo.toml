@@ -1,6 +1,6 @@
 [package]
 name = "tailsend-tauri"
-version = "0.1.0"
+version = "1.0.11"
 description = "Ponlet WebView application shell"
 authors = ["Ponlet"]
 edition = "2021"
