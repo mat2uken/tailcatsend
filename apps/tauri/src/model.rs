@@ -88,3 +88,31 @@ pub struct FileRequest {
     pub mime: Option<String>,
     pub path: String,
 }
+
+pub fn new_id() -> [u8; 16] {
+    use rand::RngCore;
+    let mut id = [0u8; 16];
+    rand::thread_rng().fill_bytes(&mut id);
+    id
+}
+
+pub fn id_string(id: [u8; 16]) -> String {
+    hex_id(id)
+}
+
+pub fn hex_id(id: [u8; 16]) -> String {
+    id.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
+pub fn parse_id(value: &str) -> Result<[u8; 16], String> {
+    if value.len() != 32 {
+        return Err("Invalid transfer id".to_string());
+    }
+    let mut id = [0u8; 16];
+    for (index, chunk) in value.as_bytes().chunks_exact(2).enumerate() {
+        let text = std::str::from_utf8(chunk).map_err(|_| "Invalid transfer id".to_string())?;
+        id[index] = u8::from_str_radix(text, 16).map_err(|_| "Invalid transfer id".to_string())?;
+    }
+    Ok(id)
+}
+

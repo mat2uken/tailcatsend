@@ -11,8 +11,7 @@ use tailsend_platform_api::{
     FileMetadata, FileSource, IncomingFileSink, ReceivedItem, StorageError,
 };
 
-use crate::model::{FileRequest, UiReceivedItem};
-use crate::runtime::{hex_id, new_id, TauriRuntime};
+use crate::model::{hex_id, new_id, FileRequest, UiReceivedItem};
 
 pub struct NativeFileSource {
     file: tokio::fs::File,
@@ -358,14 +357,10 @@ pub fn received_path_allowed(items: &[UiReceivedItem], path: &str) -> bool {
 
 pub fn ponlet_open_received_impl(
     app: &AppHandle,
-    runtime: &TauriRuntime,
+    received_items: &[UiReceivedItem],
     local_path_or_handle: &str,
 ) -> Result<(), String> {
-    let received = runtime
-        .received()
-        .lock()
-        .expect("received item mutex poisoned");
-    let allowed = received_path_allowed(&received, local_path_or_handle);
+    let allowed = received_path_allowed(received_items, local_path_or_handle);
     if !allowed {
         return Err("Received file is not registered by this session".to_string());
     }

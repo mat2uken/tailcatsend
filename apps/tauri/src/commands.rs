@@ -3,14 +3,7 @@ use tauri::{AppHandle, State};
 use crate::model::{FileRequest, UiQrBitmap, UiSnapshot};
 use crate::runtime::TauriRuntime;
 
-pub fn ponlet_qr_code_impl(url: String) -> Result<UiQrBitmap, String> {
-    let image = tailsend_qr::generate_qr_rgba(&url, 256).map_err(|error| error.to_string())?;
-    Ok(UiQrBitmap {
-        width: image.width,
-        height: image.height,
-        rgba_pixels: image.rgba_pixels,
-    })
-}
+pub use crate::runtime::ponlet_qr_code_impl;
 
 #[tauri::command]
 pub async fn ponlet_snapshot(runtime: State<'_, TauriRuntime>) -> Result<UiSnapshot, String> {
@@ -106,5 +99,6 @@ pub fn ponlet_open_received(
     runtime: State<'_, TauriRuntime>,
     local_path_or_handle: String,
 ) -> Result<(), String> {
-    crate::storage::ponlet_open_received_impl(&app, &runtime, &local_path_or_handle)
+    let received = runtime.received().lock().expect("received item mutex poisoned");
+    crate::storage::ponlet_open_received_impl(&app, &received, &local_path_or_handle)
 }

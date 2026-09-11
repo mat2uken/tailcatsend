@@ -25,8 +25,8 @@ use tailsend_transport_api::{
 };
 
 use crate::model::{
-    FileRequest, UiReceivedItem, UiSnapshot, UiTransfer, DERP_MAP_URL, INVITE_BASE_URL,
-    INVITE_LIFETIME_SECS, QUEUE_LIMIT,
+    id_string, new_id, parse_id, FileRequest, UiQrBitmap, UiReceivedItem, UiSnapshot,
+    UiTransfer, DERP_MAP_URL, INVITE_BASE_URL, INVITE_LIFETIME_SECS, QUEUE_LIMIT,
 };
 use crate::storage::{
     app_storage_dir, default_downloads_dir, pick_file_requests, NativeFileSink, NativeFileSource,
@@ -653,31 +653,15 @@ pub fn unix_seconds() -> u64 {
         .as_secs()
 }
 
-pub fn new_id() -> [u8; 16] {
-    let mut id = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut id);
-    id
+pub fn ponlet_qr_code_impl(url: String) -> Result<UiQrBitmap, String> {
+    let image = tailsend_qr::generate_qr_rgba(&url, 256).map_err(|error| error.to_string())?;
+    Ok(UiQrBitmap {
+        width: image.width,
+        height: image.height,
+        rgba_pixels: image.rgba_pixels,
+    })
 }
 
-pub fn id_string(id: [u8; 16]) -> String {
-    hex_id(id)
-}
-
-pub fn hex_id(id: [u8; 16]) -> String {
-    id.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
-pub fn parse_id(value: &str) -> Result<[u8; 16], String> {
-    if value.len() != 32 {
-        return Err("Invalid transfer id".to_string());
-    }
-    let mut id = [0u8; 16];
-    for (index, chunk) in value.as_bytes().chunks_exact(2).enumerate() {
-        let text = std::str::from_utf8(chunk).map_err(|_| "Invalid transfer id".to_string())?;
-        id[index] = u8::from_str_radix(text, 16).map_err(|_| "Invalid transfer id".to_string())?;
-    }
-    Ok(id)
-}
 
 pub async fn ponlet_snapshot_impl(runtime: &TauriRuntime) -> Result<UiSnapshot, String> {
     Ok(runtime.snapshot())
