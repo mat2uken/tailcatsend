@@ -55,9 +55,15 @@ if [[ "${platform}" == "ios" || "${platform}" == "ios-sim" ]]; then
       -o "${archive_dir}/libtailcat.a" ./bridge/native)
   lib_dir="${archive_dir}"
   configuration="${mode}"
-  mkdir -p "${repo_dir}/apps/tauri/gen/apple/Externals/arm64/${configuration}"
+  externals_dir="${repo_dir}/apps/tauri/gen/apple/Externals"
+  # XcodeGen treats every file below Externals as a resource. Keep only the
+  # current configuration so a debug build followed by release cannot add two
+  # resources with the same libtailcat.a basename.
+  rm -rf "${externals_dir}/arm64/debug" "${externals_dir}/arm64/release"
+  rm -rf "${externals_dir}/x86_64/debug" "${externals_dir}/x86_64/release"
+  mkdir -p "${externals_dir}/arm64/${configuration}"
   cp "${archive_dir}/libtailcat.a" \
-    "${repo_dir}/apps/tauri/gen/apple/Externals/arm64/${configuration}/libtailcat.a"
+    "${externals_dir}/arm64/${configuration}/libtailcat.a"
 else
   android_home="${ANDROID_HOME:-${HOME}/Library/Android/sdk}"
   ndk_root="${ANDROID_NDK_ROOT:-${android_home}/ndk/28.2.13676358}"
