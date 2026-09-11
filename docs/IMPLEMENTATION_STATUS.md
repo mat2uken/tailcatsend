@@ -58,6 +58,8 @@ Worker化後も `npm run test:e2e:real` と `npm run test:e2e:real:derp` が同�
 
 `b97a71b` の更新確認待機処理修正後にも同じブラウザ2タブE2Eを再実行した。通常の自動選択は両端 `webrtc`、DERP固定実行は両端 `derp` となり、双方向テキスト、131,089／98,321 byte のファイル、SHA-256 `1ec3437cee3cccf3647e130524ade52848571960a3340ae33573beef17d330b3`／`5641ff21ca1a2dd16b585d026f69d26b23c537e49f0cdca944bf3b9203655753` の一致を確認した。
 
+`a12b873` の送信取消結果修正後にも同じブラウザ2タブE2Eを現行HEADで再実行した。通常の自動選択は両端 `webrtc`、DERP固定実行は両端 `derp` となり、双方向テキスト、131,089／98,321 byte のファイル、上記SHA-256の一致を再確認した。取消時はRust serviceの終端イベントとTauri command結果をともにユーザー取消として扱い、通信エラーとは分ける。
+
 `adb7b65` 後に同じ Android APK を再インストールして、上記 Android／Chromium E2E を再実行した。WebRTC と DERP の両方で接続後の両端表示、双方向テキスト、`browser-to-android-日本語.bin` (131,071 bytes)、SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` が一致した。Browser 2タブも同じ commit で WebRTC／DERP の各実行を再確認した。
 
 `a4d2143` の native bridge 改修後に Android debug APK を再生成して Sony XQ-DQ44 へ再インストールし、同じ Android／Chromium E2E を再実行した。WebRTC と DERP の両方で両端の `connected` と経路表示、双方向テキスト、`browser-to-android-日本語.bin` (131,071 bytes)、SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` が一致した。APK は `apps/tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk` に生成され、Rust 側のチャンク一時割当削減後も実機転送が維持されることを確認した。
@@ -70,7 +72,11 @@ Worker化後も `npm run test:e2e:real` と `npm run test:e2e:real:derp` が同�
 
 `1ba0d29` でも `cargo tauri build --bundles app --ci --no-sign` により macOS arm64 の `target/release/bundle/macos/Ponlet.app` を再生成した。起動後に既存の待機状態を切断し、WebViewの「接続待機中」から「招待を作成」→「相手を待機中」への遷移を確認した。これはadhoc署名のローカル起動確認であり、配布署名や実機転送の証明ではない。
 
+`a12b873` でmacOS arm64の `target/release/bundle/macos/Ponlet.app` を再生成し、WebViewの起動画面と「招待を作成」→「相手を待機中」の遷移を確認した。これは最新HEADのローカルbundle起動確認であり、配布署名や実機転送の証明ではない。
+
 `1f4030f` では同じUIを含む iOS 18.5 iPhone 16 simulator bundle を再生成し、`xcrun simctl install`／起動後に「接続待機中」を表示し、「招待を作成」から「相手を待機中」へ遷移することを画面で確認した。simulatorでの操作確認であり、iOS実機の署名・通信証明ではない。
+
+`a12b873` でも iOS 18.5 iPhone 16 simulator 用 `apps/tauri/gen/apple/build/arm64-sim/Ponlet.app` を再生成し、`xcrun simctl install`／起動後の「接続待機中」から「相手を待機中」への遷移を確認した。これは最新HEADのSimulator起動確認であり、iOS実機の署名・通信証明ではない。
 
 `cc804c3` の更新確認時間切れ修正後にも `./scripts/build_tauri_mobile.sh ios-sim debug` を実行して iPhone 16 simulator bundle を再生成した。`xcrun simctl install`／起動後の WebView で「接続待機中」を表示し、「招待を作成」から「相手を待機中」へ遷移することを確認した。これは iOS Simulator の現HEAD確認であり、iOS実機の署名・通信証明ではない。
 
