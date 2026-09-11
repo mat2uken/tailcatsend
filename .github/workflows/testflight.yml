@@ -38,6 +38,8 @@ jobs:
         run: |
           xcodebuild -version
           brew install xcodegen
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --version 2.10.0 --locked
 
       # Certificate/profile installation is kept in the CI secret store. The
       # Tauri CLI consumes APPLE_* signing variables when creating the IPA.
