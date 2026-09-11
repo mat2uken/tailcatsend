@@ -63,6 +63,8 @@ Worker化後も `npm run test:e2e:real` と `npm run test:e2e:real:derp` が同�
 
 `b08d585` の更新署名鍵検査後にもブラウザ2タブE2Eを現行HEADで再実行し、通常経路は両端 `webrtc`、DERP固定は両端 `derp` のまま双方向転送とSHA-256一致を確認した。
 
+`c67683c` のPages配布用WASMサイズ対応と公開パスURL解決後にもブラウザ2タブE2Eを再実行した。通常経路は両端 `webrtc`、DERP固定は両端 `derp` で、双方向テキスト、131,089／98,321 byteファイル、SHA-256 `1ec3437cee3cccf3647e130524ade52848571960a3340ae33573beef17d330b3`／`5641ff21ca1a2dd16b585d026f69d26b23c537e49f0cdca944bf3b9203655753` の一致を確認した。
+
 `adb7b65` 後に同じ Android APK を再インストールして、上記 Android／Chromium E2E を再実行した。WebRTC と DERP の両方で接続後の両端表示、双方向テキスト、`browser-to-android-日本語.bin` (131,071 bytes)、SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` が一致した。Browser 2タブも同じ commit で WebRTC／DERP の各実行を再確認した。
 
 `a4d2143` の native bridge 改修後に Android debug APK を再生成して Sony XQ-DQ44 へ再インストールし、同じ Android／Chromium E2E を再実行した。WebRTC と DERP の両方で両端の `connected` と経路表示、双方向テキスト、`browser-to-android-日本語.bin` (131,071 bytes)、SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` が一致した。APK は `apps/tauri/gen/android/app/build/outputs/apk/universal/debug/app-universal-debug.apk` に生成され、Rust 側のチャンク一時割当削減後も実機転送が維持されることを確認した。
