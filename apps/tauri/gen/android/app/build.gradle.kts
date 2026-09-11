@@ -13,6 +13,11 @@ val tauriProperties = Properties().apply {
     }
 }
 
+val releaseKeystorePath = System.getenv("PONLET_ANDROID_KEYSTORE").orEmpty()
+val releaseKeystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD").orEmpty()
+val releaseKeyAlias = System.getenv("ANDROID_KEY_ALIAS").orEmpty()
+val releaseKeyPassword = System.getenv("ANDROID_KEY_PASSWORD").orEmpty()
+
 android {
     compileSdk = 36
     namespace = "jp.yasagure.ponlet"
@@ -28,6 +33,16 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+    signingConfigs {
+        if (releaseKeystorePath.isNotBlank()) {
+            create("ponletRelease") {
+                storeFile = file(releaseKeystorePath)
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
     buildTypes {
         getByName("debug") {
             manifestPlaceholders["usesCleartextTraffic"] = "true"
@@ -42,6 +57,9 @@ android {
         }
         getByName("release") {
             isMinifyEnabled = true
+            if (releaseKeystorePath.isNotBlank()) {
+                signingConfig = signingConfigs.getByName("ponletRelease")
+            }
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }
                     .plus(getDefaultProguardFile("proguard-android-optimize.txt"))
