@@ -108,6 +108,10 @@ else
   else
     rm -rf "${repo_dir}/apps/tauri/gen/apple/build/arm64"
   fi
+  # XcodeGen validates every source path before writing the project. The
+  # frontend asset directory is generated during a build and is empty in a
+  # clean checkout, so create it before project generation.
+  mkdir -p "${repo_dir}/apps/tauri/gen/apple/assets"
   (cd "${repo_dir}/apps/tauri/gen/apple" && xcodegen generate)
   (cd "${repo_dir}/apps/tauri" && cargo tauri ios build "${tauri_args[@]}" --target "${mobile_target}")
 fi
