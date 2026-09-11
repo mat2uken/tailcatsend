@@ -151,7 +151,7 @@ jobs:
           PONLET_UPDATE_REVISION: ${{ github.run_number }}
           PONLET_UPDATE_DISTRIBUTION: web
           PONLET_UPDATE_TARGET: browser
-          PONLET_UPDATE_API_VERSION: '1'
+          PONLET_UPDATE_API_VERSION: '2'
         run: node scripts/write_web_update_manifest.mjs dist
 
       - name: Verify WASM Sizes (Cloudflare 25 MiB limit)
