@@ -18,6 +18,8 @@ on:
       - 'cloudflare/**'
       - 'web-ui/**'
       - 'scripts/build_web_ui.sh'
+      - 'scripts/write_web_update_config.mjs'
+      - 'scripts/write_web_update_manifest.mjs'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/deploy_pages.yml'
@@ -124,6 +126,7 @@ jobs:
 
       - name: Configure signed browser updates
         env:
+          PONLET_UPDATE_PRIVATE_KEY_PEM: ${{ secrets.PONLET_UPDATE_PRIVATE_KEY_PEM }}
           PONLET_UPDATE_MANIFEST_URL: ${{ vars.PONLET_UPDATE_MANIFEST_URL }}
           PONLET_UPDATE_SIGNATURE_URL: ${{ vars.PONLET_UPDATE_SIGNATURE_URL }}
           PONLET_UPDATE_PUBLIC_KEY_JWK: ${{ vars.PONLET_UPDATE_PUBLIC_KEY_JWK }}
@@ -133,6 +136,16 @@ jobs:
           PONLET_UPDATE_API_VERSION: ${{ vars.PONLET_UPDATE_API_VERSION }}
           PONLET_UPDATE_CURRENT_REVISION: ${{ github.run_number }}
         run: node scripts/write_web_update_config.mjs dist/ponlet-update-config.js
+
+      - name: Create signed browser release manifest
+        env:
+          PONLET_UPDATE_PRIVATE_KEY_PEM: ${{ secrets.PONLET_UPDATE_PRIVATE_KEY_PEM }}
+          PONLET_UPDATE_RELEASE_ID: ${{ github.sha }}
+          PONLET_UPDATE_REVISION: ${{ github.run_number }}
+          PONLET_UPDATE_DISTRIBUTION: web
+          PONLET_UPDATE_TARGET: browser
+          PONLET_UPDATE_API_VERSION: '1'
+        run: node scripts/write_web_update_manifest.mjs dist
 
       - name: Verify WASM Sizes (Cloudflare 25 MiB limit)
         run: |

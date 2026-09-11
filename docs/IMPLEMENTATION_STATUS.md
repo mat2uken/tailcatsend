@@ -14,7 +14,7 @@
 - 招待 URL、QR 表示／カメラ読取、テキスト送受信、ファイル選択、受信結果、取消、経路表示、設定表示を UI に接続した。
 - Slint の workspace crate、旧 mobile shell、旧 UI 定義、winit patch を削除し、製品入口を Tauri WebView に統一した。
 - Pages workflow は Go Tailcat WASM と Rust service WASM を別ファイルとして生成し、Web UI bundle と合わせて配布する。
-- ブラウザ側にも署名対象の manifest bytes、P-256 ECDSA `r || s`、ファイルサイズ／SHA-256、配布先・API・revision の検査を追加し、native の `tailsend-updates` と同じ拒否条件を unit test で確認する。設定が注入された Web では 1.5 秒以内の取得・検証と Cache Storage への保留保存を行い、次回ナビゲーションで Service Worker が有効化する。Tauri では更新処理を無効にする。
+- ブラウザ側にも署名対象の manifest bytes、P-256 ECDSA `r || s`、ファイルサイズ／SHA-256、配布先・API・revision の検査を追加し、native の `tailsend-updates` と同じ拒否条件を unit test で確認する。設定が注入された Web では 1.5 秒以内の取得・検証と Cache Storage への保留保存を行い、次回ナビゲーションで Service Worker が有効化する。Pages workflow はNode標準暗号を使う `scripts/write_web_update_manifest.mjs` でdistのmanifestと署名を生成し、秘密鍵がない場合は更新を無効にする。Tauri では更新処理を無効にする。
 - BrowserではGo Tailcat WASMをWindowに置き、Rust service WASMとOPFSをDedicated Workerへ置く。Workerとのstream I/OはMessagePortで中継し、本文バッファはTransferableなArrayBufferを使う。Workerを使えないWebViewには同一Window adapterの切替を残す。
 - ブラウザのFileSourceは再利用バッファへ直接読み出す`read_into`を使い、64 KiBごとの一時`Bytes`割当を追加しない。
 - Tailcat の状態取得では peer 情報を要求し、受信側のデータ stream でも WebRTC／WireGuard UDP／DERP の表示を接続後に更新する。修正は `tailcat/patches/0003-tailcat-status-peer-report.patch` としてビルド時に適用する。
@@ -32,7 +32,7 @@ cargo check -p tailsend-tauri -p tailsend-desktop
 (cd web-ui && npm ci && npm run lint && npm run typecheck && npm test && npm run build -- --mode web && npm run build -- --mode tauri)
 ```
 
-現在の unit test は Rust workspace 55件（core 14、transfer 17を含む）と Web UI 30件を対象にし、ヘッダー分割、本文同時受信、部分 I/O、取消、保存失敗、イベント順序、QR、受信一覧、Tauri picker forwarding、署名付き更新 manifest、更新版の検証保存、登録・Fetchが応答しない更新確認の時間切れを含める。
+現在の unit test は Rust workspace 55件（core 14、transfer 17を含む）と Web UI 32件を対象にし、ヘッダー分割、本文同時受信、部分 I/O、取消、保存失敗、イベント順序、QR、受信一覧、Tauri picker forwarding、署名付き更新 manifest、更新版の検証保存、manifest生成署名、公開鍵導出、登録・Fetchが応答しない更新確認の時間切れを含める。
 
 Chrome 2 タブの実通信では、日本語テキスト、131,089 byte ファイル、OPFSからの開く操作、SHA-256一致、両端の `webrtc` 表示を確認した。再現コマンドは `cd web-ui && npm run test:e2e:real`。
 
