@@ -23,7 +23,7 @@ npm run build -- --mode web
 npm run build -- --mode tauri
 ```
 
-リポジトリの`./scripts/build_web_ui.sh`でも以上を実行できる。テストは既存ViteでTypeScriptを読み込み、Nodeの標準test runnerから実行する。
+リポジトリの`./scripts/build_web_ui.sh`でも以上を実行できる。テストはVite設定を共有するVitestで実行する。
 
 更新設定がない場合、ブラウザはネットワークへ接続せず内蔵版をそのまま起動する。更新設定を使う場合も、実行中の画面は置き換えず、全ファイルの検査後に次回ナビゲーションで切り替える。Tauri WebViewでは更新確認を無効にしてアプリ内のbundleを使う。Pages workflow は `scripts/write_web_update_config.mjs` と `scripts/write_web_update_manifest.mjs` を呼ぶ。`PONLET_UPDATE_PRIVATE_KEY_PEM` secret がある場合は、dist内のファイル一覧、SHA-256、manifest、P-256署名を生成し、公開鍵は秘密鍵から導出する。外部のmanifestを使う場合は `PONLET_UPDATE_MANIFEST_URL`、`PONLET_UPDATE_SIGNATURE_URL`、`PONLET_UPDATE_PUBLIC_KEY_JWK` などの repository variables を指定できる。秘密鍵はログや成果物へ出力しない。
 
