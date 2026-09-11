@@ -112,6 +112,37 @@ else
   # frontend asset directory is generated during a build and is empty in a
   # clean checkout, so create it before project generation.
   mkdir -p "${repo_dir}/apps/tauri/gen/apple/assets"
-  (cd "${repo_dir}/apps/tauri/gen/apple" && xcodegen generate)
+  apple_project_dir="${repo_dir}/apps/tauri/gen/apple"
+  apple_project_spec="${apple_project_dir}/project.yml"
+  if [[ "${platform}" == "ios" && -n "${DEVELOPMENT_TEAM:-}" && -n "${PROVISIONING_PROFILE_SPECIFIER:-}" ]]; then
+    # The Tauri CLI imports the certificate/profile, but XcodeGen still needs
+    # the manual signing settings in the generated project. Keep the checked
+    # in spec portable and add the CI values only to this temporary spec.
+    signed_project_spec="$(mktemp "${apple_project_dir}/project-signing.XXXXXX.yml")"
+    trap 'rm -f -- "${signed_project_spec}"' EXIT
+    python3 - "${apple_project_spec}" "${signed_project_spec}" \
+      "${DEVELOPMENT_TEAM}" "${CODE_SIGN_STYLE:-Manual}" \
+      "${CODE_SIGN_IDENTITY:-Apple Distribution}" "${PROVISIONING_PROFILE_SPECIFIER}" <<'PY'
+from pathlib import Path
+import json
+import sys
+
+source, target, team, style, identity, profile = sys.argv[1:]
+text = Path(source).read_text()
+needle = "      PRODUCT_BUNDLE_IDENTIFIER: jp.yasagure.ponlet\n"
+if needle not in text:
+    raise SystemExit("iOS project spec is missing the Ponlet bundle identifier")
+settings = {
+    "DEVELOPMENT_TEAM": team,
+    "CODE_SIGN_STYLE": style,
+    "CODE_SIGN_IDENTITY": identity,
+    "PROVISIONING_PROFILE_SPECIFIER": profile,
+}
+overlay = "".join(f"      {key}: {json.dumps(value)}\n" for key, value in settings.items())
+Path(target).write_text(text.replace(needle, needle + overlay, 1))
+PY
+    apple_project_spec="${signed_project_spec}"
+  fi
+  (cd "${apple_project_dir}" && xcodegen generate --spec "$(basename "${apple_project_spec}")")
   (cd "${repo_dir}/apps/tauri" && cargo tauri ios build "${tauri_args[@]}" --target "${mobile_target}")
 fi
