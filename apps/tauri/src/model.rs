@@ -115,4 +115,3 @@ pub fn parse_id(value: &str) -> Result<[u8; 16], String> {
     }
     Ok(id)
 }
-

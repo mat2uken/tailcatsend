@@ -27,8 +27,8 @@ pub fn compute_joiner_proof(
     peer_info: &PeerInfo,
     capabilities: &Capabilities,
 ) -> Result<[u8; 32], AuthError> {
-    let mut mac = HmacSha256::new_from_slice(invite_secret)
-        .map_err(|e| AuthError::Init(e.to_string()))?;
+    let mut mac =
+        HmacSha256::new_from_slice(invite_secret).map_err(|e| AuthError::Init(e.to_string()))?;
 
     mac.update(b"tailsend/join/v1");
     mac.update(session_id);
@@ -97,8 +97,8 @@ pub fn compute_host_proof(
     peer_info: &PeerInfo,
     capabilities: &Capabilities,
 ) -> Result<[u8; 32], AuthError> {
-    let mut mac = HmacSha256::new_from_slice(invite_secret)
-        .map_err(|e| AuthError::Init(e.to_string()))?;
+    let mut mac =
+        HmacSha256::new_from_slice(invite_secret).map_err(|e| AuthError::Init(e.to_string()))?;
 
     mac.update(b"tailsend/host/v1");
     mac.update(session_id);

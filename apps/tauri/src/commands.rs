@@ -38,10 +38,7 @@ pub async fn ponlet_create_invite(runtime: State<'_, TauriRuntime>) -> Result<()
 }
 
 #[tauri::command]
-pub async fn ponlet_join(
-    runtime: State<'_, TauriRuntime>,
-    invite: String,
-) -> Result<(), String> {
+pub async fn ponlet_join(runtime: State<'_, TauriRuntime>, invite: String) -> Result<(), String> {
     crate::runtime::ponlet_join_impl(&runtime, invite).await
 }
 
@@ -99,6 +96,9 @@ pub fn ponlet_open_received(
     runtime: State<'_, TauriRuntime>,
     local_path_or_handle: String,
 ) -> Result<(), String> {
-    let received = runtime.received().lock().expect("received item mutex poisoned");
+    let received = runtime
+        .received()
+        .lock()
+        .expect("received item mutex poisoned");
     crate::storage::ponlet_open_received_impl(&app, &received, &local_path_or_handle)
 }

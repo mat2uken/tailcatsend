@@ -256,11 +256,7 @@ pub fn pick_file_requests(app: &AppHandle) -> Result<Vec<FileRequest>, String> {
         .collect()
 }
 
-pub fn picker_file_name(
-    path: &FilePath,
-    index: usize,
-    resolved_name: Option<&str>,
-) -> String {
+pub fn picker_file_name(path: &FilePath, index: usize, resolved_name: Option<&str>) -> String {
     let candidate = resolved_name
         .and_then(normalize_picker_name)
         .or_else(|| {

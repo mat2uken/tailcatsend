@@ -17,8 +17,8 @@ use tailsend_native_bridge::{
     TC_OK, TC_PROTOCOL_ERROR, TC_TIMEOUT,
 };
 use tailsend_transport_api::{
-    CancellationCallback, DuplexStream, IncomingStream, ListenOptions, Listener,
-    TailcatTransport, TransportError, TransportPath,
+    CancellationCallback, DuplexStream, IncomingStream, ListenOptions, Listener, TailcatTransport,
+    TransportError, TransportPath,
 };
 
 const IO_TIMEOUT_MS: u32 = 30_000;

@@ -44,8 +44,10 @@ pub fn log_event(name: &str, params: &[(&str, &str)]) {
     if !is_enabled() {
         return;
     }
-    let converted: Vec<(String, String)> =
-        params.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+    let converted: Vec<(String, String)> = params
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
     if let Ok(guard) = BACKEND.lock() {
         if let Some(backend) = guard.as_ref() {
             backend.log_event(name, &converted);
@@ -94,7 +96,9 @@ pub fn remote_string(key: &str, default_value: &str) -> String {
     }
     if let Ok(guard) = BACKEND.lock() {
         if let Some(backend) = guard.as_ref() {
-            return backend.remote_config_string(key).unwrap_or_else(|| default_value.to_string());
+            return backend
+                .remote_config_string(key)
+                .unwrap_or_else(|| default_value.to_string());
         }
     }
     default_value.to_string()
@@ -137,7 +141,10 @@ pub mod events {
 
     /// Best-effort; not sent when the process is killed.
     pub fn app_end(session_duration_ms: u128) {
-        log_event("app_end", &[("session_duration_ms", &session_duration_ms.to_string())]);
+        log_event(
+            "app_end",
+            &[("session_duration_ms", &session_duration_ms.to_string())],
+        );
     }
 
     pub fn session_created(transport: &str) {
@@ -253,7 +260,10 @@ mod tests {
         assert_eq!(2, EVENT_COUNT.load(AtomicOrdering::SeqCst));
         assert_eq!(1, PROPERTY_COUNT.load(AtomicOrdering::SeqCst));
         assert_eq!(
-            Some(("error".to_string(), vec![("category".to_string(), "other".to_string())])),
+            Some((
+                "error".to_string(),
+                vec![("category".to_string(), "other".to_string())]
+            )),
             LAST_PARAMS.lock().unwrap().clone()
         );
 

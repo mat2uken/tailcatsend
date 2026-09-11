@@ -15,7 +15,10 @@ pub enum DataHeaderError {
     #[error("Buffer too short for file header (expected {FILE_HEADER_LEN}, got {0})")]
     FileHeaderTooShort(usize),
     #[error("Invalid magic: expected {expected:?}, got {actual:?}")]
-    InvalidMagic { expected: &'static [u8], actual: Vec<u8> },
+    InvalidMagic {
+        expected: &'static [u8],
+        actual: Vec<u8>,
+    },
     #[error("Invalid header version: {0}")]
     InvalidVersion(u8),
     #[error("Nonzero reserved field: {0}")]
@@ -36,7 +39,11 @@ pub struct TextDataHeader {
 }
 
 impl TextDataHeader {
-    pub fn new(session_id: [u8; 16], transfer_id: [u8; 16], byte_length: u64) -> Result<Self, DataHeaderError> {
+    pub fn new(
+        session_id: [u8; 16],
+        transfer_id: [u8; 16],
+        byte_length: u64,
+    ) -> Result<Self, DataHeaderError> {
         if byte_length > MAX_TEXT_PAYLOAD_SIZE {
             return Err(DataHeaderError::TextSizeTooLarge(byte_length));
         }

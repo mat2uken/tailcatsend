@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use rand::RngCore;
+use std::sync::Arc;
 use tailsend_protocol::auth::*;
 use tailsend_protocol::control::*;
 use tailsend_protocol::invitation::InvitationV1;
@@ -8,11 +8,16 @@ use tailsend_transport_api::{
     DuplexStream, IncomingStream, ListenOptions, Listener, TailcatTransport, TransportPath,
 };
 
-pub async fn read_framed_control(stream: &mut Box<dyn DuplexStream>) -> Result<ControlMessage, String> {
+pub async fn read_framed_control(
+    stream: &mut Box<dyn DuplexStream>,
+) -> Result<ControlMessage, String> {
     let mut len_buf = [0u8; 4];
     let mut read_len = 0;
     while read_len < 4 {
-        let n = stream.read(&mut len_buf[read_len..]).await.map_err(|e| e.to_string())?;
+        let n = stream
+            .read(&mut len_buf[read_len..])
+            .await
+            .map_err(|e| e.to_string())?;
         if n == 0 {
             return Err("Unexpected EOF while reading control frame length".to_string());
         }
@@ -26,7 +31,10 @@ pub async fn read_framed_control(stream: &mut Box<dyn DuplexStream>) -> Result<C
     let mut payload = vec![0u8; payload_len];
     let mut total_read = 0;
     while total_read < payload_len {
-        let n = stream.read(&mut payload[total_read..]).await.map_err(|e| e.to_string())?;
+        let n = stream
+            .read(&mut payload[total_read..])
+            .await
+            .map_err(|e| e.to_string())?;
         if n == 0 {
             return Err("Unexpected EOF while reading control frame payload".to_string());
         }
@@ -61,7 +69,10 @@ pub async fn run_host_handshake(
 ) -> Result<HandshakeResult, String> {
     let incoming: IncomingStream = listener.accept().await.map_err(|e| e.to_string())?;
     if incoming.port != CONTROL_PORT {
-        return Err(format!("Expected connection on port {}, got {}", CONTROL_PORT, incoming.port));
+        return Err(format!(
+            "Expected connection on port {}, got {}",
+            CONTROL_PORT, incoming.port
+        ));
     }
 
     let mut stream = incoming.stream;
@@ -69,7 +80,10 @@ pub async fn run_host_handshake(
     let client_hello_msg = read_framed_control(&mut stream).await?;
 
     if client_hello_msg.message_type != MessageType::ClientHello as u32 {
-        return Err(format!("Expected ClientHello, got {}", client_hello_msg.message_type));
+        return Err(format!(
+            "Expected ClientHello, got {}",
+            client_hello_msg.message_type
+        ));
     }
 
     let body = match client_hello_msg.body {
@@ -128,7 +142,10 @@ pub async fn run_host_handshake(
 
     let ready_msg = read_framed_control(&mut stream).await?;
     if ready_msg.message_type != MessageType::SessionReady as u32 {
-        return Err(format!("Expected SessionReady, got {}", ready_msg.message_type));
+        return Err(format!(
+            "Expected SessionReady, got {}",
+            ready_msg.message_type
+        ));
     }
 
     let ack_msg = ControlMessage::new(
@@ -205,7 +222,10 @@ pub async fn run_joiner_handshake(
 
     let server_hello_msg = read_framed_control(&mut stream).await?;
     if server_hello_msg.message_type != MessageType::ServerHello as u32 {
-        return Err(format!("Expected ServerHello, got {}", server_hello_msg.message_type));
+        return Err(format!(
+            "Expected ServerHello, got {}",
+            server_hello_msg.message_type
+        ));
     }
 
     let body = match server_hello_msg.body {
@@ -243,7 +263,10 @@ pub async fn run_joiner_handshake(
 
     let ack_msg = read_framed_control(&mut stream).await?;
     if ack_msg.message_type != MessageType::SessionReadyAck as u32 {
-        return Err(format!("Expected SessionReadyAck, got {}", ack_msg.message_type));
+        return Err(format!(
+            "Expected SessionReadyAck, got {}",
+            ack_msg.message_type
+        ));
     }
 
     Ok(HandshakeResult {

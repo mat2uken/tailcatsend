@@ -246,7 +246,9 @@ impl BackendService {
                 return false;
             };
             let should_cancel = token.load(Ordering::Acquire);
-            inner.cancellation_callbacks.insert(transfer_id, callback.clone());
+            inner
+                .cancellation_callbacks
+                .insert(transfer_id, callback.clone());
             should_cancel
         };
         if should_cancel {

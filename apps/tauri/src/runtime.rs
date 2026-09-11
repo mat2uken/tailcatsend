@@ -25,8 +25,8 @@ use tailsend_transport_api::{
 };
 
 use crate::model::{
-    id_string, new_id, parse_id, FileRequest, UiQrBitmap, UiReceivedItem, UiSnapshot,
-    UiTransfer, DERP_MAP_URL, INVITE_BASE_URL, INVITE_LIFETIME_SECS, QUEUE_LIMIT,
+    id_string, new_id, parse_id, FileRequest, UiQrBitmap, UiReceivedItem, UiSnapshot, UiTransfer,
+    DERP_MAP_URL, INVITE_BASE_URL, INVITE_LIFETIME_SECS, QUEUE_LIMIT,
 };
 use crate::storage::{
     app_storage_dir, default_downloads_dir, pick_file_requests, NativeFileSink, NativeFileSource,
@@ -661,7 +661,6 @@ pub fn ponlet_qr_code_impl(url: String) -> Result<UiQrBitmap, String> {
         rgba_pixels: image.rgba_pixels,
     })
 }
-
 
 pub async fn ponlet_snapshot_impl(runtime: &TauriRuntime) -> Result<UiSnapshot, String> {
     Ok(runtime.snapshot())

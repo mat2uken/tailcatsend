@@ -27,18 +27,18 @@ use tailsend_core::{
 use tailsend_platform_api::{
     FileMetadata, FileSource, IncomingFileSink, ReceivedItem, StorageError,
 };
-use tailsend_qr::generate_qr_rgba;
 use tailsend_protocol::control::{BrowserFamily, Capabilities, PeerInfo, PlatformKind};
 use tailsend_protocol::filename::sanitize_filename;
 use tailsend_protocol::invitation::InvitationV1;
 use tailsend_protocol::limits::{FILE_PORT, TEXT_PORT};
+use tailsend_qr::generate_qr_rgba;
 use tailsend_transfer::{
     receive_live_text_stream, receive_named_file_stream_with_factory, send_live_text_stream,
     send_named_file_stream, ProgressCallback, ProgressUpdate, TransferError,
 };
 use tailsend_transport_api::{
-    CancellationCallback, DuplexStream, IncomingStream, ListenOptions, Listener,
-    TailcatTransport, TransportError, TransportPath,
+    CancellationCallback, DuplexStream, IncomingStream, ListenOptions, Listener, TailcatTransport,
+    TransportError, TransportPath,
 };
 
 const DERP_MAP_URL: &str = "https://tailcat.dev/derpmap.json";
@@ -792,12 +792,10 @@ impl WebBackend {
     fn event(&self, event: AppEvent) {
         let ordered = self.service.emit(event.clone());
         match event {
-            AppEvent::StateChanged(_) => {
-                self.notify(UiEvent::Snapshot {
-                    sequence: ordered.sequence,
-                    snapshot: self.snapshot(),
-                })
-            }
+            AppEvent::StateChanged(_) => self.notify(UiEvent::Snapshot {
+                sequence: ordered.sequence,
+                snapshot: self.snapshot(),
+            }),
             AppEvent::TransportChanged(_) => self.notify(UiEvent::Snapshot {
                 sequence: ordered.sequence,
                 snapshot: self.snapshot(),
@@ -1421,10 +1419,7 @@ pub fn install_backend() -> Result<(), JsValue> {
     Reflect::set(&global, &JsValue::from_str("__ponletBackend"), &object).map(|_| ())
 }
 
-fn snapshot_from_service(
-    service: &BackendService,
-    received: &[UiReceivedItem],
-) -> UiSnapshot {
+fn snapshot_from_service(service: &BackendService, received: &[UiReceivedItem]) -> UiSnapshot {
     let snapshot = service.snapshot();
     let app = snapshot.app;
     let (state, peer_name, invite_url, expires, can_send, can_disconnect, transfer, error) =

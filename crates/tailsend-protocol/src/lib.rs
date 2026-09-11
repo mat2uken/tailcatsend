@@ -45,7 +45,9 @@ mod tests {
         let decoded_b64 = InvitationV1::from_base64url(&b64, now).expect("base64url decode");
         assert_eq!(inv, decoded_b64);
 
-        let url = inv.to_qr_url("https://tailsend.example.com").expect("qr url");
+        let url = inv
+            .to_qr_url("https://tailsend.example.com")
+            .expect("qr url");
         assert!(url.len() <= MAX_QR_URL_BYTES);
         assert!(url.starts_with("https://tailsend.example.com/#i="));
 
@@ -71,13 +73,8 @@ mod tests {
         assert!(matches!(res, Err(InvitationError::Deserialization(_))));
 
         // Truncated CBOR payload
-        let valid_inv = InvitationV1::new(
-            "tc-addr-test".to_string(),
-            [1u8; 16],
-            [2u8; 32],
-            now,
-            300,
-        );
+        let valid_inv =
+            InvitationV1::new("tc-addr-test".to_string(), [1u8; 16], [2u8; 32], now, 300);
         let cbor = valid_inv.to_cbor_bytes().unwrap();
         let truncated = &cbor[..cbor.len() / 2];
         let res = InvitationV1::from_cbor_bytes(truncated, now);
@@ -92,13 +89,7 @@ mod tests {
         let issued_at = 1756800000;
         let lifetime = 600;
 
-        let inv = InvitationV1::new(
-            host_address,
-            session_id,
-            invite_secret,
-            issued_at,
-            lifetime,
-        );
+        let inv = InvitationV1::new(host_address, session_id, invite_secret, issued_at, lifetime);
 
         let cbor = inv.to_cbor_bytes().unwrap();
 
@@ -289,7 +280,8 @@ mod tests {
         ));
 
         // Text header payload size exceeding limit (> 1 MiB)
-        let oversized_text = TextDataHeader::new(session_id, transfer_id, MAX_TEXT_PAYLOAD_SIZE + 1);
+        let oversized_text =
+            TextDataHeader::new(session_id, transfer_id, MAX_TEXT_PAYLOAD_SIZE + 1);
         assert!(matches!(
             oversized_text,
             Err(data_header::DataHeaderError::TextSizeTooLarge(_))
@@ -316,27 +308,74 @@ mod tests {
     fn test_filename_sanitizer_full_matrix() {
         // Valid filenames
         assert_eq!(sanitize_filename("photo.jpg").unwrap(), "photo.jpg");
-        assert_eq!(sanitize_filename("my-document_v2.pdf").unwrap(), "my-document_v2.pdf");
+        assert_eq!(
+            sanitize_filename("my-document_v2.pdf").unwrap(),
+            "my-document_v2.pdf"
+        );
 
         // Deep path traversal
         assert_eq!(sanitize_filename("../../etc/passwd").unwrap(), "passwd");
-        assert_eq!(sanitize_filename("../../../var/log/syslog").unwrap(), "syslog");
-        assert_eq!(sanitize_filename("..\\..\\Windows\\System32\\cmd.exe").unwrap(), "cmd.exe");
+        assert_eq!(
+            sanitize_filename("../../../var/log/syslog").unwrap(),
+            "syslog"
+        );
+        assert_eq!(
+            sanitize_filename("..\\..\\Windows\\System32\\cmd.exe").unwrap(),
+            "cmd.exe"
+        );
 
         // Absolute drive and UNC paths
-        assert_eq!(sanitize_filename("C:\\Users\\admin\\document.pdf").unwrap(), "document.pdf");
-        assert_eq!(sanitize_filename("D:/Data/Project/report.docx").unwrap(), "report.docx");
-        assert_eq!(sanitize_filename("\\\\server\\share\\archive.zip").unwrap(), "archive.zip");
+        assert_eq!(
+            sanitize_filename("C:\\Users\\admin\\document.pdf").unwrap(),
+            "document.pdf"
+        );
+        assert_eq!(
+            sanitize_filename("D:/Data/Project/report.docx").unwrap(),
+            "report.docx"
+        );
+        assert_eq!(
+            sanitize_filename("\\\\server\\share\\archive.zip").unwrap(),
+            "archive.zip"
+        );
 
         // Multilingual & Emoji
-        assert_eq!(sanitize_filename("日本語ファイル名 😊.png").unwrap(), "日本語ファイル名 😊.png");
-        assert_eq!(sanitize_filename("中文文件名.tar.gz").unwrap(), "中文文件名.tar.gz");
+        assert_eq!(
+            sanitize_filename("日本語ファイル名 😊.png").unwrap(),
+            "日本語ファイル名 😊.png"
+        );
+        assert_eq!(
+            sanitize_filename("中文文件名.tar.gz").unwrap(),
+            "中文文件名.tar.gz"
+        );
 
         // Windows Reserved Names
         let reserved_names = [
-            "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
-            "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8",
-            "LPT9", "con", "prn", "aux.txt", "NUL.tar.gz",
+            "CON",
+            "PRN",
+            "AUX",
+            "NUL",
+            "COM1",
+            "COM2",
+            "COM3",
+            "COM4",
+            "COM5",
+            "COM6",
+            "COM7",
+            "COM8",
+            "COM9",
+            "LPT1",
+            "LPT2",
+            "LPT3",
+            "LPT4",
+            "LPT5",
+            "LPT6",
+            "LPT7",
+            "LPT8",
+            "LPT9",
+            "con",
+            "prn",
+            "aux.txt",
+            "NUL.tar.gz",
         ];
         for name in reserved_names {
             let sanitized = sanitize_filename(name).unwrap();
@@ -349,11 +388,20 @@ mod tests {
         }
 
         // Invalid Characters Replacement
-        assert_eq!(sanitize_filename("file<with>illegal:chars|?.txt").unwrap(), "file_with_illegal_chars__.txt");
+        assert_eq!(
+            sanitize_filename("file<with>illegal:chars|?.txt").unwrap(),
+            "file_with_illegal_chars__.txt"
+        );
 
         // Trailing dots and spaces
-        assert_eq!(sanitize_filename("trailing.dots...").unwrap(), "trailing.dots");
-        assert_eq!(sanitize_filename("trailing spaces   ").unwrap(), "trailing spaces");
+        assert_eq!(
+            sanitize_filename("trailing.dots...").unwrap(),
+            "trailing.dots"
+        );
+        assert_eq!(
+            sanitize_filename("trailing spaces   ").unwrap(),
+            "trailing spaces"
+        );
 
         // Empty filename fallback
         assert_eq!(sanitize_filename("").unwrap(), "unnamed_file");
@@ -362,10 +410,16 @@ mod tests {
         // Unique De-duplication Generation
         let mut existing = HashSet::new();
         existing.insert("photo.jpg".to_string());
-        assert_eq!(generate_unique_filename(&existing, "photo.jpg"), "photo (1).jpg");
+        assert_eq!(
+            generate_unique_filename(&existing, "photo.jpg"),
+            "photo (1).jpg"
+        );
 
         existing.insert("photo (1).jpg".to_string());
-        assert_eq!(generate_unique_filename(&existing, "photo.jpg"), "photo (2).jpg");
+        assert_eq!(
+            generate_unique_filename(&existing, "photo.jpg"),
+            "photo (2).jpg"
+        );
 
         // Extensionless files
         existing.insert("README".to_string());

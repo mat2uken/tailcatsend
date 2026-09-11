@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use crate::state::{PendingOffer, SessionState};
+use serde::{Deserialize, Serialize};
 use tailsend_transport_api::TransportPath;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

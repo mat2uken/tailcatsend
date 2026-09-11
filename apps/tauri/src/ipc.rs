@@ -136,7 +136,10 @@ pub(crate) async fn dispatch(app: AppHandle, request: Frame) -> Frame {
         },
         Opcode::OpenReceived => match json::<OpenReceivedPayload>(&request) {
             Ok(value) => {
-                let received = runtime.received().lock().expect("received item mutex poisoned");
+                let received = runtime
+                    .received()
+                    .lock()
+                    .expect("received item mutex poisoned");
                 match ponlet_open_received_impl(&app, &received, &value.local_path_or_handle) {
                     Ok(()) => empty_ok(&request),
                     Err(message) => error(&request, message),

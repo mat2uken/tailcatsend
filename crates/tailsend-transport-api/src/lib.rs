@@ -167,8 +167,17 @@ mod tests {
 
     #[test]
     fn transport_path_json_names_are_small_and_stable() {
-        assert_eq!(serde_json::to_string(&TransportPath::DirectUdp).unwrap(), "\"direct-udp\"");
-        assert_eq!(serde_json::to_string(&TransportPath::WebRtc).unwrap(), "\"webrtc\"");
-        assert_eq!(serde_json::from_str::<TransportPath>("\"future-path\"").unwrap(), TransportPath::Unknown);
+        assert_eq!(
+            serde_json::to_string(&TransportPath::DirectUdp).unwrap(),
+            "\"direct-udp\""
+        );
+        assert_eq!(
+            serde_json::to_string(&TransportPath::WebRtc).unwrap(),
+            "\"webrtc\""
+        );
+        assert_eq!(
+            serde_json::from_str::<TransportPath>("\"future-path\"").unwrap(),
+            TransportPath::Unknown
+        );
     }
 }

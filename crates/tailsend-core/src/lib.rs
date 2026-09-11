@@ -2,36 +2,38 @@ pub mod actor;
 pub mod command;
 pub mod event;
 pub mod mock_transport;
+pub mod service;
 pub mod session;
 pub mod snapshot;
 pub mod state;
-pub mod service;
 
 pub use actor::*;
 pub use command::*;
 pub use event::*;
 pub use mock_transport::*;
+pub use service::*;
 pub use session::*;
 pub use snapshot::*;
 pub use state::*;
-pub use service::*;
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::AtomicBool;
-    use std::sync::{Arc, Mutex};
     use async_trait::async_trait;
     use bytes::Bytes;
     use rand::RngCore;
-    use tailsend_platform_api::{FileMetadata, FileSource, IncomingFileSink, ReceivedItem, StorageError};
+    use std::sync::atomic::AtomicBool;
+    use std::sync::{Arc, Mutex};
+    use tailsend_platform_api::{
+        FileMetadata, FileSource, IncomingFileSink, ReceivedItem, StorageError,
+    };
     use tailsend_protocol::control::*;
     use tailsend_protocol::invitation::InvitationV1;
     use tailsend_protocol::limits::*;
     use tailsend_transfer::{
         receive_file_item_stream, receive_text_stream, send_file_item_stream, send_text_stream,
     };
-    use tailsend_transport_api::{ListenOptions, TailcatTransport};
     use tailsend_transport_api::TransportPath;
+    use tailsend_transport_api::{ListenOptions, TailcatTransport};
 
     use crate::mock_transport::MockNetworkHub;
     use crate::session::{
@@ -219,13 +221,7 @@ mod tests {
         let recv_task = {
             let cancel = cancel.clone();
             tokio::spawn(async move {
-                receive_text_stream(
-                    &mut incoming.stream,
-                    session_id,
-                    transfer_id,
-                    cancel,
-                )
-                .await
+                receive_text_stream(&mut incoming.stream, session_id, transfer_id, cancel).await
             })
         };
 
@@ -382,24 +378,46 @@ mod tests {
             600,
         );
 
-        let host_info = PeerInfo::new_native("Host".to_string(), PlatformKind::Windows, "1.0".to_string());
-        let joiner_info = PeerInfo::new_native("Joiner".to_string(), PlatformKind::Windows, "1.0".to_string());
+        let host_info =
+            PeerInfo::new_native("Host".to_string(), PlatformKind::Windows, "1.0".to_string());
+        let joiner_info = PeerInfo::new_native(
+            "Joiner".to_string(),
+            PlatformKind::Windows,
+            "1.0".to_string(),
+        );
         let host_caps = Capabilities::default();
         let joiner_caps = Capabilities::default();
 
         let joiner_transport: Arc<dyn TailcatTransport> = hub.clone();
 
         let host_task = tokio::spawn(async move {
-            run_host_handshake(&*host_listener, session_id, correct_secret, &host_info, &host_caps).await
+            run_host_handshake(
+                &*host_listener,
+                session_id,
+                correct_secret,
+                &host_info,
+                &host_caps,
+            )
+            .await
         });
 
         let joiner_task = tokio::spawn(async move {
-            run_joiner_handshake(&joiner_transport, &*joiner_listener, &invitation, &joiner_info, &joiner_caps).await
+            run_joiner_handshake(
+                &joiner_transport,
+                &*joiner_listener,
+                &invitation,
+                &joiner_info,
+                &joiner_caps,
+            )
+            .await
         });
 
         let (host_res, joiner_res) = tokio::join!(host_task, joiner_task);
         let host_outcome = host_res.unwrap();
-        assert!(host_outcome.is_err(), "Host must reject handshake with invalid proof");
+        assert!(
+            host_outcome.is_err(),
+            "Host must reject handshake with invalid proof"
+        );
         let _ = joiner_res;
     }
 
@@ -425,7 +443,9 @@ mod tests {
             Some(MessageBody::TextOffer(offer)),
         );
 
-        write_framed_control(&mut host_box, &offer_msg).await.unwrap();
+        write_framed_control(&mut host_box, &offer_msg)
+            .await
+            .unwrap();
 
         // Joiner receives offer and responds with rejection
         let received_offer = read_framed_control(&mut joiner_box).await.unwrap();
@@ -443,11 +463,16 @@ mod tests {
             None,
             Some(MessageBody::Decision(decision)),
         );
-        write_framed_control(&mut joiner_box, &decision_msg).await.unwrap();
+        write_framed_control(&mut joiner_box, &decision_msg)
+            .await
+            .unwrap();
 
         // Host reads decision and confirms rejection
         let received_decision = read_framed_control(&mut host_box).await.unwrap();
-        assert_eq!(received_decision.message_type, MessageType::TextDecision as u32);
+        assert_eq!(
+            received_decision.message_type,
+            MessageType::TextDecision as u32
+        );
         match received_decision.body {
             Some(MessageBody::Decision(d)) => {
                 assert!(!d.accepted, "Decision should be rejected");

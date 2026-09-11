@@ -1,9 +1,9 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::lock::Mutex as AsyncMutex;
 use futures::StreamExt;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 use tailsend_transport_api::{
     DuplexStream, IncomingStream, ListenOptions, Listener, TailcatTransport, TransportError,
     TransportPath,
@@ -163,7 +163,9 @@ impl TailcatTransport for MockNetworkHub {
             .unwrap()
             .get(address)
             .cloned()
-            .ok_or_else(|| TransportError::Unreachable(format!("address not found: {}", address)))?;
+            .ok_or_else(|| {
+                TransportError::Unreachable(format!("address not found: {}", address))
+            })?;
 
         let (client_stream, server_stream) = MockStream::pair();
 
