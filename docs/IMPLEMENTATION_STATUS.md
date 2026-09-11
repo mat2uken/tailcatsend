@@ -68,6 +68,8 @@ Worker化後も `npm run test:e2e:real` と `npm run test:e2e:real:derp` が同�
 
 `1f4030f` では同じUIを含む iOS 18.5 iPhone 16 simulator bundle を再生成し、`xcrun simctl install`／起動後に「接続待機中」を表示し、「招待を作成」から「相手を待機中」へ遷移することを画面で確認した。simulatorでの操作確認であり、iOS実機の署名・通信証明ではない。
 
+`cc804c3` の更新確認時間切れ修正後にも `./scripts/build_tauri_mobile.sh ios-sim debug` を実行して iPhone 16 simulator bundle を再生成した。`xcrun simctl install`／起動後の WebView で「接続待機中」を表示し、「招待を作成」から「相手を待機中」へ遷移することを確認した。これは iOS Simulator の現HEAD確認であり、iOS実機の署名・通信証明ではない。
+
 `3597588` では、招待待機中に「招待を作成」を連続実行した際、取消された古いaccept処理の終端エラーが新しい招待の状態を上書きしないようにした。更新済みmacOS WebViewで再生成直後と待機処理の終了後に「相手を待機中」が維持されることを確認した。
 
 `3dbdc6f` では、接続中に別の招待または切断が始まった場合、古いjoin処理の成功・失敗が現在の接続状態を上書きしないようにした。古いセッションだけを閉じ、現在のセッションを維持する。
