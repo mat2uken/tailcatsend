@@ -59,6 +59,7 @@ macOS bundleとSony XQ-DQ44の実行では、`PONLET_TRANSPORT=derp` で双方�
 - `a12b873` の送信取消結果修正後にブラウザ2タブの実通信を現行HEADで再実行した。通常の自動選択は両端 `webrtc`、DERP固定実行は両端 `derp` となり、双方向テキスト、131,089／98,321 byte のファイル、SHA-256一致を再確認した。TauriとWASMの取消終端も同じユーザー取消表示へ揃えた。
 - `b08d585` の更新署名鍵検査後にも同じブラウザ2タブE2Eを再実行し、通常経路は両端 `webrtc`、DERP固定は両端 `derp` のまま双方向転送とSHA-256一致を確認した。
 - `c67683c` のPages配布用WASMサイズ対応と公開パスURL解決後にも同じブラウザ2タブE2Eを再実行し、通常経路は両端 `webrtc`、DERP固定は両端 `derp` のまま双方向転送とSHA-256一致を確認した。
+- `274e66f` でTauriの直接bundle buildが生成済みGo archiveを参照するように修正し、macOS arm64 bundleの起動と招待待機への遷移を現行HEADで確認した。配布署名と実機転送は別の確認が必要である。
 - `cd web-ui && PONLET_ANDROID_SERIAL=<serial> npm run test:e2e:android` では Sony XQ-DQ44 の Android Tauri WebView とWorker化した Chromiumを WebRTCで接続し、双方向テキストと131,071 byteファイルのSHA-256一致を確認する。`PONLET_TEST_TRANSPORT=derp` を付けた `npm run test:e2e:android:derp` では同じ入力を DERP relayで再実行する。
 - `adb7b65` 後にも Android APK を再ビルドして上記2コマンドを実行し、WebRTC／DERP ともに両端の経路表示、双方向テキスト、131,071 byteファイル、SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` の一致を確認した。
 - `a4d2143` と `ffb753c` の後に Android debug APK を再生成・再インストールし、WebRTC／DERP の同じ E2E を再実行した。両経路で `connected`、双方向テキスト、131,071 byteファイル、SHA-256 `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19` の一致を確認した。`./scripts/build_tauri_mobile.sh ios-sim debug` で iOS 18.5 iPhone 16 simulator bundle も再生成し、起動待機画面を確認した。

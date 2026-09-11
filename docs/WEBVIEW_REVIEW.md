@@ -25,6 +25,7 @@ UI と転送処理の責務は分かれ、ファイル本文を UI の JSON、Ba
 | `a12b873` Browser 再検証 | 通常経路は両端 `webrtc`、DERP固定は両端 `derp`。双方向転送とSHA-256一致 |
 | `b08d585` Browser 再検証 | 更新署名鍵検査後も通常経路 `webrtc`、DERP固定 `derp` で双方向転送とSHA-256一致 |
 | `c67683c` Browser 再検証 | Pages配布用WASMサイズ対応後も通常経路 `webrtc`、DERP固定 `derp` で双方向転送とSHA-256一致 |
+| `274e66f` macOS bundle | Go archive参照先修正後にarm64 bundleを生成し、WebView起動と招待待機への遷移を確認 |
 | Tauri実機 smoke | macOS bundle と Sony XQ-DQ44 の direct-udp 表示、DERP転送、取消 |
 | `eb8b543` macOS bundle | update config の埋め込み先を含む Release bundle を再生成・起動し、WebViewの「接続待機中」を確認 |
 | `1f4030f` iOS Simulator | iPhone 16 simulator で最新UIを起動し、招待作成後の「相手を待機中」遷移を画面確認 |
