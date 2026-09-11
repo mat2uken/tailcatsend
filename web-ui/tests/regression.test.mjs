@@ -4,6 +4,7 @@ import { initialSnapshot } from "../src/api/application-api.ts";
 import { Session } from "../src/session.ts";
 import { openOpfsSink } from "../src/opfs.ts";
 import { placeAnchor } from "../src/lib/position.ts";
+import { resolvePublicUrl } from "../src/lib/public-url.ts";
 
 function navigatorWith(properties = {}) {
   Object.defineProperty(globalThis, "navigator", {
@@ -37,6 +38,15 @@ function bridge(overrides = {}) {
 }
 
 navigatorWith();
+
+it("resolves public assets below a deployment path", () => {
+  expect(resolvePublicUrl("assets/tailcat.wasm.gz", "https://example.test/ponlet/")).toBe(
+    "https://example.test/ponlet/assets/tailcat.wasm.gz",
+  );
+  expect(resolvePublicUrl("wasm/tailsend_web.js", "https://example.test/")).toBe(
+    "https://example.test/wasm/tailsend_web.js",
+  );
+});
 
 it("missing backend refuses connection and delivery", async () => {
   const backend = createBackend();

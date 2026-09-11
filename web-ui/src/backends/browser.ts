@@ -1,5 +1,6 @@
 import type { BackendEvent, BackendSnapshot, QrBitmap } from "../api/application-api";
 import type { NativeBridge } from "../backend";
+import { resolvePublicUrl } from "../lib/public-url";
 import type {
   BrowserWorkerMessage,
   BrowserWorkerResponse,
@@ -70,19 +71,26 @@ async function loadScript(url: string): Promise<void> {
   });
 }
 
+function publicUrl(path: string): string {
+  // Resolve from the document base instead of the origin root. This keeps a
+  // Pages project served below a path prefix working without changing the
+  // generated bundle or the signed asset names.
+  return resolvePublicUrl(path, document.baseURI);
+}
+
 async function loadTailcatBridge(): Promise<void> {
   if (window.__ponletBackend || (globalThis as { tailSendTailcat?: unknown }).tailSendTailcat) {
     return;
   }
   if (!globalGo()) {
-    await loadScript("/assets/wasm_exec.js");
+    await loadScript(publicUrl("assets/wasm_exec.js"));
   }
   const Go = globalGo();
   if (!Go) {
     throw new Error("Go WebAssembly runtime is unavailable");
   }
   const go = new Go();
-  const response = await fetch("/assets/tailcat.wasm.gz");
+  const response = await fetch(publicUrl("assets/tailcat.wasm.gz"));
   if (!response.ok) {
     throw new Error(`Unable to load Tailcat WebAssembly (${response.status})`);
   }
@@ -93,7 +101,7 @@ async function loadTailcatBridge(): Promise<void> {
           new Blob([compressed]).stream().pipeThrough(new DecompressionStream("gzip")),
         ).arrayBuffer()
       : await (async () => {
-          const raw = await fetch("/assets/tailcat.wasm");
+          const raw = await fetch(publicUrl("assets/tailcat.wasm"));
           if (!raw.ok) {
             throw new Error(`Unable to load uncompressed Tailcat WebAssembly (${raw.status})`);
           }
@@ -468,7 +476,7 @@ export function initializeBrowserBackend(): Promise<void> {
   }
   initialization ??= (async () => {
     await loadTailcatBridge();
-    const moduleUrl = new URL("/wasm/tailsend_web.js", window.location.origin).href;
+    const moduleUrl = publicUrl("wasm/tailsend_web.js");
     if (typeof Worker === "function" && typeof MessageChannel === "function") {
       const bridge = await startWorkerBackend(moduleUrl);
       window.__ponletBackend = bridge;

@@ -2,7 +2,7 @@
 
 VanJSとTypeScriptで実装した共通UI。`web` modeは`dist/web`、`tauri` modeは`dist/native`へ出力する。同じUIから`@backend`でadapterの入口を選ぶ。Vite 8、esbuild、Oxlint、Oxfmt、Vitestはvanjslitetemplateの構成に合わせ、実行時依存は`vanjs-core`とTauri APIだけに絞っている。
 
-ブラウザmodeは起動時にGo Tailcat WASMをWindowへ読み込み、Rust WASMサービスをDedicated Worker内で初期化する。Rust側が招待、handshake、NAME形式の転送、進捗、取消、OPFS保存を担当し、WorkerとWindowの間はMessagePortとTransferableなArrayBufferで接続する。Workerを利用できない古いWebViewでは従来の同一Window adapterへ切り替える。必要なWASMがない場合は送受信成功を作らず、画面にエラーを表示する。Tauri modeは同じUIからTauri command/event adapterを使用する。
+ブラウザmodeは起動時にGo Tailcat WASMをWindowへ読み込み、Rust WASMサービスをDedicated Worker内で初期化する。Rust側が招待、handshake、NAME形式の転送、進捗、取消、OPFS保存を担当し、WorkerとWindowの間はMessagePortとTransferableなArrayBufferで接続する。Workerを利用できない古いWebViewでは従来の同一Window adapterへ切り替える。必要なWASMがない場合は送受信成功を作らず、画面にエラーを表示する。Tauri modeは同じUIからTauri command/event adapterを使用する。公開先のURLは`document.baseURI`から解決するため、Pagesのパス配下でも同じbundleを利用できる。
 
 - `src/api/`: UIが利用する型とAPI版の検査。
 - `src/backend.ts`: 注入されたadapterの確認とブラウザ操作の補助。
@@ -25,6 +25,6 @@ npm run build -- --mode tauri
 
 リポジトリの`./scripts/build_web_ui.sh`でも以上を実行できる。テストはVite設定を共有するVitestで実行する。
 
-更新設定がない場合、ブラウザはネットワークへ接続せず内蔵版をそのまま起動する。更新設定を使う場合も、実行中の画面は置き換えず、全ファイルの検査後に次回ナビゲーションで切り替える。Tauri WebViewでは更新確認を無効にしてアプリ内のbundleを使う。Pages workflow は `scripts/write_web_update_config.mjs` と `scripts/write_web_update_manifest.mjs` を呼ぶ。`PONLET_UPDATE_PRIVATE_KEY_PEM` secret がある場合は、dist内のファイル一覧、SHA-256、manifest、P-256署名を生成し、公開鍵は秘密鍵から導出する。外部のmanifestを使う場合は `PONLET_UPDATE_MANIFEST_URL`、`PONLET_UPDATE_SIGNATURE_URL`、`PONLET_UPDATE_PUBLIC_KEY_JWK` などの repository variables を指定できる。秘密鍵はログや成果物へ出力しない。
+更新設定がない場合、ブラウザはネットワークへ接続せず内蔵版をそのまま起動する。更新設定を使う場合も、実行中の画面は置き換えず、全ファイルの検査後に次回ナビゲーションで切り替える。Tauri WebViewでは更新確認を無効にしてアプリ内のbundleを使う。Pages workflow は `scripts/write_web_update_config.mjs` と `scripts/write_web_update_manifest.mjs` を呼ぶ。`PONLET_UPDATE_PRIVATE_KEY_PEM` secret がある場合は、dist内のファイル一覧、SHA-256、manifest、P-256署名を生成し、公開鍵は秘密鍵から導出する。Go WASMの非圧縮版はPagesの単一ファイル上限を超えるためアップロードせず、`tailcat.wasm.gz`を標準経路にする。`DecompressionStream` がない環境で非圧縮版を別配布する場合は、同じ相対パスで `assets/tailcat.wasm` を用意する必要がある。外部のmanifestを使う場合は `PONLET_UPDATE_MANIFEST_URL`、`PONLET_UPDATE_SIGNATURE_URL`、`PONLET_UPDATE_PUBLIC_KEY_JWK` などの repository variables を指定できる。秘密鍵はログや成果物へ出力しない。
 
 APIの変換、既存UIとの比較、更新機能へ接続する順序は[移行状態](../docs/WEBVIEW_MIGRATION.md)と[レビュー記録](../docs/WEBVIEW_REVIEW.md)を参照。

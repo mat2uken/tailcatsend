@@ -100,6 +100,13 @@ jobs:
           gzip -9 -c dist/assets/tailcat.wasm > dist/assets/tailcat.wasm.gz
           du -h dist/assets/tailcat.wasm dist/assets/tailcat.wasm.gz
 
+          # Cloudflare Pages rejects a single asset larger than 25 MiB. The
+          # raw Go runtime is currently larger than that limit, while the
+          # gzip artifact is well below it and is the browser's normal load
+          # path. Keep the raw file in the build workspace for local checks,
+          # but do not upload it or include it in the signed release manifest.
+          rm -f dist/assets/tailcat.wasm
+
       - name: Refresh wasm_exec.js
         run: |
           # Ship the wasm_exec.js matching the Go toolchain used above.
