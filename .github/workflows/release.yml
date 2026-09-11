@@ -21,6 +21,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { submodules: true }
+      - name: Normalize source line endings
+        shell: bash
+        run: |
+          # Git for Windows may check out LF sources as CRLF. Oxfmt reads the
+          # bytes as-is, so restore the repository's LF form before checking.
+          git config core.autocrlf false
+          git checkout -- web-ui scripts
       - uses: actions/setup-go@v5
         with: { go-version: "1.27.x", cache-dependency-path: tailcat/go.sum }
       - uses: actions/setup-node@v4
@@ -142,6 +149,30 @@ jobs:
         with: { targets: aarch64-apple-ios }
       - run: brew install xcodegen
       - run: cargo install tauri-cli --version 2.10.0 --locked
+      - name: Install Apple signing material
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD || 'temporary-ci-keychain-pass' }}
+        run: |
+          test -n "$BUILD_CERTIFICATE_BASE64"
+          test -n "$BUILD_PROVISION_PROFILE_BASE64"
+          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$KEYCHAIN_PATH" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          echo "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/profile.mobileprovision"
+          UUID=$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" | plutil -extract UUID raw -)
+          TEAM_ID=$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" | plutil -extract TeamIdentifier.0 raw -)
+          cp "$RUNNER_TEMP/profile.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/${UUID}.mobileprovision"
+          echo "APPLE_DEVELOPMENT_TEAM=$TEAM_ID" >> "$GITHUB_ENV"
+          echo "APPLE_CERTIFICATE_PASSWORD=$P12_PASSWORD" >> "$GITHUB_ENV"
+          echo "APPLE_CERTIFICATE=$RUNNER_TEMP/certificate.p12" >> "$GITHUB_ENV"
       - run: ./scripts/build_tauri_mobile.sh ios release
       - name: Collect IPA
         run: |
