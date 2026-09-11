@@ -75,7 +75,10 @@ with open(sys.argv[1], encoding="utf-8") as source:
     print(json.load(source)["version"])
 PY
 )"
-    android_version_code="$(python3 - "${app_version}" <<'PY'
+    if [[ -n "${PONLET_ANDROID_VERSION_CODE:-}" ]]; then
+      android_version_code="${PONLET_ANDROID_VERSION_CODE}"
+    else
+      android_version_code="$(python3 - "${app_version}" <<'PY'
 import sys
 
 parts = [int(part) for part in sys.argv[1].split(".")[:3]]
@@ -83,7 +86,12 @@ parts += [0] * (3 - len(parts))
 major, minor, patch = parts
 print(major * 1_000_000 + minor * 1_000 + patch)
 PY
-)"
+      )"
+    fi
+    if [[ ! "${android_version_code}" =~ ^[1-9][0-9]*$ ]] || (( android_version_code > 2100000000 )); then
+      echo "Invalid Android version code: ${android_version_code}" >&2
+      exit 1
+    fi
     python3 - "${android_properties}" "${app_version}" "${android_version_code}" <<'PY'
 from pathlib import Path
 import sys
