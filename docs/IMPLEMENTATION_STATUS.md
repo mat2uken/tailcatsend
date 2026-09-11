@@ -66,6 +66,8 @@ Worker化後も `npm run test:e2e:real` と `npm run test:e2e:real:derp` が同�
 
 `eb8b543` では update config の埋め込み先を含む macOS Tauri Release bundle を再生成し、`target/release/bundle/macos/Ponlet.app` を起動して「接続待機中」の WebView 画面を確認した。native用の update config は空設定で、Tauriからネットワーク更新確認を始めない。
 
+`1ba0d29` でも `cargo tauri build --bundles app --ci --no-sign` により macOS arm64 の `target/release/bundle/macos/Ponlet.app` を再生成した。起動後に既存の待機状態を切断し、WebViewの「接続待機中」から「招待を作成」→「相手を待機中」への遷移を確認した。これはadhoc署名のローカル起動確認であり、配布署名や実機転送の証明ではない。
+
 `1f4030f` では同じUIを含む iOS 18.5 iPhone 16 simulator bundle を再生成し、`xcrun simctl install`／起動後に「接続待機中」を表示し、「招待を作成」から「相手を待機中」へ遷移することを画面で確認した。simulatorでの操作確認であり、iOS実機の署名・通信証明ではない。
 
 `cc804c3` の更新確認時間切れ修正後にも `./scripts/build_tauri_mobile.sh ios-sim debug` を実行して iPhone 16 simulator bundle を再生成した。`xcrun simctl install`／起動後の WebView で「接続待機中」を表示し、「招待を作成」から「相手を待機中」へ遷移することを確認した。これは iOS Simulator の現HEAD確認であり、iOS実機の署名・通信証明ではない。
