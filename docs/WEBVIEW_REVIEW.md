@@ -27,6 +27,7 @@ UI と転送処理の責務は分かれ、ファイル本文を UI の JSON、Ba
 | `1f4030f` iOS Simulator | iPhone 16 simulator で最新UIを起動し、招待作成後の「相手を待機中」遷移を画面確認 |
 | `a12b873` macOS bundle | arm64 bundleを再生成し、WebView起動と招待作成後の「相手を待機中」遷移を確認 |
 | `a12b873` iOS Simulator | iPhone 16 simulator bundleを再生成し、起動と招待作成後の「相手を待機中」遷移を確認 |
+| `a12b873` Android Emulator | arm64 release APKを再生成・一時署名してインストールし、招待待機への遷移を確認 |
 | Android/iOS bundle | Android APK と iOS 18.5 iPhone 16 simulator bundle を最新コードで再生成・起動 |
 | 招待の連続再生成 | macOS WebViewで取消済みaccept処理が新しい待機状態を上書きしないことを確認 |
 

@@ -78,6 +78,8 @@ Worker化後も `npm run test:e2e:real` と `npm run test:e2e:real:derp` が同�
 
 `a12b873` でも iOS 18.5 iPhone 16 simulator 用 `apps/tauri/gen/apple/build/arm64-sim/Ponlet.app` を再生成し、`xcrun simctl install`／起動後の「接続待機中」から「相手を待機中」への遷移を確認した。これは最新HEADのSimulator起動確認であり、iOS実機の署名・通信証明ではない。
 
+`a12b873` で Android arm64 release APK (`apps/tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk`) を再生成した。debug keystoreで一時署名したAPKを `emulator-5554` へインストールし、WebViewの「Ready to connect」から「Waiting for peer」への遷移を確認した。これはAndroid EmulatorのUI起動確認であり、Sony実機の通信証明やストア署名ではない。
+
 `cc804c3` の更新確認時間切れ修正後にも `./scripts/build_tauri_mobile.sh ios-sim debug` を実行して iPhone 16 simulator bundle を再生成した。`xcrun simctl install`／起動後の WebView で「接続待機中」を表示し、「招待を作成」から「相手を待機中」へ遷移することを確認した。これは iOS Simulator の現HEAD確認であり、iOS実機の署名・通信証明ではない。
 
 `3597588` では、招待待機中に「招待を作成」を連続実行した際、取消された古いaccept処理の終端エラーが新しい招待の状態を上書きしないようにした。更新済みmacOS WebViewで再生成直後と待機処理の終了後に「相手を待機中」が維持されることを確認した。
