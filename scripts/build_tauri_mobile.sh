@@ -66,8 +66,7 @@ if [[ "${platform}" == "ios" || "${platform}" == "ios-sim" ]]; then
     "${externals_dir}/arm64/${configuration}/libtailcat.a"
 else
   android_properties="${repo_dir}/apps/tauri/gen/android/app/tauri.properties"
-  if [[ -f "${android_properties}" ]]; then
-    app_version="$(python3 - "${repo_dir}/apps/tauri/tauri.conf.json" <<'PY'
+  app_version="$(python3 - "${repo_dir}/apps/tauri/tauri.conf.json" <<'PY'
 import json
 import sys
 
@@ -75,10 +74,10 @@ with open(sys.argv[1], encoding="utf-8") as source:
     print(json.load(source)["version"])
 PY
 )"
-    if [[ -n "${PONLET_ANDROID_VERSION_CODE:-}" ]]; then
-      android_version_code="${PONLET_ANDROID_VERSION_CODE}"
-    else
-      android_version_code="$(python3 - "${app_version}" <<'PY'
+  if [[ -n "${PONLET_ANDROID_VERSION_CODE:-}" ]]; then
+    android_version_code="${PONLET_ANDROID_VERSION_CODE}"
+  else
+    android_version_code="$(python3 - "${app_version}" <<'PY'
 import sys
 
 parts = [int(part) for part in sys.argv[1].split(".")[:3]]
@@ -86,12 +85,13 @@ parts += [0] * (3 - len(parts))
 major, minor, patch = parts
 print(major * 1_000_000 + minor * 1_000 + patch)
 PY
-      )"
-    fi
-    if [[ ! "${android_version_code}" =~ ^[1-9][0-9]*$ ]] || (( android_version_code > 2100000000 )); then
-      echo "Invalid Android version code: ${android_version_code}" >&2
-      exit 1
-    fi
+    )"
+  fi
+  if [[ ! "${android_version_code}" =~ ^[1-9][0-9]*$ ]] || (( android_version_code > 2100000000 )); then
+    echo "Invalid Android version code: ${android_version_code}" >&2
+    exit 1
+  fi
+  if [[ -f "${android_properties}" ]]; then
     python3 - "${android_properties}" "${app_version}" "${android_version_code}" <<'PY'
 from pathlib import Path
 import sys
@@ -147,7 +147,14 @@ if [[ "${mode}" == "debug" ]]; then
 fi
 
 if [[ "${platform}" == "android" ]]; then
+  if [[ -n "${PONLET_ANDROID_VERSION_CODE:-}" ]]; then
+    tauri_args+=(--config "{\"bundle\":{\"android\":{\"versionCode\":${android_version_code}}}}")
+  fi
   (cd "${repo_dir}/apps/tauri" && cargo tauri android build "${tauri_args[@]}" --target aarch64 "--${android_artifact}")
+  if [[ -n "${PONLET_ANDROID_VERSION_CODE:-}" ]]; then
+    test -f "${android_properties}"
+    grep -Fx "tauri.android.versionCode=${android_version_code}" "${android_properties}"
+  fi
 else
   if ! command -v xcodegen >/dev/null 2>&1; then
     echo "xcodegen is required to regenerate the Tauri iOS project" >&2

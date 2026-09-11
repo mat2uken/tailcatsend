@@ -129,5 +129,5 @@ jobs:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_CONFIG_JSON }}
           packageName: jp.yasagure.ponlet
           releaseFiles: ponlet-release.aab
-          track: ${{ github.event.inputs.track || 'internal' }}
+          tracks: ${{ github.event.inputs.track || 'internal' }}
           status: completed
