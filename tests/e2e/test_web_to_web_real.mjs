@@ -4,11 +4,14 @@ import { createReadStream, existsSync, readFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import playwright from "../../web-ui/node_modules/playwright/index.js";
 
-const { chromium } = playwright;
+const browserName = process.env.PONLET_TEST_BROWSER ?? "chromium";
+if (!["chromium", "firefox", "webkit"].includes(browserName)) {
+  throw new Error(`unsupported PONLET_TEST_BROWSER: ${browserName}`);
+}
 
 const root = resolve(new URL("../..", import.meta.url).pathname);
-const dist = resolve(root, "dist");
-const uiDist = resolve(root, "web-ui/dist/web");
+const dist = resolve(process.env.PONLET_TEST_DIST ?? resolve(root, "dist"));
+const uiDist = resolve(process.env.PONLET_TEST_UI_DIST ?? resolve(root, "web-ui/dist/web"));
 const transportOverride = process.env.PONLET_TEST_TRANSPORT;
 const knownTransportPaths = new Set(["direct-udp", "webrtc", "derp"]);
 
@@ -75,7 +78,17 @@ async function waitForSnapshot(page, predicate, description) {
 }
 
 async function snapshot(page) {
-  return page.evaluate(() => window.__ponletBackend?.snapshot());
+  let timer;
+  try {
+    return await Promise.race([
+      page.evaluate(() => window.__ponletBackend?.snapshot()),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Backend snapshot did not respond within 10 seconds")), 10_000);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function sha256(bytes) {
@@ -98,14 +111,18 @@ async function main() {
     "dist/wasm/tailsend_web_bg.wasm",
   ];
   for (const file of required) {
-    if (!existsSync(resolve(root, file))) {
+    if (!existsSync(resolve(dist, file.replace(/^dist\//, "")))) {
       throw new Error(`missing generated browser artifact: ${file}`);
     }
   }
 
   const { server, port } = await serveStatic();
-  const browser = await chromium.launch({ headless: true });
+  const browser = await playwright[browserName].launch({ headless: true });
   const context = await browser.newContext({ acceptDownloads: true });
+  const deadline = setTimeout(() => {
+    console.error("Real browser transfer test exceeded five minutes");
+    void context.close();
+  }, 300_000);
   if (transportOverride === "derp") {
     await context.addInitScript(() => {
       Object.defineProperty(globalThis, "RTCPeerConnection", {
@@ -123,7 +140,7 @@ async function main() {
 
   try {
     await host.goto(pageUrl, { waitUntil: "domcontentloaded" });
-    const inviteSnapshot = await waitForSnapshot(
+    let inviteSnapshot = await waitForSnapshot(
       host,
       (value) => typeof value.inviteUrl === "string" && value.inviteUrl.length > 0,
       "invite creation",
@@ -131,6 +148,22 @@ async function main() {
     await host
       .getByRole("img", { name: /Invitation QR code|招待QRコード/ })
       .waitFor({ state: "visible", timeout: 30_000 });
+    // Invalid input must leave an existing invitation usable.
+    await host.evaluate(async () => {
+      try { await window.__ponletBackend.join("invalid invitation"); } catch { return; }
+      throw new Error("Invalid invitation was accepted");
+    });
+    if ((await snapshot(host)).inviteUrl !== inviteSnapshot.inviteUrl) {
+      throw new Error("Invalid input destroyed the waiting invitation");
+    }
+    // Replacing the listener must not let a late close/handshake error win.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const previous = inviteSnapshot.inviteUrl;
+      await host.getByRole("button", { name: /Create invite|Regenerate|招待を作成|再生成/, exact: true }).click();
+      inviteSnapshot = await waitForSnapshot(host, (value) => value.inviteUrl && value.inviteUrl !== previous, "replace invitation");
+    }
+    await host.waitForTimeout(300);
+    if ((await snapshot(host)).state !== "awaiting-peer") throw new Error("Stale handshake replaced invitation state");
     const invite = new URL(inviteSnapshot.inviteUrl);
     const joinUrl = transportOverride
       ? `${base}/?transport=${encodeURIComponent(transportOverride)}#${invite.hash.slice(1)}`
@@ -169,6 +202,7 @@ async function main() {
       throw new Error(`received hash mismatch: ${actualHash} != ${expectedHash}`);
     }
 
+    await host.getByText(`[Me]: ${text}`).waitFor({ state: "visible", timeout: 30_000 });
     const reverseText = "Web UI 双方向確認: reply ↔ 日本語";
     await joiner.locator("textarea").fill(reverseText);
     await joiner.getByRole("button", { name: /Send|送信/ }).click();
@@ -200,13 +234,59 @@ async function main() {
       throw new Error(`reverse received hash mismatch: ${reverseActualHash} != ${reverseHash}`);
     }
 
+    // OPFS move replaces an existing destination by default. Receiving a
+    // second file with the same name must preserve both downloaded contents.
+    const duplicateBytes = Buffer.from("同じ名前でも前のファイルを保持する ✅");
+    await host.locator('input[type="file"]').setInputFiles({
+      name: "実通信-日本語.bin",
+      mimeType: "application/octet-stream",
+      buffer: duplicateBytes,
+    });
+    await waitForSnapshot(joiner, (value) => value.received.length === 2, "same-name file receive");
+    const duplicateReceived = await snapshot(joiner);
+    const sameNameFiles = duplicateReceived.received;
+    if (new Set(sameNameFiles.map((item) => item.localPathOrHandle)).size !== 2) {
+      throw new Error("Same-name receives share a storage handle");
+    }
+    const savedHashes = [];
+    for (const item of sameNameFiles) {
+      const pending = joiner.waitForEvent("download");
+      await joiner.evaluate((receivedItem) => window.__ponletBackend.openReceivedItem(receivedItem), item);
+      const saved = await pending;
+      const path = await saved.path();
+      if (!path) throw new Error("same-name download path was not created");
+      savedHashes.push(sha256(readFileSync(path)));
+    }
+    if (!savedHashes.includes(expectedHash) || !savedHashes.includes(sha256(duplicateBytes))) {
+      throw new Error(`Same-name file contents were replaced: ${JSON.stringify(savedHashes)}`);
+    }
+
     const hostFinal = await snapshot(host);
     const joinerFinal = await snapshot(joiner);
     assertTransport(hostFinal, "host");
     assertTransport(joinerFinal, "joiner");
+    // Cancel a batch while its first file is active. The second file must
+    // never be started, even though cancellation itself is not a send error.
+    await host.locator('input[type="file"]').setInputFiles([
+      { name: "cancel-first.bin", mimeType: "application/octet-stream", buffer: Buffer.alloc(16 * 1024 * 1024, 7) },
+      { name: "must-not-send-after-cancel.bin", mimeType: "application/octet-stream", buffer: Buffer.from("must not arrive") },
+    ]);
+    await waitForSnapshot(host, (value) => value.transfer?.name === "cancel-first.bin", "cancellable batch starts");
+    await host.getByRole("button", { name: /^Cancel$|^キャンセル$/ }).click();
+    await waitForSnapshot(host, (value) => value.state === "connected", "batch cancelled");
+    await host.waitForTimeout(800);
+    if ((await snapshot(joiner)).received.some((item) => item.name === "must-not-send-after-cancel.bin")) {
+      throw new Error("The second file was sent after cancellation");
+    }
+    await host.getByRole("button", { name: /^Disconnect$|^切断$/ }).click();
+    await waitForSnapshot(host, (value) => value.state === "awaiting-peer", "waiting after disconnect");
+    await host.waitForTimeout(300);
+    if ((await snapshot(host)).state !== "awaiting-peer") throw new Error("Late transfer completion resurrected a disconnected peer");
     console.log(
       JSON.stringify(
         {
+          browser: browserName,
+          regressions: { invalidInvitationPreserved: true, repeatedInvitation: true, outgoingHistory: true, sameNameFilesPreserved: true, batchCancelled: true, waitingAfterDisconnect: true },
           host: { state: hostFinal.state, transport: hostFinal.transport },
           joiner: { state: joinerFinal.state, transport: joinerFinal.transport },
           text,
@@ -227,6 +307,7 @@ async function main() {
       ),
     );
   } finally {
+    clearTimeout(deadline);
     await context.close();
     await browser.close();
     await new Promise((resolveServer) => server.close(resolveServer));

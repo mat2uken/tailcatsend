@@ -7,8 +7,8 @@ import playwright from "../../web-ui/node_modules/playwright/index.js";
 
 const { chromium } = playwright;
 const root = resolve(new URL("../..", import.meta.url).pathname);
-const dist = resolve(root, "dist");
-const uiDist = resolve(root, "web-ui/dist/web");
+const dist = resolve(process.env.PONLET_TEST_DIST ?? resolve(root, "dist"));
+const uiDist = resolve(process.env.PONLET_TEST_UI_DIST ?? resolve(root, "web-ui/dist/web"));
 const serial = process.env.PONLET_ANDROID_SERIAL ?? "";
 const cdpPort = Number(process.env.PONLET_ANDROID_CDP_PORT ?? "9223");
 

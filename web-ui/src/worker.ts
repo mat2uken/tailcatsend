@@ -9,6 +9,7 @@ import {
   qrPayload,
   type IpcFrame,
 } from "./ipc";
+import { commitReceivedFile, createReceivedWriter } from "./worker-storage";
 
 /**
  * The worker keeps Rust state and OPFS in one execution context. Go stays in
@@ -177,8 +178,12 @@ interface RustBackend {
 
 const scope = globalThis as typeof globalThis & {
   __ponletBackend?: RustBackend;
+  __ponletCommitReceivedFile?: typeof commitReceivedFile;
+  __ponletCreateReceivedWriter?: typeof createReceivedWriter;
   tailSendTailcat?: GoTransportProxy;
 };
+scope.__ponletCommitReceivedFile = commitReceivedFile;
+scope.__ponletCreateReceivedWriter = createReceivedWriter;
 
 let goPort: MessagePort | undefined;
 let goRequestId = 0;

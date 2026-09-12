@@ -1,6 +1,6 @@
 # WebView 移行の実装状態
 
-この記録は `feature/common-rust-transfer-engine` の現在状態を示す。UI、共通 Rust 転送、Go Tailcat bridge、Tauri shell を別々に確認し、ビルド成功だけで実通信成功とは判定しない。
+この記録は `feature/common-rust-transfer-engine` からの移行過程と、各時点の検証結果を残したものである。2026-09-12 に機能の未移植と後続の不具合が判明したため、現在の復旧範囲・原因・検証結果は [Slint同等性の再調査](SLINT_PARITY_AUDIT.md) を参照する。以下の過去の成功記録は、現行コードでの機能一致を示すものではない。
 
 ## 現在の構成
 

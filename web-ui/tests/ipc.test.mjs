@@ -199,3 +199,48 @@ it("requests a snapshot when a notification sequence has a gap", async () => {
   unsubscribe();
   client.close();
 });
+
+it("accepts a complete snapshot across a gap without discarding recovered messages", async () => {
+  const { left, right } = portPair();
+  let resyncs = 0;
+  right.addEventListener("message", (event) => {
+    const request = decodeFrame(event.data);
+    if (request.opcode === Opcode.Snapshot) {
+      resyncs++;
+    }
+    right.postMessage(
+      encodeFrame({
+        kind: MessageKind.Response,
+        opcode: request.opcode,
+        requestId: request.requestId,
+        sequence: 0n,
+        status: 0,
+        payload:
+          request.opcode === Opcode.Subscribe ? jsonBytes(snapshotFixture(0)) : new Uint8Array(),
+      }).buffer,
+    );
+  });
+  const client = new BinaryRpcClient(new PortBinaryTransport(left, true));
+  const events = [];
+  const unsubscribe = client.subscribe((event) => events.push(event));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const snapshot = {
+    ...snapshotFixture(10),
+    receivedMessages: [{ sequence: 7, text: "recovered" }],
+  };
+  right.postMessage(
+    encodeFrame({
+      kind: MessageKind.Event,
+      opcode: Opcode.WaitEvent,
+      requestId: 0n,
+      sequence: 10n,
+      status: 0,
+      payload: jsonBytes({ type: "snapshot", sequence: 10, snapshot }),
+    }).buffer,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(resyncs).toBe(0);
+  expect(events.at(-1).snapshot.receivedMessages).toEqual([{ sequence: 7, text: "recovered" }]);
+  unsubscribe();
+  client.close();
+});

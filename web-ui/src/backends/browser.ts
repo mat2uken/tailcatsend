@@ -2,6 +2,7 @@ import type { BackendSnapshot, QrBitmap } from "../api/application-api";
 import type { NativeBridge } from "../backend";
 import { BinaryRpcClient, Opcode, PortBinaryTransport } from "../ipc";
 import { resolvePublicUrl } from "../lib/public-url";
+import { initializeWebTelemetry } from "../telemetry";
 import type { BrowserWorkerMessage, BrowserWorkerResponse, GoCommand, GoMessage } from "../worker";
 
 /** Browser composition root for the Rust WASM service. */
@@ -437,6 +438,7 @@ export function initializeBrowserBackend(): Promise<void> {
     return Promise.resolve();
   }
   initialization ??= (async () => {
+    void initializeWebTelemetry();
     await loadTailcatBridge();
     const moduleUrl = publicUrl("wasm/tailsend_web.js");
     if (typeof Worker !== "function" || typeof MessageChannel !== "function") {
@@ -444,6 +446,9 @@ export function initializeBrowserBackend(): Promise<void> {
     }
     const bridge = await startWorkerBackend(moduleUrl);
     window.__ponletBackend = bridge;
-  })();
+  })().catch((error) => {
+    initialization = undefined;
+    throw error;
+  });
   return initialization;
 }

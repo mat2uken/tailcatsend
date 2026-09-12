@@ -26,5 +26,23 @@ export function validateSnapshot(snapshot: BackendSnapshot): BackendSnapshot {
       throw new Error("Invalid received item");
     }
   }
+  if (snapshot.receivedMessages !== undefined) {
+    if (!Array.isArray(snapshot.receivedMessages)) {
+      throw new Error("Invalid received message history");
+    }
+    let previous = -1;
+    for (const message of snapshot.receivedMessages) {
+      if (
+        !message ||
+        typeof message.text !== "string" ||
+        !Number.isSafeInteger(message.sequence) ||
+        message.sequence <= previous ||
+        message.sequence > snapshot.sequence
+      ) {
+        throw new Error("Invalid received message history");
+      }
+      previous = message.sequence;
+    }
+  }
   return snapshot;
 }

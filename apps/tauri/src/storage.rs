@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::{DialogExt, FileAccessMode, PickerMode};
 use tauri_plugin_fs::{FilePath, FsExt, OpenOptions};
+#[cfg(desktop)]
 use tauri_plugin_opener::OpenerExt;
 
 use tailsend_platform_api::{
@@ -104,7 +105,6 @@ pub struct NativeFileSink {
     temp_path: PathBuf,
     final_path: PathBuf,
     file: Option<tokio::fs::File>,
-    name: String,
     size: u64,
 }
 
@@ -126,7 +126,6 @@ impl NativeFileSink {
             temp_path,
             final_path,
             file: Some(file),
-            name: safe,
             size: 0,
         })
     }
@@ -158,12 +157,14 @@ impl IncomingFileSink for NativeFileSink {
                     .await
                     .map_err(|error| StorageError::Io(error.to_string()))?;
             }
-            self.final_path = unique_received_path(&self.final_path).await?;
-            tokio::fs::rename(&self.temp_path, &self.final_path)
-                .await
-                .map_err(|error| StorageError::Io(error.to_string()))?;
+            self.final_path = commit_received_file(&self.temp_path, &self.final_path).await?;
             Ok(ReceivedItem {
-                name: self.name.clone(),
+                name: self
+                    .final_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
                 size: self.size,
                 local_path_or_handle: self.final_path.to_string_lossy().into_owned(),
             })
@@ -182,7 +183,7 @@ impl IncomingFileSink for NativeFileSink {
     }
 }
 
-pub async fn unique_received_path(path: &Path) -> Result<PathBuf, StorageError> {
+async fn commit_received_file(source: &Path, path: &Path) -> Result<PathBuf, StorageError> {
     let parent = path
         .parent()
         .ok_or_else(|| StorageError::Io("received path has no parent".into()))?;
@@ -191,18 +192,28 @@ pub async fn unique_received_path(path: &Path) -> Result<PathBuf, StorageError> 
         .and_then(|value| value.to_str())
         .ok_or_else(|| StorageError::Io("received path has no filename".into()))?;
 
-    // Do not enumerate the destination directory here.  Downloads can be
-    // backed by a file provider (iCloud, Android DocumentsProvider, etc.) and
-    // a directory scan may wait for the provider indefinitely.  Probe one
-    // candidate at a time instead; this also keeps the memory cost independent
-    // of the number of files already in the directory.
+    // Claim the destination atomically, including against other processes.
+    // Checking existence before rename can overwrite a concurrent receive.
+    // A hard link publishes the already flushed file without replacing any
+    // existing entry. Filesystems without hard links use an exclusive create.
+    // Avoid enumerating Downloads, which may block on a cloud file provider.
     let mut existing = HashSet::new();
     for _ in 0..10_000 {
         let unique = unique_received_name(&existing, candidate);
         let destination = parent.join(&unique);
-        match tokio::fs::try_exists(&destination).await {
-            Ok(false) => return Ok(destination),
-            Ok(true) => {
+        let claimed = match tokio::fs::hard_link(source, &destination).await {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Err(error),
+            Err(_) => copy_received_file_exclusively(source, &destination).await,
+        };
+        match claimed {
+            Ok(()) => {
+                // The final file is durable. An orphaned temporary link must
+                // not turn a successful receive into a failed/retried one.
+                let _ = tokio::fs::remove_file(source).await;
+                return Ok(destination);
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                 existing.insert(unique);
             }
             Err(error) => return Err(StorageError::Io(error.to_string())),
@@ -212,6 +223,27 @@ pub async fn unique_received_path(path: &Path) -> Result<PathBuf, StorageError> 
     Err(StorageError::Io(
         "too many files with the same received name".into(),
     ))
+}
+
+async fn copy_received_file_exclusively(source: &Path, destination: &Path) -> std::io::Result<()> {
+    use tokio::io::AsyncWriteExt;
+    let mut input = tokio::fs::File::open(source).await?;
+    let mut output = tokio::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(destination)
+        .await?;
+    let result = async {
+        tokio::io::copy(&mut input, &mut output).await?;
+        output.flush().await?;
+        output.sync_all().await
+    }
+    .await;
+    drop(output);
+    if result.is_err() {
+        let _ = tokio::fs::remove_file(destination).await;
+    }
+    result
 }
 
 pub fn unique_received_name(existing: &HashSet<String>, candidate: &str) -> String {
@@ -330,7 +362,18 @@ pub fn default_downloads_dir() -> PathBuf {
 }
 
 pub fn app_storage_dir(app: &AppHandle) -> PathBuf {
-    #[cfg(mobile)]
+    #[cfg(target_os = "android")]
+    {
+        // Tauri's Android app_data_dir is Context.dataDir, not Context.filesDir.
+        // Store documents under files/ so FileProvider can grant access to this folder only.
+        return app
+            .path()
+            .app_data_dir()
+            .unwrap_or_else(|_| PathBuf::from("Ponlet"))
+            .join("files")
+            .join("received");
+    }
+    #[cfg(target_os = "ios")]
     {
         return app
             .path()
@@ -364,29 +407,152 @@ pub fn ponlet_open_received_impl(
     if !path.is_file() {
         return Err("Received file is no longer available".to_string());
     }
+    #[cfg(mobile)]
+    {
+        use tauri_plugin_ponlet_platform::PonletPlatformExt;
+        app.ponlet_platform().open_received(local_path_or_handle)
+    }
+    #[cfg(desktop)]
     app.opener()
         .open_path(local_path_or_handle, None::<String>)
         .map_err(|error| error.to_string())
 }
 
 pub async fn ponlet_save_text_impl(app: AppHandle, text: String) -> Result<(), String> {
-    let path = app
-        .dialog()
-        .file()
-        .set_title("Save message")
-        .set_file_name("ponlet-message.txt")
-        .set_picker_mode(PickerMode::Document)
-        .blocking_save_file();
-    let Some(path) = path else {
-        return Ok(());
-    };
-    let mut options = OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    let mut file = app
-        .fs()
-        .open(path.clone(), options)
-        .map_err(|error| format!("cannot open save destination {path}: {error}"))?;
-    std::io::Write::write_all(&mut file, text.as_bytes())
-        .map_err(|error| format!("cannot save message: {error}"))?;
-    std::io::Write::flush(&mut file).map_err(|error| format!("cannot flush message: {error}"))
+    #[cfg(target_os = "ios")]
+    {
+        use tauri_plugin_ponlet_platform::PonletPlatformExt;
+        return app.ponlet_platform().save_text(&text);
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let path = app
+            .dialog()
+            .file()
+            .set_title("Save message")
+            .set_file_name("ponlet-message.txt")
+            .set_picker_mode(PickerMode::Document)
+            .blocking_save_file();
+        let Some(path) = path else {
+            return Ok(());
+        };
+        let mut options = OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        let mut file = app
+            .fs()
+            .open(path.clone(), options)
+            .map_err(|error| format!("cannot open save destination {path}: {error}"))?;
+        std::io::Write::write_all(&mut file, text.as_bytes())
+            .map_err(|error| format!("cannot save message: {error}"))?;
+        std::io::Write::flush(&mut file).map_err(|error| format!("cannot flush message: {error}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct TestDirectory(PathBuf);
+
+    impl TestDirectory {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!("ponlet-storage-{}", hex_id(new_id())));
+            std::fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TestDirectory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[tokio::test]
+    async fn concurrent_received_files_keep_existing_contents_and_actual_names() {
+        let directory = TestDirectory::new();
+        let original = directory.0.join("photo.txt");
+        tokio::fs::write(&original, b"previous receive")
+            .await
+            .unwrap();
+        let count = 16;
+        let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(count));
+        let mut tasks = Vec::new();
+        for index in 0..count {
+            let mut sink = NativeFileSink::prepare(&directory.0, "photo.txt")
+                .await
+                .unwrap();
+            let contents = format!("receive {index}");
+            sink.write(contents.as_bytes()).await.unwrap();
+            let barrier = barrier.clone();
+            tasks.push(tokio::spawn(async move {
+                barrier.wait().await;
+                (Box::new(sink).commit().await.unwrap(), contents)
+            }));
+        }
+        let mut paths = HashSet::new();
+        for task in tasks {
+            let (item, contents) = task.await.unwrap();
+            let path = PathBuf::from(&item.local_path_or_handle);
+            assert!(
+                paths.insert(path.clone()),
+                "two receives used the same path"
+            );
+            assert_eq!(path.file_name().unwrap().to_str().unwrap(), item.name);
+            assert_eq!(tokio::fs::read_to_string(path).await.unwrap(), contents);
+            assert_eq!(item.size, contents.len() as u64);
+        }
+        assert_eq!(
+            tokio::fs::read(original).await.unwrap(),
+            b"previous receive"
+        );
+        assert_eq!(std::fs::read_dir(&directory.0).unwrap().count(), count + 1);
+    }
+
+    #[tokio::test]
+    async fn exclusive_copy_never_truncates_existing_destination() {
+        let directory = TestDirectory::new();
+        let source = directory.0.join("temporary.part");
+        let destination = directory.0.join("received.txt");
+        tokio::fs::write(&source, b"new receive").await.unwrap();
+        tokio::fs::write(&destination, b"previous receive")
+            .await
+            .unwrap();
+        let error = copy_received_file_exclusively(&source, &destination)
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(
+            tokio::fs::read(&destination).await.unwrap(),
+            b"previous receive"
+        );
+        let available = directory.0.join("received (1).txt");
+        copy_received_file_exclusively(&source, &available)
+            .await
+            .unwrap();
+        assert_eq!(tokio::fs::read(available).await.unwrap(), b"new receive");
+        assert_eq!(tokio::fs::read(source).await.unwrap(), b"new receive");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn commit_preserves_directories_and_dangling_symlinks() {
+        let directory = TestDirectory::new();
+        let original = directory.0.join("photo.txt");
+        let collision = directory.0.join("photo (1).txt");
+        std::fs::create_dir(&original).unwrap();
+        std::os::unix::fs::symlink(directory.0.join("missing"), &collision).unwrap();
+        let mut sink = NativeFileSink::prepare(&directory.0, "photo.txt")
+            .await
+            .unwrap();
+        sink.write(b"new receive").await.unwrap();
+        let item = Box::new(sink).commit().await.unwrap();
+        assert_eq!(item.name, "photo (2).txt");
+        assert_eq!(
+            tokio::fs::read(&item.local_path_or_handle).await.unwrap(),
+            b"new receive"
+        );
+        assert!(original.is_dir());
+        assert!(std::fs::symlink_metadata(collision).unwrap().is_symlink());
+    }
 }

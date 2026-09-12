@@ -131,6 +131,16 @@ jobs:
           # Vite WebView entry point.
           cp -R web-ui/dist/web/. dist/
 
+      - name: Check the built browser with real bidirectional transfers
+        run: |
+          cd web-ui
+          npx playwright install --with-deps chromium firefox webkit
+          npm run test:e2e
+          npm run test:e2e:real
+          npm run test:e2e:real:derp
+          PONLET_TEST_BROWSER=firefox npm run test:e2e:real
+          PONLET_TEST_BROWSER=webkit npm run test:e2e:real
+
       - name: Configure signed browser updates
         env:
           PONLET_UPDATE_PRIVATE_KEY_PEM: ${{ secrets.PONLET_UPDATE_PRIVATE_KEY_PEM }}

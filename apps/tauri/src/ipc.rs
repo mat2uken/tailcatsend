@@ -337,25 +337,24 @@ pub(crate) fn unsubscribe_json(runtime: &TauriRuntime, subscription_id: &str) {
     }
 }
 
-fn snapshot_frame(request: &Frame, runtime: &TauriRuntime, sequence: u64) -> Frame {
-    let event = UiEvent::Snapshot {
-        sequence,
-        snapshot: snapshot_at(runtime, sequence),
-    };
+fn snapshot_frame(request: &Frame, runtime: &TauriRuntime, _sequence: u64) -> Frame {
+    let snapshot = runtime.snapshot();
+    let sequence = snapshot.sequence;
+    let event = UiEvent::Snapshot { sequence, snapshot };
     event_response(request, sequence, event)
 }
 
 fn event_frame(request: &Frame, runtime: &TauriRuntime, event: BackendEvent) -> Frame {
-    let sequence = event.sequence;
-    event_response(request, sequence, map_event(runtime, sequence, event.event))
+    let mapped = map_event(runtime, event.sequence, event.event);
+    event_response(request, ui_event_sequence(&mapped), mapped)
 }
 
 fn event_batch_frame(request: &Frame, runtime: &TauriRuntime, events: Vec<BackendEvent>) -> Frame {
-    let sequence = events.last().map(|event| event.sequence).unwrap_or(0);
     let payload = events
         .into_iter()
         .map(|event| map_event(runtime, event.sequence, event.event))
         .collect::<Vec<_>>();
+    let sequence = payload.iter().map(ui_event_sequence).max().unwrap_or(0);
     Frame {
         kind: MessageKind::Event,
         opcode: Opcode::WaitEvent,
@@ -368,10 +367,13 @@ fn event_batch_frame(request: &Frame, runtime: &TauriRuntime, events: Vec<Backen
 
 fn map_event(runtime: &TauriRuntime, sequence: u64, event: AppEvent) -> UiEvent {
     match event {
-        AppEvent::StateChanged(_) | AppEvent::TransportChanged(_) => UiEvent::Snapshot {
-            sequence,
-            snapshot: snapshot_at(runtime, sequence),
-        },
+        AppEvent::StateChanged(_) | AppEvent::TransportChanged(_) => {
+            let snapshot = runtime.snapshot();
+            UiEvent::Snapshot {
+                sequence: snapshot.sequence,
+                snapshot,
+            }
+        }
         AppEvent::TransferProgress {
             transfer_id,
             bytes_done,
@@ -417,22 +419,27 @@ fn map_event(runtime: &TauriRuntime, sequence: u64, event: AppEvent) -> UiEvent 
             },
             message: Some(reason),
         },
-        AppEvent::ErrorOccurred { code, message } => UiEvent::Snapshot {
-            sequence,
-            snapshot: {
-                let mut snapshot = runtime.snapshot();
-                snapshot.sequence = sequence;
+        AppEvent::ErrorOccurred { code, message } => {
+            let mut snapshot = runtime.snapshot();
+            if snapshot.sequence == sequence {
                 snapshot.error = Some(format!("{code}: {message}"));
-                snapshot
-            },
-        },
+            }
+            UiEvent::Snapshot {
+                sequence: snapshot.sequence,
+                snapshot,
+            }
+        }
     }
 }
 
-fn snapshot_at(runtime: &TauriRuntime, sequence: u64) -> crate::UiSnapshot {
-    let mut snapshot = runtime.snapshot();
-    snapshot.sequence = sequence;
-    snapshot
+fn ui_event_sequence(event: &UiEvent) -> u64 {
+    match event {
+        UiEvent::Snapshot { sequence, .. }
+        | UiEvent::Progress { sequence, .. }
+        | UiEvent::Text { sequence, .. }
+        | UiEvent::Files { sequence, .. }
+        | UiEvent::Terminal { sequence, .. } => *sequence,
+    }
 }
 
 fn event_response(request: &Frame, sequence: u64, event: UiEvent) -> Frame {
@@ -449,6 +456,65 @@ fn event_response(request: &Frame, sequence: u64, event: UiEvent) -> Frame {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::{HashMap, HashSet};
+    use std::sync::{Arc, Mutex};
+
+    fn test_runtime() -> TauriRuntime {
+        TauriRuntime {
+            backend: tailsend_core::BackendService::default(),
+            transport: Arc::new(tailsend_native_transport::NativeTailcatTransport),
+            state: Mutex::new(crate::runtime::RuntimeState {
+                session: None,
+                active_transfer: None,
+            }),
+            downloads_dir: Mutex::new(std::env::temp_dir()),
+            received: Arc::new(Mutex::new(Vec::new())),
+            subscriptions: Mutex::new(HashMap::new()),
+            subscription_cancellers: Mutex::new(HashMap::new()),
+            closed_subscriptions: Mutex::new(HashSet::new()),
+        }
+    }
+
+    #[test]
+    fn delayed_state_notifications_keep_current_sequence_and_recover_text() {
+        let runtime = test_runtime();
+        let earlier = runtime
+            .backend
+            .set_state(tailsend_core::SessionState::Booting);
+        let text = runtime.backend.emit(AppEvent::TextReceived {
+            text: "received while paused".into(),
+        });
+        let request = Frame::request(Opcode::WaitEvent, 5, Vec::new());
+        let single = event_frame(&request, &runtime, earlier.clone());
+        assert_eq!(single.sequence, text.sequence);
+        let payload: serde_json::Value = serde_json::from_slice(&single.payload).unwrap();
+        assert_eq!(payload["sequence"], text.sequence);
+        assert_eq!(payload["snapshot"]["sequence"], text.sequence);
+        assert_eq!(
+            payload["snapshot"]["receivedMessages"][0]["text"],
+            "received while paused"
+        );
+        let batch = event_batch_frame(&request, &runtime, vec![earlier, text.clone()]);
+        assert_eq!(batch.sequence, text.sequence);
+    }
+
+    #[test]
+    fn delayed_error_does_not_taint_a_replacement_session_snapshot() {
+        let runtime = test_runtime();
+        let earlier = runtime.backend.emit(AppEvent::ErrorOccurred {
+            code: 1,
+            message: "old connection".into(),
+        });
+        let current = runtime.backend.begin_session();
+        current.set_state(tailsend_core::SessionState::Booting);
+        let UiEvent::Snapshot { snapshot, .. } =
+            map_event(&runtime, earlier.sequence, earlier.event)
+        else {
+            panic!("expected snapshot")
+        };
+        assert_eq!(snapshot.state, "booting");
+        assert!(snapshot.error.is_none());
+    }
 
     #[test]
     fn qr_payload_has_fixed_dimensions_before_pixels() {

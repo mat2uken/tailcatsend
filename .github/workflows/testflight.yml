@@ -89,7 +89,12 @@ jobs:
           echo "IOS_MOBILE_PROVISION=$IOS_MOBILE_PROVISION_B64" >> "$GITHUB_ENV"
 
       - name: Build IPA with Tauri
+        env:
+          CARGO_PROFILE_RELEASE_STRIP: none
         run: ./scripts/build_tauri_mobile.sh ios release
+
+      - name: Upload native symbols to Crashlytics
+        run: ./scripts/upload_ios_crashlytics_symbols.sh
 
       - name: Locate IPA
         run: |

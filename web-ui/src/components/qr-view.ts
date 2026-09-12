@@ -14,7 +14,7 @@ export interface QrViewComponent {
   canvas: HTMLCanvasElement;
   container: HTMLDivElement;
   label: HTMLParagraphElement;
-  renderInviteQr(url: string | null): Promise<void>;
+  renderInviteQr(url: string | null, force?: boolean): Promise<void>;
 }
 
 export function createQrView(options: QrViewOptions): QrViewComponent {
@@ -24,20 +24,20 @@ export function createQrView(options: QrViewOptions): QrViewComponent {
     height: 256,
     hidden: true,
     role: "img",
-    "aria-label": uiText.qrLabel,
+    "aria-label": () => uiText.qrLabel,
   });
   const qrFrame = div({ class: "qr-frame" }, qrCanvas);
-  const qrLabel = p({ class: "qr-label" }, uiText.qrLabel);
+  const qrLabel = p({ class: "qr-label" }, () => uiText.qrLabel);
   const qrContainer = div({ class: "qr-container", hidden: true }, qrFrame, qrLabel);
 
   let qrRequest = 0;
   let qrUrl = "";
 
-  async function renderInviteQr(url: string | null): Promise<void> {
+  async function renderInviteQr(url: string | null, force?: boolean): Promise<void> {
     const nextUrl = isPresent(url) ? url : "";
     // State updates can repeat the URL while the worker is still rendering it.
     // Only a different invitation should invalidate that pending response.
-    if (nextUrl === qrUrl) {
+    if (!force && nextUrl === qrUrl) {
       return;
     }
     const request = ++qrRequest;
@@ -45,12 +45,11 @@ export function createQrView(options: QrViewOptions): QrViewComponent {
     qrCanvas.hidden = true;
     qrLabel.hidden = true;
     qrContainer.hidden = true;
-    const backend = options.getBackend();
-    if (nextUrl.length === 0 || !backend.qrCode) {
+    if (nextUrl.length === 0) {
       return;
     }
     try {
-      const bitmap = await backend.qrCode(nextUrl);
+      const bitmap = await options.getBackend().qrCode(nextUrl);
       if (request !== qrRequest) {
         return;
       }

@@ -14,6 +14,7 @@ import {
   RawBinaryTransport,
   SchemeBinaryTransport,
 } from "../ipc";
+import { startJsonNotifications } from "./json-notifications";
 
 type TauriFile = File & { path?: string };
 
@@ -38,6 +39,8 @@ type SelectedTransport =
   | { kind: "json" };
 
 let selection: Promise<SelectedTransport> | undefined;
+let nativePlatform = "";
+let scanGeneration = 0;
 
 async function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
   let timer: number | undefined;
@@ -59,17 +62,55 @@ async function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promis
 }
 
 async function copyText(text: string): Promise<void> {
-  if (!navigator.clipboard?.writeText) {
-    throw new Error("Clipboard is unavailable");
-  }
-  await navigator.clipboard.writeText(text);
+  await invoke("ponlet_copy_text", { text });
 }
 
 async function shareText(text: string): Promise<void> {
-  if (navigator.share) {
-    await navigator.share({ text });
-  } else {
-    await copyText(text);
+  await invoke("ponlet_share_text", { text });
+}
+
+async function cancelScan(): Promise<void> {
+  scanGeneration++;
+  await invoke("plugin:barcode-scanner|cancel");
+}
+
+async function scanQr(): Promise<string | null> {
+  const generation = ++scanGeneration;
+  try {
+    let permission = await invoke<{ camera: string }>("plugin:barcode-scanner|check_permissions");
+    if (generation !== scanGeneration) {
+      return null;
+    }
+    if (permission.camera !== "granted") {
+      permission = await invoke<{ camera: string }>("plugin:barcode-scanner|request_permissions");
+    }
+    // Closing while the OS permission prompt was displayed must not start a camera later.
+    if (generation !== scanGeneration) {
+      return null;
+    }
+    if (permission.camera !== "granted") {
+      throw new Error("Camera permission is required to scan a QR code");
+    }
+    const result = await invoke<{ content: string }>("plugin:barcode-scanner|scan", {
+      formats: ["QR_CODE"],
+      cameraDirection: "back",
+      windowed: true,
+    });
+    return generation === scanGeneration ? result.content : null;
+  } catch (error) {
+    const message =
+      typeof error === "object" && error !== null && "message" in error
+        ? String(error.message)
+        : String(error);
+    if (generation !== scanGeneration || /cancelled|canceled/i.test(message)) {
+      return null;
+    }
+    throw error;
+  } finally {
+    if (generation === scanGeneration) {
+      scanGeneration++;
+      await invoke("plugin:barcode-scanner|cancel").catch(() => undefined);
+    }
   }
 }
 
@@ -186,59 +227,13 @@ function createJsonFallback(listeners: Set<(event: BackendEvent) => void>): {
       saveText: (text) => invoke("ponlet_save_text", { text }),
       dispose: () => invoke("ponlet_disconnect"),
     },
-    start: () => {
-      let active = true;
-      let lastSequence = 0;
-      const subscriptionId = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
-      const deliver = (value: BackendEvent | Array<BackendEvent>): void => {
-        const events = Array.isArray(value) ? value : [value];
-        for (const event of events) {
-          if (event.sequence <= lastSequence) {
-            continue;
-          }
-          lastSequence = event.sequence;
-          for (const listener of listeners) {
-            listener(event);
-          }
-        }
-      };
-      const wait = async (): Promise<void> => {
-        const snapshot = await invoke<BackendSnapshot>("ponlet_subscribe", {
-          subscriptionId,
-        });
-        if (!active) {
-          void invoke("ponlet_unsubscribe", { subscriptionId }).catch(() => undefined);
-          return;
-        }
-        lastSequence = snapshot.sequence;
-        const initial: BackendEvent = { type: "snapshot", sequence: snapshot.sequence, snapshot };
-        for (const listener of listeners) {
-          listener(initial);
-        }
-        while (active) {
-          const event = await invoke<BackendEvent | Array<BackendEvent> | null>(
-            "ponlet_wait_event",
-            { subscriptionId, lastSequence },
-          );
-          if (!active) {
-            return;
-          }
-          if (event) {
-            deliver(event);
-          }
-        }
-      };
-      void wait().catch(() => undefined);
-      return () => {
-        active = false;
-        void invoke("ponlet_unsubscribe", { subscriptionId }).catch(() => undefined);
-      };
-    },
+    start: () => startJsonNotifications(invoke, listeners),
   };
 }
 
 /** Tauri adapter. Fast binary IPC is selected once; JSON invoke remains the fallback. */
 export function createBackend(): PonletBackend {
+  const mobile = nativePlatform === "ios" || nativePlatform === "android";
   const listeners = new Set<(event: BackendEvent) => void>();
   const fallback = createJsonFallback(listeners);
   let selected: SelectedTransport | undefined;
@@ -332,6 +327,13 @@ export function createBackend(): PonletBackend {
       ),
     copyText,
     shareText,
+    readClipboard: () => invoke<string>("ponlet_read_clipboard"),
+    ...(mobile
+      ? { scanQr, cancelScan }
+      : { openDownloads: () => invoke<void>("ponlet_open_downloads") }),
+    openExternal: (url) => invoke("ponlet_open_external", { url }),
+    getTelemetryEnabled: () => invoke<boolean>("ponlet_get_telemetry_enabled"),
+    setTelemetryEnabled: (enabled) => invoke("ponlet_set_telemetry_enabled", { enabled }),
     saveText: (text) =>
       jsonOrFast(
         () => fastCall(Opcode.SaveText, text),
@@ -345,6 +347,9 @@ export function createBackend(): PonletBackend {
       cleanupFallback?.();
       cleanupFast?.();
       listeners.clear();
+      if (mobile) {
+        await cancelScan().catch(() => undefined);
+      }
       const value = selected ?? (await ready);
       if (value.kind === "json") {
         await fallback.backend.dispose();
@@ -367,5 +372,19 @@ export type { BackendEvent, BackendSnapshot, PonletBackend } from "../api/applic
 
 /** Probe the fast paths before the first snapshot is requested. */
 export function initializeBrowserBackend(): Promise<void> {
-  return prepareSelection().then(() => undefined);
+  let optOut = false;
+  try {
+    const saved = localStorage.getItem("ponlet.telemetry");
+    optOut = saved === "off" || saved === "false";
+  } catch {
+    // The native preference remains authoritative when WebView storage is unavailable.
+  }
+  return Promise.all([
+    prepareSelection(),
+    invoke<string>("ponlet_initialize_platform", {
+      optOut,
+    }).then((platform) => {
+      nativePlatform = platform;
+    }),
+  ]).then(() => undefined);
 }

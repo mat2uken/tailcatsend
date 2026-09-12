@@ -2,6 +2,7 @@ import { initialSnapshot } from "./api/application-api";
 import type { PonletBackend, ReceivedItem } from "./api/application-api";
 import { validateSnapshot } from "./api/validation";
 import { downloadOpfsItem } from "./opfs";
+import { getTelemetryEnabled, setTelemetryEnabled, telemetryObserver, textSent } from "./telemetry";
 export type {
   BackendEvent,
   BackendSnapshot,
@@ -54,8 +55,8 @@ async function openReceivedItem(item: ReceivedItem): Promise<void> {
 
 function unavailableBackend(): PonletBackend {
   const message = navigator.language.toLowerCase().startsWith("ja")
-    ? "通信処理が未接続です。この移行用UIでは送受信できません。"
-    : "The transfer backend is unavailable. This migration UI cannot send or receive.";
+    ? "通信処理を開始できませんでした。再試行してください。"
+    : "The connection service is unavailable. Please retry.";
   const unavailable = async (): Promise<never> => {
     throw new Error(message);
   };
@@ -70,6 +71,9 @@ function unavailableBackend(): PonletBackend {
     disconnect: unavailable,
     qrCode: unavailable,
     openReceivedItem: unavailable,
+    readClipboard: async () => navigator.clipboard.readText(),
+    getTelemetryEnabled,
+    setTelemetryEnabled,
     copyText,
     shareText,
     saveText,
@@ -101,10 +105,14 @@ export function createBackend(
     return unavailableBackend();
   }
   const native = bridge as PonletBackend;
+  const observe = telemetryObserver();
   return {
     snapshot: async () => validateSnapshot(await native.snapshot()),
     subscribe: (listener) => {
-      const unsubscribe = native.subscribe(listener);
+      const unsubscribe = native.subscribe((event) => {
+        observe(event);
+        listener(event);
+      });
       if (typeof unsubscribe !== "function") {
         throw new Error("Backend subscription has no cleanup");
       }
@@ -112,13 +120,38 @@ export function createBackend(
     },
     createInvite: () => native.createInvite(),
     join: (invite) => native.join(invite),
-    sendText: (text) => native.sendText(text),
+    sendText: async (text) => {
+      await native.sendText(text);
+      textSent(text);
+    },
     sendFiles: (files) => native.sendFiles(files),
     cancelTransfer: (id) => native.cancelTransfer(id),
     disconnect: () => native.disconnect(),
     openReceivedItem: native.openReceivedItem
       ? (item) => native.openReceivedItem!(item)
       : openReceivedItem,
+    readClipboard: () =>
+      native.readClipboard ? native.readClipboard() : navigator.clipboard.readText(),
+    getTelemetryEnabled: () =>
+      native.getTelemetryEnabled ? native.getTelemetryEnabled() : getTelemetryEnabled(),
+    setTelemetryEnabled: (enabled) =>
+      native.setTelemetryEnabled
+        ? native.setTelemetryEnabled(enabled)
+        : setTelemetryEnabled(enabled),
+    openExternal: async (url) => {
+      if (native.openExternal) {
+        await native.openExternal(url);
+        return;
+      }
+      const parsed = new URL(url);
+      if (parsed.protocol !== "https:") {
+        throw new Error("Unsupported external URL");
+      }
+      window.open(parsed.href, "_blank", "noopener,noreferrer");
+    },
+    ...(native.openDownloads ? { openDownloads: () => native.openDownloads!() } : {}),
+    ...(native.scanQr ? { scanQr: () => native.scanQr!() } : {}),
+    ...(native.cancelScan ? { cancelScan: () => native.cancelScan!() } : {}),
     copyText: (text) => (native.copyText ? native.copyText(text) : copyText(text)),
     shareText: (text) => (native.shareText ? native.shareText(text) : shareText(text)),
     saveText: (text) => (native.saveText ? native.saveText(text) : saveText(text)),

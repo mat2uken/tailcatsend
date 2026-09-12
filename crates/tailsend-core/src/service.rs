@@ -1,8 +1,8 @@
 //! Platform independent backend state and event fan-out.
 //!
 //! The service deliberately contains no transport or file I/O.  A native
-//! adapter and the Web Worker both run the transfer engine and publish only
-//! metadata here.  Keeping this lock limited to state updates prevents a
+//! adapter and the Web Worker both run the transfer engine and publish state,
+//! transfer metadata and text history here. Keeping this lock limited to state updates prevents a
 //! slow file operation from blocking cancellation or UI resubscription.
 
 use std::collections::{HashMap, VecDeque};
@@ -25,6 +25,10 @@ pub struct BackendSnapshot {
     pub api_version: u16,
     pub sequence: u64,
     pub app: AppSnapshot,
+    #[serde(default)]
+    pub received_messages: Vec<ReceivedMessage>,
+    #[serde(default)]
+    pub last_transfer: Option<TransferOutcome>,
 }
 
 impl Default for BackendSnapshot {
@@ -33,8 +37,29 @@ impl Default for BackendSnapshot {
             api_version: 2,
             sequence: 0,
             app: AppSnapshot::default(),
+            received_messages: Vec::new(),
+            last_transfer: None,
         }
     }
+}
+
+/// Retained text lets a slow or resumed UI recover after an event queue gap.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReceivedMessage {
+    pub sequence: u64,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransferOutcome {
+    pub id: String,
+    pub name: String,
+    pub done: u64,
+    pub total: u64,
+    pub incoming: bool,
+    pub status: String,
+    pub message: Option<String>,
 }
 
 /// An ordered event.  A subscriber can discard events up to the sequence
@@ -59,12 +84,13 @@ struct QueuedProgress {
 
 struct ServiceState {
     snapshot: BackendSnapshot,
+    generation: u64,
+    connected_state: Option<SessionState>,
     subscribers: Vec<Sender<BackendEvent>>,
     progress: HashMap<[u8; 16], QueuedProgress>,
     cancellation: HashMap<[u8; 16], Arc<AtomicBool>>,
     cancellation_callbacks: HashMap<[u8; 16], CancellationCallback>,
-    /// Retain terminal events for a short resubscription window.  The queue
-    /// is metadata only and is intentionally bounded.
+    /// Retain state, terminal and text events for a bounded resubscription window.
     recent: VecDeque<BackendEvent>,
 }
 
@@ -93,6 +119,8 @@ impl BackendService {
         Self {
             inner: Arc::new(Mutex::new(ServiceState {
                 snapshot: BackendSnapshot::default(),
+                generation: 0,
+                connected_state: None,
                 subscribers: Vec::new(),
                 progress: HashMap::new(),
                 cancellation: HashMap::new(),
@@ -100,6 +128,34 @@ impl BackendService {
                 recent: VecDeque::with_capacity(queue_limit),
             })),
             queue_limit,
+        }
+    }
+
+    /// Invalidate every task from the previous connection, including all
+    /// simultaneous incoming streams. Socket wake-ups run outside the lock.
+    pub fn begin_session(&self) -> BackendSession {
+        let (generation, callbacks) = {
+            let mut inner = self.inner.lock().expect("backend state mutex poisoned");
+            inner.generation = inner.generation.wrapping_add(1);
+            inner.connected_state = None;
+            for token in inner.cancellation.values() {
+                token.store(true, Ordering::Release);
+            }
+            let callbacks = inner
+                .cancellation_callbacks
+                .drain()
+                .map(|(_, callback)| callback)
+                .collect::<Vec<_>>();
+            inner.cancellation.clear();
+            inner.progress.clear();
+            (inner.generation, callbacks)
+        };
+        for callback in callbacks {
+            callback();
+        }
+        BackendSession {
+            service: self.clone(),
+            generation,
         }
     }
 
@@ -145,18 +201,11 @@ impl BackendService {
     /// Publish a non-progress event.  Terminal events are never coalesced.
     pub fn emit(&self, event: AppEvent) -> BackendEvent {
         let mut inner = self.inner.lock().expect("backend state mutex poisoned");
-        if let AppEvent::TransferCompleted { transfer_id }
-        | AppEvent::TransferCancelled { transfer_id, .. } = &event
-        {
-            // Flush under the same lock so no progress can interleave between
-            // the last byte count and the terminal event.
-            if let Some(queued) = inner.progress.remove(transfer_id) {
-                publish_locked(&mut inner, self.queue_limit, queued.event);
-            }
-            inner.cancellation.remove(transfer_id);
-            inner.cancellation_callbacks.remove(transfer_id);
-        }
-        publish_locked(&mut inner, self.queue_limit, event)
+        let telemetry = observe_telemetry(&inner, &event);
+        let ordered = emit_locked(&mut inner, self.queue_limit, event);
+        drop(inner);
+        record_telemetry(telemetry);
+        ordered
     }
 
     /// Publish progress at most every 200 ms for each transfer.  The latest
@@ -168,27 +217,13 @@ impl BackendService {
         bytes_total: u64,
     ) -> Option<BackendEvent> {
         let mut inner = self.inner.lock().expect("backend state mutex poisoned");
-        let now = Instant::now();
-        let event = AppEvent::TransferProgress {
+        progress_locked(
+            &mut inner,
+            self.queue_limit,
             transfer_id,
             bytes_done,
             bytes_total,
-        };
-        update_snapshot_progress(&mut inner.snapshot, transfer_id, bytes_done);
-        let entry = inner
-            .progress
-            .entry(transfer_id)
-            .or_insert_with(|| QueuedProgress {
-                event: event.clone(),
-                last_published: now.checked_sub(PROGRESS_INTERVAL).unwrap_or(now),
-            });
-        entry.event = event;
-        if now.duration_since(entry.last_published) < PROGRESS_INTERVAL {
-            return None;
-        }
-        entry.last_published = now;
-        let event = entry.event.clone();
-        Some(publish_locked(&mut inner, self.queue_limit, event))
+        )
     }
 
     /// Publish the latest progress value before a terminal event.
@@ -297,6 +332,296 @@ impl BackendService {
     }
 }
 
+/// A connection's asynchronous work can only change its own live session.
+/// Checking the generation and updating the service use the same mutex.
+#[derive(Clone)]
+pub struct BackendSession {
+    service: BackendService,
+    generation: u64,
+}
+
+impl BackendSession {
+    pub fn is_current(&self) -> bool {
+        self.service
+            .inner
+            .lock()
+            .expect("backend state mutex poisoned")
+            .generation
+            == self.generation
+    }
+
+    pub fn has_peer(&self) -> bool {
+        let inner = self
+            .service
+            .inner
+            .lock()
+            .expect("backend state mutex poisoned");
+        inner.generation == self.generation && inner.connected_state.is_some()
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    pub fn emit(&self, event: AppEvent) -> Option<BackendEvent> {
+        let mut inner = self
+            .service
+            .inner
+            .lock()
+            .expect("backend state mutex poisoned");
+        if inner.generation != self.generation {
+            return None;
+        }
+        let telemetry = observe_telemetry(&inner, &event);
+        let ordered = emit_locked(&mut inner, self.service.queue_limit, event);
+        drop(inner);
+        record_telemetry(telemetry);
+        Some(ordered)
+    }
+
+    pub fn set_state(&self, state: SessionState) -> Option<BackendEvent> {
+        self.emit(AppEvent::StateChanged(state))
+    }
+
+    pub fn set_transport_path(&self, path: TransportPath) -> Option<BackendEvent> {
+        self.emit(AppEvent::TransportChanged(path))
+    }
+
+    pub fn progress(&self, id: [u8; 16], done: u64, total: u64) -> Option<BackendEvent> {
+        let mut inner = self
+            .service
+            .inner
+            .lock()
+            .expect("backend state mutex poisoned");
+        if inner.generation != self.generation {
+            return None;
+        }
+        progress_locked(&mut inner, self.service.queue_limit, id, done, total)
+    }
+
+    pub fn register_transfer(&self, id: [u8; 16]) -> Arc<AtomicBool> {
+        let mut inner = self
+            .service
+            .inner
+            .lock()
+            .expect("backend state mutex poisoned");
+        if inner.generation != self.generation {
+            return Arc::new(AtomicBool::new(true));
+        }
+        inner
+            .cancellation
+            .entry(id)
+            .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+            .clone()
+    }
+
+    pub fn set_cancellation_callback(&self, id: [u8; 16], callback: CancellationCallback) {
+        if !self.service.set_cancellation_callback(id, callback.clone()) {
+            // The session may have been replaced while dial/accept was pending.
+            callback();
+        }
+    }
+
+    pub fn is_cancelled(&self, id: [u8; 16]) -> bool {
+        !self.is_current() || self.service.is_cancelled(id)
+    }
+
+    pub fn finish_transfer(&self, id: [u8; 16]) {
+        self.service.finish_transfer(id);
+    }
+
+    pub fn restore_connected_idle(&self, id: [u8; 16]) -> Option<BackendEvent> {
+        let mut inner = self
+            .service
+            .inner
+            .lock()
+            .expect("backend state mutex poisoned");
+        if inner.generation != self.generation {
+            return None;
+        }
+        if !matches!(inner.snapshot.app.state, SessionState::Transferring { transfer_id, .. } if transfer_id == id)
+        {
+            return None;
+        }
+        let mut connected = inner.connected_state.clone()?;
+        if let SessionState::ConnectedIdle { transport_path, .. } = &mut connected {
+            *transport_path = inner.snapshot.app.transport_path;
+        }
+        Some(emit_locked(
+            &mut inner,
+            self.service.queue_limit,
+            AppEvent::StateChanged(connected),
+        ))
+    }
+}
+
+// Observations contain only fixed event names and coarse values, never the
+// peer address, text body, file name/path, invitation, or transport error.
+fn observe_telemetry(
+    inner: &ServiceState,
+    event: &AppEvent,
+) -> Option<(&'static str, Vec<(&'static str, String)>)> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (inner, event);
+        return None;
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let transport = match inner.snapshot.app.transport_path {
+            TransportPath::DirectUdp => "direct-udp",
+            TransportPath::WebRtc => "webrtc",
+            TransportPath::Derp => "derp",
+            TransportPath::Unknown => "unknown",
+        };
+        match event {
+            AppEvent::StateChanged(SessionState::AwaitingPeer { .. }) => {
+                Some(("session_created", vec![("transport", transport.into())]))
+            }
+            AppEvent::StateChanged(SessionState::ConnectedIdle { .. })
+                if inner.connected_state.is_none() =>
+            {
+                Some(("peer_connected", vec![("transport", transport.into())]))
+            }
+            AppEvent::StateChanged(SessionState::Transferring {
+                is_incoming,
+                is_files,
+                ..
+            }) => Some((
+                "transfer_started",
+                vec![
+                    ("transport", transport.into()),
+                    (
+                        "direction",
+                        if *is_incoming { "receive" } else { "send" }.into(),
+                    ),
+                    ("file_count", if *is_files { "1" } else { "0" }.into()),
+                ],
+            )),
+            AppEvent::TextReceived { text } => Some((
+                "text_message_received",
+                vec![(
+                    "length_bucket",
+                    tailsend_telemetry::length_bucket(text.chars().count()).into(),
+                )],
+            )),
+            AppEvent::TransferCompleted { .. } => {
+                Some(("transfer_completed", vec![("transport", transport.into())]))
+            }
+            AppEvent::TransferCancelled { reason, .. } => Some((
+                "transfer_cancelled",
+                vec![(
+                    "reason",
+                    if reason == "Transfer cancelled by user" {
+                        "user"
+                    } else {
+                        "error"
+                    }
+                    .into(),
+                )],
+            )),
+            AppEvent::ErrorOccurred { .. } | AppEvent::StateChanged(SessionState::Error { .. }) => {
+                Some(("error", vec![("category", "transport".into())]))
+            }
+            _ => None,
+        }
+    }
+}
+
+fn record_telemetry(observation: Option<(&'static str, Vec<(&'static str, String)>)>) {
+    if let Some((name, params)) = observation {
+        let params = params
+            .iter()
+            .map(|(name, value)| (*name, value.as_str()))
+            .collect::<Vec<_>>();
+        tailsend_telemetry::log_event(name, &params);
+    }
+}
+
+fn emit_locked(inner: &mut ServiceState, queue_limit: usize, event: AppEvent) -> BackendEvent {
+    if let AppEvent::TransferCompleted { transfer_id }
+    | AppEvent::TransferCancelled { transfer_id, .. } = &event
+    {
+        if let SessionState::Transferring {
+            transfer_id: active_id,
+            current_item_name,
+            bytes_done,
+            bytes_total,
+            is_incoming,
+            ..
+        } = &inner.snapshot.app.state
+        {
+            if active_id == transfer_id {
+                let (status, message) = match &event {
+                    AppEvent::TransferCancelled { reason, .. } => (
+                        if reason == "Transfer cancelled by user" {
+                            "cancelled"
+                        } else {
+                            "failed"
+                        },
+                        Some(reason.clone()),
+                    ),
+                    _ => ("completed", None),
+                };
+                inner.snapshot.last_transfer = Some(TransferOutcome {
+                    id: transfer_id
+                        .iter()
+                        .map(|byte| format!("{byte:02x}"))
+                        .collect(),
+                    name: current_item_name.clone(),
+                    done: if status == "completed" {
+                        *bytes_total
+                    } else {
+                        *bytes_done
+                    },
+                    total: *bytes_total,
+                    incoming: *is_incoming,
+                    status: status.into(),
+                    message,
+                });
+            }
+        }
+        // Flush under the same lock so no progress can interleave between
+        // the last byte count and the terminal event.
+        if let Some(queued) = inner.progress.remove(transfer_id) {
+            publish_locked(inner, queue_limit, queued.event);
+        }
+        inner.cancellation.remove(transfer_id);
+        inner.cancellation_callbacks.remove(transfer_id);
+    }
+    publish_locked(inner, queue_limit, event)
+}
+
+fn progress_locked(
+    inner: &mut ServiceState,
+    queue_limit: usize,
+    transfer_id: [u8; 16],
+    bytes_done: u64,
+    bytes_total: u64,
+) -> Option<BackendEvent> {
+    let now = Instant::now();
+    let event = AppEvent::TransferProgress {
+        transfer_id,
+        bytes_done,
+        bytes_total,
+    };
+    update_snapshot_progress(&mut inner.snapshot, transfer_id, bytes_done);
+    let entry = inner
+        .progress
+        .entry(transfer_id)
+        .or_insert_with(|| QueuedProgress {
+            event: event.clone(),
+            last_published: now.checked_sub(PROGRESS_INTERVAL).unwrap_or(now),
+        });
+    entry.event = event;
+    if now.duration_since(entry.last_published) < PROGRESS_INTERVAL {
+        return None;
+    }
+    entry.last_published = now;
+    let event = entry.event.clone();
+    Some(publish_locked(inner, queue_limit, event))
+}
+
 fn refresh_capabilities(snapshot: &mut AppSnapshot, state: &SessionState) {
     let previous_transport_path = snapshot.transport_path;
     snapshot.can_send = false;
@@ -370,6 +695,15 @@ fn update_snapshot_progress(
 fn publish_locked(inner: &mut ServiceState, queue_limit: usize, event: AppEvent) -> BackendEvent {
     match &event {
         AppEvent::StateChanged(state) => {
+            match state {
+                SessionState::ConnectedIdle { .. } => inner.connected_state = Some(state.clone()),
+                SessionState::Booting
+                | SessionState::Disconnected { .. }
+                | SessionState::AwaitingPeer { .. }
+                | SessionState::DialingHost { .. }
+                | SessionState::Error { .. } => inner.connected_state = None,
+                _ => {}
+            }
             inner.snapshot.app.state = state.clone();
             refresh_capabilities(&mut inner.snapshot.app, state);
         }
@@ -386,6 +720,19 @@ fn publish_locked(inner: &mut ServiceState, queue_limit: usize, event: AppEvent)
         _ => {}
     }
     inner.snapshot.sequence = inner.snapshot.sequence.saturating_add(1);
+    if let AppEvent::TextReceived { text } = &event {
+        inner.snapshot.received_messages.push(ReceivedMessage {
+            sequence: inner.snapshot.sequence,
+            text: text.clone(),
+        });
+        // Keep recovery bounded independently of high-frequency progress.
+        let messages = &mut inner.snapshot.received_messages;
+        let mut bytes: usize = messages.iter().map(|message| message.text.len()).sum();
+        while messages.len() > 128 || (bytes > 4 * 1024 * 1024 && messages.len() > 1) {
+            bytes -= messages.remove(0).text.len();
+        }
+    }
+
     let ordered = BackendEvent {
         sequence: inner.snapshot.sequence,
         event,
@@ -410,6 +757,127 @@ fn publish_locked(inner: &mut ServiceState, queue_limit: usize, event: AppEvent)
 mod tests {
     use super::*;
     use futures::StreamExt;
+
+    #[test]
+    fn replacing_session_cancels_all_streams_and_rejects_late_updates() {
+        let service = BackendService::default();
+        let previous = service.begin_session();
+        let incoming = previous.register_transfer([1; 16]);
+        let outgoing = previous.register_transfer([2; 16]);
+        let current = service.begin_session();
+        current.set_state(SessionState::AwaitingPeer {
+            invite_url: "new".into(),
+            expires_at: 0,
+            host_address: "new".into(),
+        });
+        let sequence = service.snapshot().sequence;
+        assert!(incoming.load(Ordering::Acquire));
+        assert!(outgoing.load(Ordering::Acquire));
+        assert!(previous.register_transfer([3; 16]).load(Ordering::Acquire));
+        assert!(previous
+            .emit(AppEvent::TextReceived {
+                text: "stale".into()
+            })
+            .is_none());
+        assert!(previous
+            .set_state(SessionState::Error {
+                code: 1,
+                message: "late close".into()
+            })
+            .is_none());
+        assert!(previous.progress([1; 16], 10, 10).is_none());
+        assert!(previous.restore_connected_idle([1; 16]).is_none());
+        assert_eq!(service.snapshot().sequence, sequence);
+        assert!(service.snapshot().received_messages.is_empty());
+        assert_eq!(service.snapshot().app.invite_qr_url.as_deref(), Some("new"));
+    }
+
+    #[test]
+    fn finishing_one_transfer_preserves_peer_metadata_and_other_active_transfer() {
+        use tailsend_protocol::control::{Capabilities, PeerInfo, PlatformKind};
+        let service = BackendService::default();
+        let scope = service.begin_session();
+        let connected = SessionState::ConnectedIdle {
+            peer_info: PeerInfo::new_native("Phone".into(), PlatformKind::IOS, "test".into()),
+            peer_capabilities: Capabilities::default(),
+            peer_address: "peer-address".into(),
+            transport_path: TransportPath::Derp,
+        };
+        scope.set_state(connected.clone());
+        scope.set_state(SessionState::Transferring {
+            transfer_id: [2; 16],
+            is_incoming: true,
+            is_files: true,
+            bytes_done: 0,
+            bytes_total: 10,
+            current_item_name: "file".into(),
+        });
+        assert!(scope.restore_connected_idle([1; 16]).is_none());
+        assert!(matches!(
+            service.snapshot().app.state,
+            SessionState::Transferring { .. }
+        ));
+        assert!(scope.restore_connected_idle([2; 16]).is_some());
+        assert_eq!(service.snapshot().app.state, connected);
+        let disconnected = service.begin_session();
+        disconnected.set_state(SessionState::Disconnected {
+            reason: "done".into(),
+        });
+        assert!(scope.restore_connected_idle([2; 16]).is_none());
+        assert!(!service.snapshot().app.can_send);
+    }
+
+    #[test]
+    fn completed_transfer_survives_snapshot_resynchronization() {
+        let service = BackendService::new(2);
+        let scope = service.begin_session();
+        scope.set_state(SessionState::Transferring {
+            transfer_id: [4; 16],
+            is_incoming: false,
+            is_files: true,
+            bytes_done: 0,
+            bytes_total: 100,
+            current_item_name: "example".into(),
+        });
+        scope.emit(AppEvent::TransferCompleted {
+            transfer_id: [4; 16],
+        });
+        scope.set_state(SessionState::Disconnected {
+            reason: "done".into(),
+        });
+        let snapshot = service.snapshot();
+        let outcome = snapshot.last_transfer.unwrap();
+        assert_eq!(outcome.status, "completed");
+        assert_eq!(outcome.done, 100);
+        assert!(!outcome.incoming);
+        assert_eq!(outcome.name, "example");
+    }
+
+    #[test]
+    fn snapshot_retains_received_text_after_progress_exhausts_event_replay() {
+        let service = BackendService::new(2);
+        service.emit(AppEvent::TextReceived {
+            text: "keep this message".into(),
+        });
+        for index in 0..5 {
+            service.emit(AppEvent::TransportChanged(if index % 2 == 0 {
+                TransportPath::Derp
+            } else {
+                TransportPath::WebRtc
+            }));
+        }
+        assert!(service.events_since(0).is_err());
+        let snapshot = service.snapshot();
+        assert_eq!(snapshot.received_messages.len(), 1);
+        assert_eq!(snapshot.received_messages[0].sequence, 1);
+        assert_eq!(snapshot.received_messages[0].text, "keep this message");
+        for _ in 0..150 {
+            service.emit(AppEvent::TextReceived {
+                text: "bounded".into(),
+            });
+        }
+        assert_eq!(service.snapshot().received_messages.len(), 128);
+    }
 
     #[test]
     fn state_event_has_monotonic_sequence_and_snapshot() {

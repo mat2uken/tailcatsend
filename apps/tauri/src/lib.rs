@@ -12,11 +12,14 @@ use tailsend_native_transport::NativeTailcatTransport;
 #[cfg(target_os = "android")]
 mod android;
 pub mod commands;
+#[cfg(desktop)]
+mod desktop_telemetry;
 mod ipc;
 pub mod model;
 pub mod runtime;
 mod scheme;
 pub mod storage;
+mod telemetry;
 
 pub use commands::*;
 pub use model::*;
@@ -30,6 +33,8 @@ pub fn run() {
         .register_asynchronous_uri_scheme_protocol("ponletbin", scheme::handle)
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_ponlet_platform::init())
         .plugin(
             tauri_plugin_opener::Builder::new()
                 .open_js_links_on_click(false)
@@ -51,8 +56,18 @@ pub fn run() {
             commands::ponlet_cancel_transfer,
             commands::ponlet_disconnect,
             commands::ponlet_open_received,
+            commands::ponlet_initialize_platform,
+            commands::ponlet_copy_text,
+            commands::ponlet_read_clipboard,
+            commands::ponlet_share_text,
+            commands::ponlet_open_downloads,
+            commands::ponlet_open_external,
+            commands::ponlet_get_telemetry_enabled,
+            commands::ponlet_set_telemetry_enabled,
         ])
         .setup(|app| {
+            #[cfg(mobile)]
+            app.handle().plugin(tauri_plugin_barcode_scanner::init())?;
             let state = app.state::<TauriRuntime>();
             state.configure_storage(app.handle());
             state.set_state(SessionState::Disconnected {
@@ -172,12 +187,14 @@ mod tests {
             closed_subscriptions: Mutex::new(HashSet::new()),
         };
         let current = Arc::new(PeerSession {
+            scope: runtime.backend.begin_session(),
             listener: Arc::new(listener),
             peer_address: Mutex::new(String::new()),
             cancel: Arc::new(AtomicBool::new(false)),
             transport_path: Mutex::new(TransportPath::Unknown),
         });
         let stale = Arc::new(PeerSession {
+            scope: current.scope.clone(),
             listener: current.listener.clone(),
             peer_address: Mutex::new(String::new()),
             cancel: Arc::new(AtomicBool::new(true)),

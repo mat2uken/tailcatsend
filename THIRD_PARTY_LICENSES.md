@@ -52,7 +52,20 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 - `ciborium`: Apache License 2.0
 - `sha2` / `hmac`: MIT / Apache-2.0
 - `qrcode`: MIT / Apache-2.0
-- `tauri`, `tauri-plugin-dialog`, `tauri-plugin-fs`: MIT / Apache-2.0
+- `tauri`, `tauri-plugin-dialog`, `tauri-plugin-fs`, `tauri-plugin-opener`,
+  `tauri-plugin-barcode-scanner` 2.4.4, `tauri-plugin-clipboard-manager` 2.3.3: MIT / Apache-2.0
 - `vanjs-core`: MIT License
 
 The complete notices shipped by each dependency remain available through the package manager lockfiles and the generated application notices.
+
+## 4. QR decoding and native SDKs
+
+- `jsqr` 1.4.0: Apache-2.0. The distributed license is included at
+  [dist/licenses/jsqr-LICENSE.txt](dist/licenses/jsqr-LICENSE.txt).
+  Source: https://github.com/cozmo/jsQR.
+- The mobile barcode scanner uses Android ML Kit and iOS AVFoundation through
+  the Tauri barcode scanner plugin. SDK notices accompany the native packages.
+- Firebase Analytics, Crashlytics, and Remote Config are restored from the
+  previous mobile integration. Source and SDK notices:
+  https://github.com/firebase/firebase-ios-sdk and
+  https://github.com/firebase/firebase-android-sdk.

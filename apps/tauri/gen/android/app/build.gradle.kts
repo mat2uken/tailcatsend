@@ -1,4 +1,5 @@
 import java.util.Properties
+import com.google.firebase.crashlytics.buildtools.gradle.CrashlyticsExtension
 
 plugins {
     id("com.android.application")
@@ -11,6 +12,12 @@ val tauriProperties = Properties().apply {
     if (propFile.exists()) {
         propFile.inputStream().use { load(it) }
     }
+}
+
+val hasGoogleServices = file("google-services.json").exists()
+if (hasGoogleServices) {
+    apply(plugin = "com.google.gms.google-services")
+    apply(plugin = "com.google.firebase.crashlytics")
 }
 
 val releaseKeystorePath = System.getenv("PONLET_ANDROID_KEYSTORE").orEmpty()
@@ -65,6 +72,12 @@ android {
                     .plus(getDefaultProguardFile("proguard-android-optimize.txt"))
                     .toList().toTypedArray()
             )
+            if (hasGoogleServices) {
+                configure<CrashlyticsExtension> {
+                    nativeSymbolUploadEnabled = true
+                    unstrippedNativeLibsDir = file("src/main/jniLibs")
+                }
+            }
         }
     }
     kotlinOptions {
@@ -90,3 +103,12 @@ dependencies {
 }
 
 apply(from = "tauri.build.gradle.kts")
+
+afterEvaluate {
+    if (hasGoogleServices) {
+        tasks.matching { it.name.startsWith("bundle") && it.name.endsWith("Release") }.configureEach {
+            val variant = name.removePrefix("bundle")
+            tasks.findByName("uploadCrashlyticsSymbolFile$variant")?.let { finalizedBy(it) }
+        }
+    }
+}

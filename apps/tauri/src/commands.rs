@@ -1,4 +1,6 @@
 use tauri::{AppHandle, State};
+use tauri_plugin_clipboard_manager::ClipboardExt;
+use tauri_plugin_opener::OpenerExt;
 
 use crate::model::{FileRequest, UiQrBitmap, UiSnapshot};
 use crate::runtime::TauriRuntime;
@@ -91,7 +93,7 @@ pub async fn ponlet_disconnect(runtime: State<'_, TauriRuntime>) -> Result<(), S
 }
 
 #[tauri::command]
-pub fn ponlet_open_received(
+pub async fn ponlet_open_received(
     app: AppHandle,
     runtime: State<'_, TauriRuntime>,
     local_path_or_handle: String,
@@ -101,4 +103,81 @@ pub fn ponlet_open_received(
         .lock()
         .expect("received item mutex poisoned");
     crate::storage::ponlet_open_received_impl(&app, &received, &local_path_or_handle)
+}
+
+#[tauri::command]
+pub async fn ponlet_initialize_platform(
+    app: AppHandle,
+    opt_out: Option<bool>,
+) -> Result<&'static str, String> {
+    crate::telemetry::initialize(app, opt_out.unwrap_or(false)).await?;
+    Ok(std::env::consts::OS)
+}
+
+#[tauri::command]
+pub async fn ponlet_copy_text(app: AppHandle, text: String) -> Result<(), String> {
+    app.clipboard()
+        .write_text(text)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn ponlet_read_clipboard(app: AppHandle) -> Result<String, String> {
+    app.clipboard()
+        .read_text()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn ponlet_share_text(app: AppHandle, text: String) -> Result<(), String> {
+    #[cfg(mobile)]
+    {
+        use tauri_plugin_ponlet_platform::PonletPlatformExt;
+        app.ponlet_platform().share_text(&text)
+    }
+    #[cfg(desktop)]
+    app.clipboard()
+        .write_text(text)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn ponlet_open_downloads(app: AppHandle) -> Result<(), String> {
+    #[cfg(desktop)]
+    {
+        let directory = crate::storage::app_storage_dir(&app);
+        std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+        app.opener()
+            .open_path(directory.to_string_lossy(), None::<String>)
+            .map_err(|error| error.to_string())
+    }
+    #[cfg(mobile)]
+    {
+        let _ = app;
+        Err("The receive folder is available through each received file".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn ponlet_open_external(app: AppHandle, url: String) -> Result<(), String> {
+    let parsed = tauri::Url::parse(&url).map_err(|error| error.to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err("Only public web links can be opened".to_string());
+    }
+    app.opener()
+        .open_url(url, None::<String>)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn ponlet_get_telemetry_enabled(app: AppHandle) -> Result<bool, String> {
+    crate::telemetry::initialize(app, false).await?;
+    Ok(tailsend_telemetry::is_enabled())
+}
+
+#[tauri::command]
+pub async fn ponlet_set_telemetry_enabled(app: AppHandle, enabled: bool) -> Result<(), String> {
+    crate::telemetry::initialize(app, false).await?;
+    tailsend_telemetry::set_enabled(enabled);
+    Ok(())
 }

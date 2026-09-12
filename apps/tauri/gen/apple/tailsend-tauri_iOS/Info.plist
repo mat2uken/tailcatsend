@@ -40,5 +40,20 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Ponlet uses the camera to scan invitation QR codes and connect to another device.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Ponlet uses the local network for direct device connections and file transfers.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_tailsend._tcp</string>
+		<string>_tailsend._udp</string>
+	</array>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
+	<key>FIREBASE_ANALYTICS_COLLECTION_ENABLED</key>
+	<false/>
+	<key>FirebaseCrashlyticsCollectionEnabled</key>
+	<false/>
 </dict>
 </plist>

@@ -28,12 +28,21 @@ tailsend-platform-api = { workspace = true }
 tailsend-protocol = { workspace = true }
 tailsend-qr = { workspace = true }
 tailsend-transfer = { workspace = true, features = ["tokio-runtime"] }
+tailsend-telemetry = { workspace = true }
 tailsend-transport-api = { workspace = true }
 tauri = { version = "=2.11.5", features = [] }
 tauri-plugin-dialog = "=2.6.0"
 tauri-plugin-fs = "=2.4.5"
 tauri-plugin-opener = "=2.5.5"
+tauri-plugin-clipboard-manager = "=2.3.3"
+tauri-plugin-ponlet-platform = { path = "../../crates/tauri-plugin-ponlet-platform" }
 tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "macros", "io-util"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21"
+
+[target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
+tauri-plugin-barcode-scanner = "=2.4.4"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+ureq = { workspace = true }

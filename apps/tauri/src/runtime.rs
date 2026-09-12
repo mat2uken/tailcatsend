@@ -9,7 +9,8 @@ use rand::RngCore;
 use tauri::AppHandle;
 
 use tailsend_core::{
-    run_host_handshake, run_joiner_handshake, AppEvent, BackendService, SessionState,
+    run_host_handshake, run_joiner_handshake, AppEvent, BackendService, BackendSession,
+    SessionState,
 };
 use tailsend_native_transport::NativeTailcatTransport;
 use tailsend_platform_api::{FileSource, IncomingFileSink, ReceivedItem};
@@ -33,6 +34,7 @@ use crate::storage::{
 };
 
 pub struct PeerSession {
+    pub scope: BackendSession,
     pub listener: Arc<Box<dyn Listener>>,
     pub peer_address: Mutex<String>,
     pub cancel: Arc<AtomicBool>,
@@ -189,6 +191,8 @@ impl TauriRuntime {
             error,
             transport: app.transport_path,
             received,
+            received_messages: snapshot.received_messages,
+            last_transfer: snapshot.last_transfer,
         }
     }
 
@@ -200,10 +204,14 @@ impl TauriRuntime {
         self.backend.set_state(state);
     }
 
-    pub fn register_transfer(&self, transfer_id: [u8; 16]) -> Arc<AtomicBool> {
+    pub fn register_transfer(
+        &self,
+        scope: &BackendSession,
+        transfer_id: [u8; 16],
+    ) -> Arc<AtomicBool> {
         let mut state = self.state.lock().expect("runtime state mutex poisoned");
         state.active_transfer = Some(transfer_id);
-        self.backend.register_transfer(transfer_id)
+        scope.register_transfer(transfer_id)
     }
 
     pub fn finish_transfer(&self, transfer_id: [u8; 16]) {
@@ -220,14 +228,20 @@ impl TauriRuntime {
             .expect("runtime state mutex poisoned")
             .session
             .clone()
+            .filter(|session| session.scope.has_peer() && !session.cancel.load(Ordering::Acquire))
             .ok_or_else(|| "No connected peer".to_string())
     }
 
     pub fn set_session(&self, session: Arc<PeerSession>) {
-        self.state
-            .lock()
-            .expect("runtime state mutex poisoned")
-            .session = Some(session);
+        let mut state = self.state.lock().expect("runtime state mutex poisoned");
+        if session.scope.is_current()
+            && state
+                .session
+                .as_ref()
+                .is_none_or(|current| current.scope.generation() <= session.scope.generation())
+        {
+            state.session = Some(session);
+        }
     }
 
     pub fn take_session(&self) -> Option<Arc<PeerSession>> {
@@ -261,15 +275,7 @@ impl TauriRuntime {
         }
     }
 
-    pub async fn disconnect_internal(&self) -> Result<(), String> {
-        let active_transfer = self
-            .state
-            .lock()
-            .expect("runtime state mutex poisoned")
-            .active_transfer;
-        if let Some(transfer_id) = active_transfer {
-            let _ = self.backend.cancel(transfer_id);
-        }
+    async fn close_session(&self) -> Result<(), String> {
         if let Some(session) = self.take_session() {
             session.cancel.store(true, Ordering::Release);
             session
@@ -278,15 +284,21 @@ impl TauriRuntime {
                 .await
                 .map_err(|error| error.to_string())?;
         }
-        self.set_state(SessionState::Disconnected {
-            reason: "ready".to_string(),
-        });
         Ok(())
     }
 
-    pub fn clone_state(&self) -> Arc<TauriState> {
+    pub async fn disconnect_internal(&self) -> Result<(), String> {
+        let scope = self.backend.begin_session();
+        // Invalidate callbacks and clear the UI before waiting for I/O to close.
+        scope.set_state(SessionState::Disconnected {
+            reason: "ready".to_string(),
+        });
+        self.close_session().await
+    }
+
+    pub fn clone_state(&self, scope: BackendSession) -> Arc<TauriState> {
         Arc::new(TauriState {
-            backend: self.backend.clone(),
+            backend: scope,
             downloads_dir: self
                 .downloads_dir
                 .lock()
@@ -397,7 +409,7 @@ impl TauriRuntime {
 }
 
 pub struct TauriState {
-    pub backend: BackendService,
+    pub backend: BackendSession,
     pub downloads_dir: PathBuf,
     pub received: Arc<Mutex<Vec<UiReceivedItem>>>,
 }
@@ -435,7 +447,7 @@ impl TauriState {
 
 pub async fn accept_loop(runtime: Arc<TauriState>, session: Arc<PeerSession>) {
     loop {
-        if session.cancel.load(Ordering::Acquire) {
+        if session.cancel.load(Ordering::Acquire) || !session.scope.is_current() {
             return;
         }
         let incoming = match session.listener.accept().await {
@@ -450,6 +462,11 @@ pub async fn accept_loop(runtime: Arc<TauriState>, session: Arc<PeerSession>) {
                 return;
             }
         };
+        if !session.scope.is_current() {
+            let mut stream = incoming.stream;
+            let _ = stream.close().await;
+            return;
+        }
         runtime.set_transport_path(incoming.stream.transport_path());
         let runtime_for_stream = runtime.clone();
         tokio::spawn(async move {
@@ -466,6 +483,10 @@ pub async fn accept_loop(runtime: Arc<TauriState>, session: Arc<PeerSession>) {
 }
 
 pub async fn receive_text(runtime: Arc<TauriState>, mut stream: Box<dyn DuplexStream>) {
+    if !runtime.backend.is_current() {
+        let _ = stream.close().await;
+        return;
+    }
     let transfer_id = new_id();
     let cancel_token = runtime.backend.register_transfer(transfer_id);
     if let Some(callback) = stream.cancellation_callback() {
@@ -492,10 +513,14 @@ pub async fn receive_text(runtime: Arc<TauriState>, mut stream: Box<dyn DuplexSt
         });
     }
     runtime.backend.finish_transfer(transfer_id);
-    set_idle_from_backend(&runtime.backend);
+    runtime.backend.restore_connected_idle(transfer_id);
 }
 
 pub async fn receive_file(runtime: Arc<TauriState>, mut stream: Box<dyn DuplexStream>) {
+    if !runtime.backend.is_current() {
+        let _ = stream.close().await;
+        return;
+    }
     let transfer_id = new_id();
     let cancel_token = runtime.backend.register_transfer(transfer_id);
     if let Some(callback) = stream.cancellation_callback() {
@@ -535,7 +560,7 @@ pub async fn receive_file(runtime: Arc<TauriState>, mut stream: Box<dyn DuplexSt
     runtime.set_transport_path(stream.transport_path());
     let _ = stream.close().await;
     match result {
-        Ok(received) => {
+        Ok(received) if runtime.backend.is_current() => {
             let _item = runtime.add_received(received.item.clone());
             runtime.backend.emit(AppEvent::FilesReceived {
                 items: vec![received.item],
@@ -544,6 +569,7 @@ pub async fn receive_file(runtime: Arc<TauriState>, mut stream: Box<dyn DuplexSt
                 .backend
                 .emit(AppEvent::TransferCompleted { transfer_id });
         }
+        Ok(_) => {}
         Err(error) => {
             let cancelled = runtime.backend.is_cancelled(transfer_id);
             let reason = if cancelled {
@@ -558,11 +584,12 @@ pub async fn receive_file(runtime: Arc<TauriState>, mut stream: Box<dyn DuplexSt
         }
     }
     runtime.backend.finish_transfer(transfer_id);
-    set_idle_from_backend(&runtime.backend);
+    runtime.backend.restore_connected_idle(transfer_id);
 }
 
 pub fn finish_outgoing(
     runtime: &TauriRuntime,
+    scope: &BackendSession,
     transfer_id: [u8; 16],
     result: Result<(), TransferError>,
     cancel: Arc<AtomicBool>,
@@ -584,31 +611,14 @@ pub fn finish_outgoing(
             true,
         ),
     };
-    runtime.publish(event);
+    scope.emit(event);
     runtime.finish_transfer(transfer_id);
-    set_idle_from_backend(&runtime.backend);
+    scope.restore_connected_idle(transfer_id);
     if failed {
         Err("Transfer failed".to_string())
     } else {
         Ok(())
     }
-}
-
-pub fn set_idle_from_backend(backend: &BackendService) {
-    let name = backend.snapshot().app.peer_display_name;
-    if name.is_empty() {
-        return;
-    }
-    backend.set_state(SessionState::ConnectedIdle {
-        peer_info: PeerInfo::new_native(
-            name,
-            PlatformKind::Unknown,
-            env!("CARGO_PKG_VERSION").to_string(),
-        ),
-        peer_capabilities: Capabilities::default(),
-        peer_address: String::new(),
-        transport_path: backend.snapshot().app.transport_path,
-    });
 }
 
 pub fn local_peer_info() -> PeerInfo {
@@ -667,13 +677,27 @@ pub async fn ponlet_snapshot_impl(runtime: &TauriRuntime) -> Result<UiSnapshot, 
 }
 
 pub async fn ponlet_create_invite_impl(runtime: &TauriRuntime) -> Result<(), String> {
-    runtime.disconnect_internal().await?;
-    runtime.set_state(SessionState::Booting);
+    let scope = runtime.backend.begin_session();
+    runtime.close_session().await?;
+    if !scope.is_current() {
+        return Err("Operation cancelled".into());
+    }
+    scope.set_state(SessionState::Booting);
     let listener = runtime
         .transport
         .listen(listen_options())
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| {
+            scope.set_state(SessionState::Error {
+                code: 1000,
+                message: error.to_string(),
+            });
+            error.to_string()
+        })?;
+    if !scope.is_current() {
+        let _ = listener.close().await;
+        return Err("Operation cancelled".into());
+    }
     let listener = Arc::new(listener);
     let host_address = listener.local_address().to_string();
     let mut session_id = [0u8; 16];
@@ -691,20 +715,25 @@ pub async fn ponlet_create_invite_impl(runtime: &TauriRuntime) -> Result<(), Str
     let invite_url = invitation
         .to_qr_url(&invite_base_url())
         .map_err(|error| error.to_string())?;
+    if !scope.is_current() {
+        let _ = listener.close().await;
+        return Err("Operation cancelled".into());
+    }
     let session = Arc::new(PeerSession {
+        scope: scope.clone(),
         listener: listener.clone(),
         peer_address: Mutex::new(String::new()),
         cancel: Arc::new(AtomicBool::new(false)),
         transport_path: Mutex::new(TransportPath::Unknown),
     });
     runtime.set_session(session.clone());
-    runtime.set_state(SessionState::AwaitingPeer {
+    scope.set_state(SessionState::AwaitingPeer {
         invite_url,
         expires_at: now + INVITE_LIFETIME_SECS,
         host_address,
     });
 
-    let backend = runtime.clone_state();
+    let backend = runtime.clone_state(scope.clone());
     let host_info = local_peer_info();
     let host_caps = Capabilities::default();
     tokio::spawn(async move {
@@ -718,7 +747,7 @@ pub async fn ponlet_create_invite_impl(runtime: &TauriRuntime) -> Result<(), Str
         .await;
         match result {
             Ok(handshake) => {
-                if session.cancel.load(Ordering::Acquire) {
+                if session.cancel.load(Ordering::Acquire) || !scope.is_current() {
                     let _ = session.listener.close().await;
                     return;
                 }
@@ -754,10 +783,14 @@ pub async fn ponlet_create_invite_impl(runtime: &TauriRuntime) -> Result<(), Str
 }
 
 pub async fn ponlet_join_impl(runtime: &TauriRuntime, invite: String) -> Result<(), String> {
-    runtime.disconnect_internal().await?;
     let invitation =
         InvitationV1::from_url(&invite, unix_seconds()).map_err(|error| error.to_string())?;
-    runtime.set_state(SessionState::DialingHost {
+    let scope = runtime.backend.begin_session();
+    runtime.close_session().await?;
+    if !scope.is_current() {
+        return Err("Operation cancelled".into());
+    }
+    scope.set_state(SessionState::DialingHost {
         host_address: invitation.host_address.clone(),
     });
     let listener = Arc::new(
@@ -765,9 +798,20 @@ pub async fn ponlet_join_impl(runtime: &TauriRuntime, invite: String) -> Result<
             .transport
             .listen(listen_options())
             .await
-            .map_err(|error| error.to_string())?,
+            .map_err(|error| {
+                scope.set_state(SessionState::Error {
+                    code: 1000,
+                    message: error.to_string(),
+                });
+                error.to_string()
+            })?,
     );
+    if !scope.is_current() {
+        let _ = listener.close().await;
+        return Err("Operation cancelled".into());
+    }
     let session = Arc::new(PeerSession {
+        scope: scope.clone(),
         listener: listener.clone(),
         peer_address: Mutex::new(invitation.host_address.clone()),
         cancel: Arc::new(AtomicBool::new(false)),
@@ -777,7 +821,7 @@ pub async fn ponlet_join_impl(runtime: &TauriRuntime, invite: String) -> Result<
     let transport: Arc<dyn TailcatTransport> = runtime.transport.clone();
     let joiner_info = local_peer_info();
     let joiner_caps = Capabilities::default();
-    runtime.set_state(SessionState::Authenticating);
+    scope.set_state(SessionState::Authenticating);
     match run_joiner_handshake(
         &transport,
         &**session.listener,
@@ -796,20 +840,20 @@ pub async fn ponlet_join_impl(runtime: &TauriRuntime, invite: String) -> Result<
                 .transport_path
                 .lock()
                 .expect("session mutex poisoned") = handshake.transport_path;
-            runtime.set_state(SessionState::ConnectedIdle {
+            scope.set_state(SessionState::ConnectedIdle {
                 peer_info: handshake.peer_info,
                 peer_capabilities: handshake.peer_capabilities,
                 peer_address: handshake.peer_address,
                 transport_path: handshake.transport_path,
             });
-            let backend = runtime.clone_state();
+            let backend = runtime.clone_state(scope.clone());
             tokio::spawn(async move { accept_loop(backend, session).await });
             Ok(())
         }
         Err(error) => {
             let _ = session.listener.close().await;
             if runtime.take_session_if_current(&session) {
-                runtime.set_state(SessionState::Error {
+                scope.set_state(SessionState::Error {
                     code: 1002,
                     message: error.clone(),
                 });
@@ -821,9 +865,10 @@ pub async fn ponlet_join_impl(runtime: &TauriRuntime, invite: String) -> Result<
 
 pub async fn ponlet_send_text_impl(runtime: &TauriRuntime, text: String) -> Result<(), String> {
     let session = runtime.session()?;
+    let scope = &session.scope;
     let transfer_id = new_id();
-    let cancel = runtime.register_transfer(transfer_id);
-    runtime.set_state(SessionState::Transferring {
+    let cancel = runtime.register_transfer(scope, transfer_id);
+    scope.set_state(SessionState::Transferring {
         transfer_id,
         is_incoming: false,
         is_files: false,
@@ -845,21 +890,40 @@ pub async fn ponlet_send_text_impl(runtime: &TauriRuntime, text: String) -> Resu
         Err(error) => {
             return finish_outgoing(
                 runtime,
+                scope,
                 transfer_id,
                 Err(TransferError::Transport(error)),
-                cancel,
+                cancel.clone(),
             )
+            .and_then(|()| {
+                if cancel.load(Ordering::Acquire) {
+                    Err("Transfer cancelled by user".into())
+                } else {
+                    Ok(())
+                }
+            })
         }
     };
     if let Some(callback) = stream.cancellation_callback() {
-        runtime
-            .backend
-            .set_cancellation_callback(transfer_id, callback);
+        scope.set_cancellation_callback(transfer_id, callback);
     }
-    runtime.publish(AppEvent::TransportChanged(stream.transport_path()));
+    scope.emit(AppEvent::TransportChanged(stream.transport_path()));
     let result = send_live_text_stream(&mut stream, &text, cancel.clone()).await;
     let _ = stream.close().await;
-    finish_outgoing(runtime, transfer_id, result.map(|_| ()), cancel)
+    finish_outgoing(
+        runtime,
+        scope,
+        transfer_id,
+        result.map(|_| ()),
+        cancel.clone(),
+    )?;
+    if cancel.load(Ordering::Acquire) {
+        return Err("Transfer cancelled by user".into());
+    }
+    tailsend_telemetry::events::text_message_sent(tailsend_telemetry::length_bucket(
+        text.chars().count(),
+    ));
+    Ok(())
 }
 
 pub async fn ponlet_send_files_impl(
@@ -871,12 +935,19 @@ pub async fn ponlet_send_files_impl(
         return Err("No files selected".to_string());
     }
     let session = runtime.session()?;
+    let scope = &session.scope;
     for request in files {
+        if !scope.is_current() {
+            return Ok(());
+        }
         let source = NativeFileSource::open(&app, request).await?;
+        if !scope.is_current() {
+            return Ok(());
+        }
         let transfer_id = new_id();
-        let cancel = runtime.register_transfer(transfer_id);
+        let cancel = runtime.register_transfer(scope, transfer_id);
         let metadata = source.metadata();
-        runtime.set_state(SessionState::Transferring {
+        scope.set_state(SessionState::Transferring {
             transfer_id,
             is_incoming: false,
             is_files: true,
@@ -899,6 +970,7 @@ pub async fn ponlet_send_files_impl(
             Err(error) => {
                 return finish_outgoing(
                     runtime,
+                    scope,
                     transfer_id,
                     Err(TransferError::Transport(error)),
                     cancel,
@@ -906,12 +978,10 @@ pub async fn ponlet_send_files_impl(
             }
         };
         if let Some(callback) = stream.cancellation_callback() {
-            runtime
-                .backend
-                .set_cancellation_callback(transfer_id, callback);
+            scope.set_cancellation_callback(transfer_id, callback);
         }
-        runtime.publish(AppEvent::TransportChanged(stream.transport_path()));
-        let backend_for_progress = runtime.clone_state();
+        scope.emit(AppEvent::TransportChanged(stream.transport_path()));
+        let backend_for_progress = runtime.clone_state(scope.clone());
         let callback: ProgressCallback = Box::new(move |update| {
             backend_for_progress.publish_progress(update);
         });
@@ -925,7 +995,16 @@ pub async fn ponlet_send_files_impl(
         .await;
         source.close().await;
         let _ = stream.close().await;
-        finish_outgoing(runtime, transfer_id, result.map(|_| ()), cancel)?;
+        finish_outgoing(
+            runtime,
+            scope,
+            transfer_id,
+            result.map(|_| ()),
+            cancel.clone(),
+        )?;
+        if cancel.load(Ordering::Acquire) || !scope.is_current() {
+            return Ok(());
+        }
     }
     Ok(())
 }

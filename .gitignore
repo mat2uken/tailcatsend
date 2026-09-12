@@ -54,5 +54,6 @@ DerivedData/
 *.apk
 apps/tauri/gen/android/app/build/
 apps/tauri/gen/android/app/src/main/jniLibs/
+apps/tauri/gen/android/app/google-services.json
 
 .DS_Store

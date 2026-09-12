@@ -22,7 +22,8 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
 use tailsend_core::{
-    run_host_handshake, run_joiner_handshake, AppEvent, BackendService, SessionState,
+    run_host_handshake, run_joiner_handshake, AppEvent, BackendEvent, BackendService,
+    BackendSession, SessionState,
 };
 use tailsend_platform_api::{
     FileMetadata, FileSource, IncomingFileSink, ReceivedItem, StorageError,
@@ -60,6 +61,8 @@ struct UiSnapshot {
     error: Option<String>,
     transport: TransportPath,
     received: Vec<UiReceivedItem>,
+    received_messages: Vec<tailsend_core::ReceivedMessage>,
+    last_transfer: Option<tailsend_core::TransferOutcome>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -464,6 +467,49 @@ impl TailcatTransport for WebTransport {
     }
 }
 
+impl WebTransport {
+    async fn dial_cancellable(
+        &self,
+        address: &str,
+        port: u16,
+        options: ListenOptions,
+        cancel: Arc<AtomicBool>,
+    ) -> Result<Box<dyn DuplexStream>, TransportError> {
+        if cancel.load(Ordering::Acquire) {
+            return Err(TransportError::Cancelled);
+        }
+        let address = address.to_owned();
+        let dial = Box::pin(async move { WebTransport.dial(&address, port, options).await });
+        let cancellation = Box::pin(async {
+            while !cancel.load(Ordering::Acquire) {
+                let global = js_sys::global();
+                let timer = function(&global, "setTimeout")?;
+                let delay = Promise::new(&mut |resolve, reject| {
+                    if let Err(error) = timer.call2(&global, &resolve, &JsValue::from_f64(20.0)) {
+                        let _ = reject.call1(&JsValue::UNDEFINED, &error);
+                    }
+                });
+                promise(delay.into()).await?;
+            }
+            Ok::<(), TransportError>(())
+        });
+        match futures::future::select(dial, cancellation).await {
+            futures::future::Either::Left((result, _)) => result,
+            futures::future::Either::Right((result, pending)) => {
+                // Go's dial may still finish. Retain its future solely to close
+                // the resulting stream; never attach it to a later session.
+                spawn_local(async move {
+                    if let Ok(mut stream) = pending.await {
+                        let _ = stream.close().await;
+                    }
+                });
+                result?;
+                Err(TransportError::Cancelled)
+            }
+        }
+    }
+}
+
 fn decode_read_into_result(
     value: &JsValue,
 ) -> Result<(usize, Option<(u8, String)>), TransportError> {
@@ -645,7 +691,7 @@ impl WebFileSink {
         )
         .await
         .map_err(|error| StorageError::Io(error.to_string()))?;
-        let temporary_name = format!(".{safe}.{}.part", id_string(new_id()));
+        let temporary_name = format!(".ponlet-{}.part", id_string(new_id()));
         let file = promise(
             function(&directory, "getFileHandle")
                 .map_err(|error| StorageError::Io(error.to_string()))?
@@ -654,14 +700,31 @@ impl WebFileSink {
         )
         .await
         .map_err(|error| StorageError::Io(error.to_string()))?;
-        let writable = promise(
-            function(&file, "createWritable")
-                .map_err(|error| StorageError::Io(error.to_string()))?
-                .call0(&file)
-                .map_err(|error| StorageError::Io(format!("{error:?}")))?,
-        )
-        .await
-        .map_err(|error| StorageError::Io(error.to_string()))?;
+        let writable = async {
+            let create = function(&global, "__ponletCreateReceivedWriter").map_err(|_| {
+                StorageError::Unsupported("OPFS worker writer is unavailable".into())
+            })?;
+            let opened = create
+                .call1(&global, &file)
+                .map_err(|error| StorageError::Io(format!("{error:?}")))?;
+            promise(opened)
+                .await
+                .map_err(|error| StorageError::Io(error.to_string()))
+        }
+        .await;
+        let writable = match writable {
+            Ok(writer) => writer,
+            Err(error) => {
+                if let Ok(remove) = function(&directory, "removeEntry") {
+                    if let Ok(result) =
+                        remove.call1(&directory, &JsValue::from_str(&temporary_name))
+                    {
+                        let _ = promise(result).await;
+                    }
+                }
+                return Err(error);
+            }
+        };
         Ok(Self {
             directory,
             file,
@@ -698,14 +761,25 @@ impl IncomingFileSink for WebFileSink {
             promise(close)
                 .await
                 .map_err(|error| StorageError::Io(error.to_string()))?;
-            let move_method = function(&self.file, "move")
-                .map_err(|_| StorageError::Unsupported("OPFS move is unavailable".into()))?;
-            let moved = move_method
-                .call1(&self.file, &JsValue::from_str(&self.final_name))
+            // The worker holds an origin-wide Web Lock while choosing and
+            // moving to the final name, preserving files from other tabs too.
+            let global = js_sys::global();
+            let commit = function(&global, "__ponletCommitReceivedFile").map_err(|_| {
+                StorageError::Unsupported("safe OPFS commit is unavailable".into())
+            })?;
+            let moved = commit
+                .call3(
+                    &global,
+                    &self.directory,
+                    &self.file,
+                    &JsValue::from_str(&self.final_name),
+                )
                 .map_err(|error| StorageError::Io(format!("{error:?}")))?;
-            promise(moved)
+            self.final_name = promise(moved)
                 .await
-                .map_err(|error| StorageError::Io(error.to_string()))?;
+                .map_err(|error| StorageError::Io(error.to_string()))?
+                .as_string()
+                .ok_or_else(|| StorageError::Io("OPFS commit returned no filename".into()))?;
             Ok(ReceivedItem {
                 name: self.final_name.clone(),
                 size: self.size,
@@ -737,6 +811,7 @@ impl IncomingFileSink for WebFileSink {
 }
 
 struct WebSession {
+    scope: BackendSession,
     listener: Rc<Box<dyn Listener>>,
     peer_address: RefCell<String>,
     peer_info: RefCell<Option<PeerInfo>>,
@@ -749,7 +824,7 @@ struct WebBackend {
     service: BackendService,
     transport: Arc<WebTransport>,
     session: RefCell<Option<Rc<WebSession>>>,
-    subscribers: RefCell<Vec<Function>>,
+    subscribers: Rc<RefCell<Vec<Function>>>,
     received: RefCell<Vec<UiReceivedItem>>,
 }
 
@@ -763,7 +838,7 @@ impl WebBackend {
             service,
             transport: Arc::new(WebTransport),
             session: RefCell::new(None),
-            subscribers: RefCell::new(Vec::new()),
+            subscribers: Rc::new(RefCell::new(Vec::new())),
             received: RefCell::new(Vec::new()),
         })
     }
@@ -781,17 +856,20 @@ impl WebBackend {
             .retain(|subscriber| subscriber.call1(&JsValue::UNDEFINED, &value).is_ok());
     }
 
-    fn state(&self, state: SessionState) {
-        let event = self.service.set_state(state);
-        self.notify(UiEvent::Snapshot {
-            sequence: event.sequence,
-            snapshot: self.snapshot(),
-        });
+    fn event_for(&self, session: &WebSession, event: AppEvent) {
+        if let Some(ordered) = session.scope.emit(event) {
+            self.notify_ordered(ordered);
+        }
     }
 
-    fn event(&self, event: AppEvent) {
-        let ordered = self.service.emit(event.clone());
-        match event {
+    fn state_for(&self, scope: &BackendSession, state: SessionState) {
+        if let Some(ordered) = scope.set_state(state) {
+            self.notify_ordered(ordered);
+        }
+    }
+
+    fn notify_ordered(&self, ordered: BackendEvent) {
+        match ordered.event {
             AppEvent::StateChanged(_) => self.notify(UiEvent::Snapshot {
                 sequence: ordered.sequence,
                 snapshot: self.snapshot(),
@@ -859,8 +937,8 @@ impl WebBackend {
         }
     }
 
-    fn progress(&self, update: ProgressUpdate) {
-        if let Some(event) = self.service.progress(
+    fn progress(&self, scope: &BackendSession, update: ProgressUpdate) {
+        if let Some(event) = scope.progress(
             update.transfer_id,
             update.bytes_transferred,
             update.total_bytes,
@@ -875,12 +953,26 @@ impl WebBackend {
     }
 
     async fn create_invite(self: Rc<Self>) -> Result<(), JsValue> {
-        self.disconnect().await?;
+        let scope = self.service.begin_session();
+        self.close_session().await;
+        if !scope.is_current() {
+            return Err(JsValue::from_str("Operation cancelled"));
+        }
+        self.state_for(&scope, SessionState::Booting);
         let listener: Rc<Box<dyn Listener>> = Rc::new(
             self.transport
                 .listen(listen_options())
                 .await
-                .map_err(to_js)?,
+                .map_err(|error| {
+                    self.state_for(
+                        &scope,
+                        SessionState::Error {
+                            code: 1000,
+                            message: error.to_string(),
+                        },
+                    );
+                    to_js(error)
+                })?,
         );
         let host_address = listener.local_address().to_string();
         let session_id = new_id();
@@ -896,7 +988,12 @@ impl WebBackend {
         let invite_url = invitation
             .to_qr_url(INVITE_BASE_URL)
             .map_err(|error| to_js(error))?;
+        if !scope.is_current() {
+            let _ = listener.close().await;
+            return Err(JsValue::from_str("Operation cancelled"));
+        }
         let session = Rc::new(WebSession {
+            scope: scope.clone(),
             listener,
             peer_address: RefCell::new(String::new()),
             peer_info: RefCell::new(None),
@@ -905,11 +1002,14 @@ impl WebBackend {
             cancel: Arc::new(AtomicBool::new(false)),
         });
         *self.session.borrow_mut() = Some(session.clone());
-        self.state(SessionState::AwaitingPeer {
-            invite_url,
-            expires_at: now + INVITE_LIFETIME_SECS,
-            host_address,
-        });
+        self.state_for(
+            &scope,
+            SessionState::AwaitingPeer {
+                invite_url,
+                expires_at: now + INVITE_LIFETIME_SECS,
+                host_address,
+            },
+        );
         let backend = self.clone();
         spawn_local(async move {
             let info = local_peer_info();
@@ -921,6 +1021,10 @@ impl WebBackend {
                 &Capabilities::default(),
             )
             .await;
+            if !scope.is_current() {
+                let _ = session.listener.close().await;
+                return;
+            }
             match result {
                 Ok(handshake) => {
                     *session.peer_address.borrow_mut() = handshake.peer_address.clone();
@@ -928,37 +1032,64 @@ impl WebBackend {
                     *session.peer_capabilities.borrow_mut() =
                         Some(handshake.peer_capabilities.clone());
                     *session.transport_path.borrow_mut() = handshake.transport_path;
-                    backend.state(SessionState::ConnectedIdle {
-                        peer_info: handshake.peer_info,
-                        peer_capabilities: handshake.peer_capabilities,
-                        peer_address: handshake.peer_address,
-                        transport_path: handshake.transport_path,
-                    });
+                    backend.state_for(
+                        &scope,
+                        SessionState::ConnectedIdle {
+                            peer_info: handshake.peer_info,
+                            peer_capabilities: handshake.peer_capabilities,
+                            peer_address: handshake.peer_address,
+                            transport_path: handshake.transport_path,
+                        },
+                    );
                     accept_loop(backend, session).await;
                 }
-                Err(error) => backend.state(SessionState::Error {
-                    code: 1001,
-                    message: error,
-                }),
+                Err(error) => backend.state_for(
+                    &scope,
+                    SessionState::Error {
+                        code: 1001,
+                        message: error,
+                    },
+                ),
             }
         });
         Ok(())
     }
 
     async fn join(self: Rc<Self>, invite: String) -> Result<(), JsValue> {
-        self.disconnect().await?;
         let invitation =
             InvitationV1::from_url(&invite, unix_seconds()).map_err(|error| to_js(error))?;
-        self.state(SessionState::DialingHost {
-            host_address: invitation.host_address.clone(),
-        });
+        let scope = self.service.begin_session();
+        self.close_session().await;
+        if !scope.is_current() {
+            return Err(JsValue::from_str("Operation cancelled"));
+        }
+        self.state_for(
+            &scope,
+            SessionState::DialingHost {
+                host_address: invitation.host_address.clone(),
+            },
+        );
         let listener: Rc<Box<dyn Listener>> = Rc::new(
             self.transport
                 .listen(listen_options())
                 .await
-                .map_err(to_js)?,
+                .map_err(|error| {
+                    self.state_for(
+                        &scope,
+                        SessionState::Error {
+                            code: 1000,
+                            message: error.to_string(),
+                        },
+                    );
+                    to_js(error)
+                })?,
         );
+        if !scope.is_current() {
+            let _ = listener.close().await;
+            return Err(JsValue::from_str("Operation cancelled"));
+        }
         let session = Rc::new(WebSession {
+            scope: scope.clone(),
             listener,
             peer_address: RefCell::new(invitation.host_address.clone()),
             peer_info: RefCell::new(None),
@@ -967,7 +1098,7 @@ impl WebBackend {
             cancel: Arc::new(AtomicBool::new(false)),
         });
         *self.session.borrow_mut() = Some(session.clone());
-        self.state(SessionState::Authenticating);
+        self.state_for(&scope, SessionState::Authenticating);
         let transport: Arc<dyn TailcatTransport> = self.transport.clone();
         let result = run_joiner_handshake(
             &transport,
@@ -977,18 +1108,25 @@ impl WebBackend {
             &Capabilities::default(),
         )
         .await;
+        if !scope.is_current() {
+            let _ = session.listener.close().await;
+            return Err(JsValue::from_str("Operation cancelled"));
+        }
         match result {
             Ok(handshake) => {
                 *session.peer_info.borrow_mut() = Some(handshake.peer_info.clone());
                 *session.peer_capabilities.borrow_mut() = Some(handshake.peer_capabilities.clone());
                 *session.peer_address.borrow_mut() = handshake.peer_address.clone();
                 *session.transport_path.borrow_mut() = handshake.transport_path;
-                self.state(SessionState::ConnectedIdle {
-                    peer_info: handshake.peer_info,
-                    peer_capabilities: handshake.peer_capabilities,
-                    peer_address: handshake.peer_address,
-                    transport_path: handshake.transport_path,
-                });
+                self.state_for(
+                    &scope,
+                    SessionState::ConnectedIdle {
+                        peer_info: handshake.peer_info,
+                        peer_capabilities: handshake.peer_capabilities,
+                        peer_address: handshake.peer_address,
+                        transport_path: handshake.transport_path,
+                    },
+                );
                 let backend = self.clone();
                 spawn_local(async move { accept_loop(backend, session).await });
                 Ok(())
@@ -996,10 +1134,13 @@ impl WebBackend {
             Err(error) => {
                 let _ = session.listener.close().await;
                 *self.session.borrow_mut() = None;
-                self.state(SessionState::Error {
-                    code: 1002,
-                    message: error.clone(),
-                });
+                self.state_for(
+                    &scope,
+                    SessionState::Error {
+                        code: 1002,
+                        message: error.clone(),
+                    },
+                );
                 Err(JsValue::from_str(&error))
             }
         }
@@ -1010,35 +1151,51 @@ impl WebBackend {
             .session
             .borrow()
             .clone()
+            .filter(|session| session.scope.is_current() && session.peer_info.borrow().is_some())
             .ok_or_else(|| JsValue::from_str("No connected peer"))?;
         let id = new_id();
-        let cancel = self.service.register_transfer(id);
-        self.state(SessionState::Transferring {
-            transfer_id: id,
-            is_incoming: false,
-            is_files: false,
-            bytes_done: 0,
-            bytes_total: text.len() as u64,
-            current_item_name: "Message".into(),
-        });
+        let cancel = session.scope.register_transfer(id);
+        self.state_for(
+            &session.scope,
+            SessionState::Transferring {
+                transfer_id: id,
+                is_incoming: false,
+                is_files: false,
+                bytes_done: 0,
+                bytes_total: text.len() as u64,
+                current_item_name: "Message".into(),
+            },
+        );
         let address = session.peer_address.borrow().clone();
         let mut stream = match self
             .transport
-            .dial(&address, TEXT_PORT, listen_options())
+            .dial_cancellable(&address, TEXT_PORT, listen_options(), cancel.clone())
             .await
         {
             Ok(stream) => stream,
             Err(error) => {
-                return self.finish(id, Err(TransferError::Transport(error)));
+                self.finish(&session, id, Err(TransferError::Transport(error)))?;
+                return if cancel.load(Ordering::Acquire) {
+                    Err(JsValue::from_str("Transfer cancelled by user"))
+                } else {
+                    Ok(())
+                };
             }
         };
         if let Some(callback) = stream.cancellation_callback() {
-            self.service.set_cancellation_callback(id, callback);
+            session.scope.set_cancellation_callback(id, callback);
         }
-        self.event(AppEvent::TransportChanged(stream.transport_path()));
-        let result = send_live_text_stream(&mut stream, &text, cancel).await;
+        self.event_for(
+            &session,
+            AppEvent::TransportChanged(stream.transport_path()),
+        );
+        let result = send_live_text_stream(&mut stream, &text, cancel.clone()).await;
         let _ = stream.close().await;
-        self.finish(id, result.map(|_| ()))
+        self.finish(&session, id, result.map(|_| ()))?;
+        if cancel.load(Ordering::Acquire) {
+            return Err(JsValue::from_str("Transfer cancelled by user"));
+        }
+        Ok(())
     }
 
     async fn send_files(self: Rc<Self>, files: JsValue) -> Result<(), JsValue> {
@@ -1046,9 +1203,13 @@ impl WebBackend {
             .session
             .borrow()
             .clone()
+            .filter(|session| session.scope.is_current() && session.peer_info.borrow().is_some())
             .ok_or_else(|| JsValue::from_str("No connected peer"))?;
         let files = js_sys::Array::from(&files);
         for file in files.iter() {
+            if !session.scope.is_current() {
+                return Ok(());
+            }
             let name = property(&file, "name")
                 .map_err(to_js)?
                 .as_string()
@@ -1069,59 +1230,84 @@ impl WebBackend {
                 },
             };
             let id = new_id();
-            let cancel = self.service.register_transfer(id);
-            self.state(SessionState::Transferring {
-                transfer_id: id,
-                is_incoming: false,
-                is_files: true,
-                bytes_done: 0,
-                bytes_total: size,
-                current_item_name: name,
-            });
+            let cancel = session.scope.register_transfer(id);
+            self.state_for(
+                &session.scope,
+                SessionState::Transferring {
+                    transfer_id: id,
+                    is_incoming: false,
+                    is_files: true,
+                    bytes_done: 0,
+                    bytes_total: size,
+                    current_item_name: name,
+                },
+            );
             let mut source: Box<dyn FileSource> = Box::new(source);
             let address = session.peer_address.borrow().clone();
             let mut stream = match self
                 .transport
-                .dial(&address, FILE_PORT, listen_options())
+                .dial_cancellable(&address, FILE_PORT, listen_options(), cancel.clone())
                 .await
             {
                 Ok(stream) => stream,
                 Err(error) => {
-                    return self.finish(id, Err(TransferError::Transport(error)));
+                    return self.finish(&session, id, Err(TransferError::Transport(error)));
                 }
             };
             if let Some(callback) = stream.cancellation_callback() {
-                self.service.set_cancellation_callback(id, callback);
+                session.scope.set_cancellation_callback(id, callback);
             }
-            self.event(AppEvent::TransportChanged(stream.transport_path()));
+            self.event_for(
+                &session,
+                AppEvent::TransportChanged(stream.transport_path()),
+            );
             let backend = self.clone();
-            let callback: ProgressCallback = Box::new(move |update| backend.progress(update));
-            let result =
-                send_named_file_stream(&mut stream, &mut source, id, cancel, Some(&callback)).await;
+            let scope = session.scope.clone();
+            let callback: ProgressCallback =
+                Box::new(move |update| backend.progress(&scope, update));
+            let result = send_named_file_stream(
+                &mut stream,
+                &mut source,
+                id,
+                cancel.clone(),
+                Some(&callback),
+            )
+            .await;
             source.close().await;
             let _ = stream.close().await;
-            self.finish(id, result.map(|_| ()))?;
+            self.finish(&session, id, result.map(|_| ()))?;
+            if cancel.load(Ordering::Acquire) || !session.scope.is_current() {
+                return Ok(());
+            }
         }
         Ok(())
     }
 
-    fn finish(&self, id: [u8; 16], result: Result<(), TransferError>) -> Result<(), JsValue> {
-        let cancelled = result.is_err() && self.service.is_cancelled(id);
+    fn finish(
+        &self,
+        session: &WebSession,
+        id: [u8; 16],
+        result: Result<(), TransferError>,
+    ) -> Result<(), JsValue> {
+        let cancelled = result.is_err() && session.scope.is_cancelled(id);
         let failed = result.is_err() && !cancelled;
         if let Err(error) = result {
-            self.event(AppEvent::TransferCancelled {
-                transfer_id: id,
-                reason: if cancelled {
-                    "Transfer cancelled by user".to_string()
-                } else {
-                    error.to_string()
+            self.event_for(
+                &session,
+                AppEvent::TransferCancelled {
+                    transfer_id: id,
+                    reason: if cancelled {
+                        "Transfer cancelled by user".to_string()
+                    } else {
+                        error.to_string()
+                    },
                 },
-            });
+            );
         } else {
-            self.event(AppEvent::TransferCompleted { transfer_id: id });
+            self.event_for(&session, AppEvent::TransferCompleted { transfer_id: id });
         }
         self.service.finish_transfer(id);
-        self.restore_connected_idle();
+        self.restore_connected_idle(session, id);
         if failed {
             Err(JsValue::from_str("Transfer failed"))
         } else {
@@ -1129,51 +1315,52 @@ impl WebBackend {
         }
     }
 
-    async fn disconnect(&self) -> Result<(), JsValue> {
-        if let SessionState::Transferring { transfer_id, .. } = self.service.snapshot().app.state {
-            let _ = self.service.cancel(transfer_id);
-        }
-        if let Some(session) = self.session.borrow_mut().take() {
+    async fn close_session(&self) {
+        // Release the RefCell borrow before awaiting listener shutdown.
+        let previous = self.session.borrow_mut().take();
+        if let Some(session) = previous {
             session.cancel.store(true, Ordering::Release);
             let _ = session.listener.close().await;
         }
-        self.state(SessionState::Disconnected {
-            reason: "disconnected".into(),
-        });
+    }
+
+    async fn disconnect(&self) -> Result<(), JsValue> {
+        let scope = self.service.begin_session();
+        self.state_for(
+            &scope,
+            SessionState::Disconnected {
+                reason: "disconnected".into(),
+            },
+        );
+        self.close_session().await;
         Ok(())
     }
 
-    fn restore_connected_idle(&self) {
-        let Some(session) = self.session.borrow().clone() else {
-            return;
-        };
-        let (Some(peer_info), Some(peer_capabilities)) = (
-            session.peer_info.borrow().clone(),
-            session.peer_capabilities.borrow().clone(),
-        ) else {
-            return;
-        };
-        let peer_address = session.peer_address.borrow().clone();
-        let transport_path = *session.transport_path.borrow();
-        self.state(SessionState::ConnectedIdle {
-            peer_info,
-            peer_capabilities,
-            peer_address,
-            transport_path,
-        });
+    fn restore_connected_idle(&self, session: &WebSession, id: [u8; 16]) {
+        if let Some(ordered) = session.scope.restore_connected_idle(id) {
+            self.notify_ordered(ordered);
+        }
     }
 }
 
 async fn accept_loop(backend: Rc<WebBackend>, session: Rc<WebSession>) {
     loop {
-        if session.cancel.load(Ordering::Acquire) {
+        if session.cancel.load(Ordering::Acquire) || !session.scope.is_current() {
             return;
         }
         let incoming = match session.listener.accept().await {
             Ok(value) => value,
             Err(_) => return,
         };
-        backend.event(AppEvent::TransportChanged(incoming.stream.transport_path()));
+        if !session.scope.is_current() {
+            let mut stream = incoming.stream;
+            let _ = stream.close().await;
+            return;
+        }
+        backend.event_for(
+            &session,
+            AppEvent::TransportChanged(incoming.stream.transport_path()),
+        );
         let backend_for_stream = backend.clone();
         let session_for_stream = session.clone();
         spawn_local(async move {
@@ -1198,32 +1385,39 @@ async fn receive_text(
     session: Rc<WebSession>,
     mut stream: Box<dyn DuplexStream>,
 ) {
+    if !session.scope.is_current() {
+        let _ = stream.close().await;
+        return;
+    }
     let id = new_id();
-    let cancel = backend.service.register_transfer(id);
+    let cancel = session.scope.register_transfer(id);
     if let Some(callback) = stream.cancellation_callback() {
-        backend.service.set_cancellation_callback(id, callback);
+        session.scope.set_cancellation_callback(id, callback);
     }
     let result = receive_live_text_stream(&mut stream, cancel, |text| {
-        backend.event(AppEvent::TextReceived { text })
+        backend.event_for(&session, AppEvent::TextReceived { text })
     })
     .await;
     let transport_path = stream.transport_path();
     *session.transport_path.borrow_mut() = transport_path;
-    backend.event(AppEvent::TransportChanged(transport_path));
+    backend.event_for(&session, AppEvent::TransportChanged(transport_path));
     let _ = stream.close().await;
     if let Err(error) = result {
-        let cancelled = backend.service.is_cancelled(id);
-        backend.event(AppEvent::TransferCancelled {
-            transfer_id: id,
-            reason: if cancelled {
-                "Transfer cancelled by user".to_string()
-            } else {
-                error.to_string()
+        let cancelled = session.scope.is_cancelled(id);
+        backend.event_for(
+            &session,
+            AppEvent::TransferCancelled {
+                transfer_id: id,
+                reason: if cancelled {
+                    "Transfer cancelled by user".to_string()
+                } else {
+                    error.to_string()
+                },
             },
-        });
+        );
     }
     backend.service.finish_transfer(id);
-    backend.restore_connected_idle();
+    backend.restore_connected_idle(&session, id);
 }
 
 async fn receive_file(
@@ -1231,24 +1425,33 @@ async fn receive_file(
     session: Rc<WebSession>,
     mut stream: Box<dyn DuplexStream>,
 ) {
+    if !session.scope.is_current() {
+        let _ = stream.close().await;
+        return;
+    }
     let id = new_id();
-    let cancel = backend.service.register_transfer(id);
+    let cancel = session.scope.register_transfer(id);
     if let Some(callback) = stream.cancellation_callback() {
-        backend.service.set_cancellation_callback(id, callback);
+        session.scope.set_cancellation_callback(id, callback);
     }
     let progress_backend = backend.clone();
-    let callback: ProgressCallback = Box::new(move |update| progress_backend.progress(update));
+    let scope = session.scope.clone();
+    let callback: ProgressCallback =
+        Box::new(move |update| progress_backend.progress(&scope, update));
     let result = receive_named_file_stream_with_factory(
         &mut stream,
         |header| {
-            backend.state(SessionState::Transferring {
-                transfer_id: id,
-                is_incoming: true,
-                is_files: true,
-                bytes_done: 0,
-                bytes_total: header.size,
-                current_item_name: header.name.clone(),
-            });
+            backend.state_for(
+                &session.scope,
+                SessionState::Transferring {
+                    transfer_id: id,
+                    is_incoming: true,
+                    is_files: true,
+                    bytes_done: 0,
+                    bytes_total: header.size,
+                    current_item_name: header.name.clone(),
+                },
+            );
             let name = header.name.clone();
             async move {
                 WebFileSink::prepare(&name)
@@ -1264,26 +1467,32 @@ async fn receive_file(
     .await;
     let transport_path = stream.transport_path();
     *session.transport_path.borrow_mut() = transport_path;
-    backend.event(AppEvent::TransportChanged(transport_path));
+    backend.event_for(&session, AppEvent::TransportChanged(transport_path));
     let _ = stream.close().await;
     match result {
         Ok(received) => {
-            backend.event(AppEvent::FilesReceived {
-                items: vec![received.item],
-            });
-            backend.event(AppEvent::TransferCompleted { transfer_id: id });
+            backend.event_for(
+                &session,
+                AppEvent::FilesReceived {
+                    items: vec![received.item],
+                },
+            );
+            backend.event_for(&session, AppEvent::TransferCompleted { transfer_id: id });
         }
-        Err(error) => backend.event(AppEvent::TransferCancelled {
-            transfer_id: id,
-            reason: if backend.service.is_cancelled(id) {
-                "Transfer cancelled by user".to_string()
-            } else {
-                error.to_string()
+        Err(error) => backend.event_for(
+            &session,
+            AppEvent::TransferCancelled {
+                transfer_id: id,
+                reason: if session.scope.is_cancelled(id) {
+                    "Transfer cancelled by user".to_string()
+                } else {
+                    error.to_string()
+                },
             },
-        }),
+        ),
     }
     backend.service.finish_transfer(id);
-    backend.restore_connected_idle();
+    backend.restore_connected_idle(&session, id);
 }
 
 fn install_function(object: &Object, name: &str, function: &Function) -> Result<(), JsValue> {
@@ -1525,6 +1734,8 @@ fn snapshot_from_service(service: &BackendService, received: &[UiReceivedItem]) 
         error,
         transport: app.transport_path,
         received: received.to_vec(),
+        received_messages: snapshot.received_messages,
+        last_transfer: snapshot.last_transfer,
     }
 }
 

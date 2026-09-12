@@ -1,0 +1,14 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <application>
+        <provider android:name="jp.yasagure.ponlet.platform.ReceivedFileProvider"
+            android:authorities="${applicationId}.ponlet.received"
+            android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/ponlet_received_paths" />
+        </provider>
+        <!-- Restore the saved choice before enabling either Firebase collector. -->
+        <meta-data android:name="firebase_analytics_collection_enabled" android:value="false" />
+        <meta-data android:name="firebase_crashlytics_collection_enabled" android:value="false" />
+    </application>
+</manifest>

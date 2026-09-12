@@ -1,0 +1,4 @@
+/.tauri/
+/android/.tauri/
+/ios/.build/
+/ios/Package.resolved

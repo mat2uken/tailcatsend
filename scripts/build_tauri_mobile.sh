@@ -33,6 +33,8 @@ lib_dir=""
 lib_name="tailcat"
 
 if [[ "${platform}" == "ios" || "${platform}" == "ios-sim" ]]; then
+  # Swift package dependencies must use the same deployment target as the app.
+  export IPHONEOS_DEPLOYMENT_TARGET=17.0
   if [[ "${platform}" == "ios" ]]; then
     sdk="iphoneos"
     min_flag="-miphoneos-version-min=17.0"

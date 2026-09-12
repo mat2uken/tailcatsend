@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use tailsend_transport_api::TransportPath;
 
 pub const DERP_MAP_URL: &str = "https://tailcat.dev/derpmap.json";
-pub const INVITE_BASE_URL: &str = "https://ponlet.pages.dev";
+pub const INVITE_BASE_URL: &str = "https://ponlet.mat2uken.app";
 pub const INVITE_LIFETIME_SECS: u64 = 600;
 pub const QUEUE_LIMIT: usize = 32;
 
@@ -21,6 +21,8 @@ pub struct UiSnapshot {
     pub error: Option<String>,
     pub transport: TransportPath,
     pub received: Vec<UiReceivedItem>,
+    pub received_messages: Vec<tailsend_core::ReceivedMessage>,
+    pub last_transfer: Option<tailsend_core::TransferOutcome>,
 }
 
 #[derive(Debug, Clone, Serialize)]

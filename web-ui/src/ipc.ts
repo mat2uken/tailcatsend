@@ -492,7 +492,7 @@ export class BinaryRpcClient {
       if (!event || !Number.isSafeInteger(event.sequence) || event.sequence <= expected) {
         continue;
       }
-      if (event.sequence > expected + 1) {
+      if (event.type !== "snapshot" && event.sequence > expected + 1) {
         this.requestResync();
         return;
       }
@@ -517,6 +517,9 @@ export class BinaryRpcClient {
     const resync = this.call<BackendSnapshot>(Opcode.Snapshot)
       .then((snapshot) => {
         if (this.disposed || this.listeners.size === 0) {
+          return;
+        }
+        if (snapshot.sequence < this.lastSequence) {
           return;
         }
         this.lastSequence = snapshot.sequence;
