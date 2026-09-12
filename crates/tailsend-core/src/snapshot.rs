@@ -11,6 +11,7 @@ pub struct AppSnapshot {
     pub can_disconnect: bool,
     pub can_send: bool,
     pub pending_offer: Option<PendingOffer>,
+    /// Last path observed by this endpoint; the peer may report another path.
     pub transport_path: TransportPath,
 }
 

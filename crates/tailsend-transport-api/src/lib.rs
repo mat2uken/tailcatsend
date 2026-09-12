@@ -50,7 +50,10 @@ pub enum TransportError {
     Internal(String),
 }
 
-/// The path currently carrying a Tailcat stream.
+/// The path currently carrying a Tailcat stream at this endpoint.
+///
+/// A peer can observe a different path for the same connection, so callers
+/// should label this as a local observation instead of a peer-wide result.
 ///
 /// The numeric values are kept aligned with the existing daemon telemetry:
 /// direct UDP is `0`, WebRTC DataChannel is `1`, and DERP is `2`.  Unknown is

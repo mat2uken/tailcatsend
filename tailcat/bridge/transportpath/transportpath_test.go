@@ -14,8 +14,10 @@ func TestFromEndpoint(t *testing.T) {
 	}{
 		{name: "empty", endpoint: "", want: Unknown},
 		{name: "direct udp", endpoint: "192.0.2.10:41641", want: DirectUDP},
+		{name: "trimmed direct udp", endpoint: " 192.0.2.10:41641 ", want: DirectUDP},
 		{name: "direct udp with annotation", endpoint: "192.0.2.10:41641 (peer)", want: DirectUDP},
 		{name: "webrtc", endpoint: tailcfg.WebRTCMagicIP + ":443", want: WebRTC},
+		{name: "webrtc with annotation", endpoint: tailcfg.WebRTCMagicIP + ":443 (198.51.100.8:443)", want: WebRTC},
 	}
 
 	for _, test := range tests {
@@ -36,6 +38,7 @@ func TestFromPing(t *testing.T) {
 		want     uint8
 	}{
 		{name: "endpoint wins", endpoint: "192.0.2.10:41641", relay: "derp-1", usedDERP: true, want: DirectUDP},
+		{name: "webrtc endpoint wins", endpoint: tailcfg.WebRTCMagicIP + ":443", relay: "derp-1", usedDERP: true, want: WebRTC},
 		{name: "relay fallback", relay: "derp-1", want: DERP},
 		{name: "derp flag fallback", usedDERP: true, want: DERP},
 		{name: "unknown", want: Unknown},

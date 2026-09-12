@@ -63,6 +63,9 @@ export function createSettingsDialog(options: SettingsDialogOptions = {}): Setti
       telemetryToggle.checked = await options.getTelemetryEnabled!();
       telemetryToggle.disabled = false;
     } catch (error) {
+      // A native preference read can fail while the rest of the app is usable.
+      // Keep the control safe to retry and tell the user why it is unavailable.
+      telemetryNotice.hidden = false;
       options.onError?.(error);
     } finally {
       telemetryBusy = false;
@@ -117,7 +120,8 @@ export function createSettingsDialog(options: SettingsDialogOptions = {}): Setti
     const enabled = telemetryToggle.checked;
     telemetryBusy = true;
     telemetryToggle.disabled = true;
-    void options.setTelemetryEnabled!(enabled)
+    void Promise.resolve()
+      .then(() => options.setTelemetryEnabled!(enabled))
       .catch((error: unknown) => {
         telemetryToggle.checked = !enabled;
         options.onError?.(error);

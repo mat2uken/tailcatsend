@@ -31,6 +31,9 @@ func FromEndpoint(endpoint string) uint8 {
 }
 
 func FromPing(endpoint, peerRelay string, usedDERP bool) uint8 {
+	// PingResult documents Endpoint as the path that carried the reply.  A
+	// relay field can remain populated as discovery metadata, so a concrete
+	// endpoint takes precedence over the fallback relay indicators.
 	if path := FromEndpoint(endpoint); path != Unknown {
 		return path
 	}

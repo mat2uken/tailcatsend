@@ -291,7 +291,11 @@ van.derive(() => {
             : value.state === "awaiting-peer"
               ? uiText.waiting
               : uiText.preparing);
-  transport.textContent = transportLabel(value.transport);
+  const route = transportLabel(value.transport);
+  transport.textContent =
+    value.transport === "unknown" ? route : `${uiText.transportObserved}: ${route}`;
+  transport.title = uiText.transportHint;
+  transport.setAttribute("aria-label", `${uiText.transportObserved}: ${route}`);
   peer.textContent = value.peerName || uiText.app;
   invite.hidden = !value.inviteUrl;
   invite.disabled = expired;

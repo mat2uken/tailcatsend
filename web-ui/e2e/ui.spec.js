@@ -164,6 +164,8 @@ test("restores invitation waiting, live language, expiry and hidden controls", a
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("combobox", { name: "Language", exact: true }).selectOption("ja");
   await expect(page.locator("html")).toHaveAttribute("lang", "ja");
+  await page.locator("#settings-telemetry-toggle").check();
+  expect(await page.evaluate(() => window.__testPonlet.calls)).toContainEqual(["telemetry", true]);
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
   await expect(page.getByRole("button", { name: "貼り付けて接続", exact: true })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem("ponlet.language"))).toBe("ja");
@@ -211,12 +213,17 @@ test("restores clipboard actions, history export and clearing, newest position a
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await page.getByRole("button", { name: "Copy", exact: true }).click();
   await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "Share", exact: true }).click();
   expect(await page.evaluate(() => window.__testPonlet.calls)).toContainEqual([
     "copy",
     "[Me]: sent before any reply",
   ]);
   expect(await page.evaluate(() => window.__testPonlet.calls)).toContainEqual([
     "save",
+    "[Me]: sent before any reply",
+  ]);
+  expect(await page.evaluate(() => window.__testPonlet.calls)).toContainEqual([
+    "share",
     "[Me]: sent before any reply",
   ]);
   await page.getByRole("button", { name: "Paste", exact: true }).click();
@@ -257,6 +264,18 @@ test("restores clipboard actions, history export and clearing, newest position a
   await expect(page.locator(".transfer-name")).toHaveText("report.bin");
   await page.getByRole("button", { name: "Dismiss", exact: true }).click();
   await expect(page.locator(".transfer-details")).toBeHidden();
+});
+
+test("explains that the displayed route is observed by this endpoint", async ({ page }) => {
+  await installBackend(page, { connected: true });
+  await page.goto("/");
+  await page.evaluate(() => window.__testPonlet.publish({ transport: "webrtc" }));
+  const route = page.locator(".transport-path");
+  await expect(route).toHaveText("Path observed on this device: WebRTC DataChannel");
+  await expect(route).toHaveAttribute("title", /last path observed by this device/);
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.getByRole("combobox", { name: "Language", exact: true }).selectOption("ja");
+  await expect(route).toHaveText("この端末で確認した経路: WebRTC DataChannel");
 });
 
 test("starts waiting while telemetry preference is still loading", async ({ page }) => {

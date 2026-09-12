@@ -107,14 +107,28 @@ nativeの通知変換では現在のsnapshotに過去のsequenceを付けてい�
 | Android実機 | 最終APK SHA-256 `d6eede2abca700411815a4ef50106f27058079d771b2cca29ee59c5023dd2cea`。各回の起動後にQR再生成2回を行い、WebRTC 10回・DERP 3回すべてで双方向テキスト、双方向131071バイトファイルとSHA-256一致を確認。64MiB送信取消後の再転送も成功。 | 転送取消は開始直後。Androidからのファイル送信は受信済みテストファイルのFileRequestをnative APIへ渡す方法。Document Pickerの操作自体は未検証。 |
 | Androidカメラ・ファイル表示 | 先行APK `d7077d5…`で実カメラ映像、閉じる→再表示→閉じるを確認。受信ファイルのOpenが`ACTION_VIEW`とFileProvider URI/read grantを渡し、OSの選択画面を表示。 | 最終APKでこのOS画面操作は再実行していない。`.bin`の内容表示と光学的なQR読取は未検証。 |
 | macOS実機 | 最終Release `.app`の起動、QR待受・再生成、本番Webとの双方向テキストを確認。同名の52/66バイトを即時保存して両方を保持。受信ファイルをTextEditで開いて日本語内容を確認。OSファイル選択から66バイトを本番Webへ返送し、ダウンロード内容もSHA-256一致。 | app executable SHA-256 `87b46f46be7a3957d30d6166bac37312f3384bc5d05bc1bc0a01542574c7b39d`。ad-hoc署名を検査。 |
-| iOS | 最終コードでFirebaseを含むCI配布ビルドとローカル開発ビルド、IPA生成、codesign検査が成功。選択した19個のbundleを梱包。 | XSは当初ロック中。その後ロック解除不要になったが別作業の実機テスト使用中だったため、最終appのinstall/launchを行わなかった。12 Proはロック中。実機のカメラ・ファイル表示・通信は未検証。 |
+| iOSビルド・起動 | 最終コードでFirebaseを含むCI配布ビルドとローカル開発ビルド、IPA生成、codesign検査が成功。選択した19個のbundleを梱包。9/12にユーザーが接続・ロック解除したiPhone 12 Proへ同じIPAをインストールし、起動成功。 | iOS 26.6.1 / 23G83。XSは別作業の実機テスト使用中のため使用していない。 |
+| iOS実通信 | 同じ最終IPAのiPhone 12 Proと本番Webで、WebRTC・DERPの各1回が成功。各回でQR再生成2回、双方向日本語テキスト、双方向131071バイトのファイルとSHA-256一致、同名88/87バイトの保存後再読込と両方の内容保持を確認。 | iOSの送信は受信済みファイルのFileRequestをnative APIへ渡す方法。ボタン操作はWebView内の操作で、指による実操作とは区別する。iOSでの転送取消は未検証。 |
+| iOS画面 | iPhone 12 Pro専用の接続で `tauri://localhost` と実ページの `navigator.platform = iPhone` を確認。QR待受、実カメラ映像、閉じる→再表示→閉じるを確認。同名の2件目をOSプレビューで開き、日本語本文を実機画面で確認。 | UI呼出しはCDP、OS画面の証跡はDVTの実機スクリーンショット。指による操作、光学的なQR読取、Document Pickerからのファイル選択は未検証。XCTestは4件とも `Timed out while enabling automation mode` でRunner初期化に失敗し、試験本体に到達していない。 |
 | Windows/Linux | 上記CIで最終配布用ビルド成功。 | 実機UIとOS間通信は未検証。 |
 
 Android最終検証は `/tmp/ponlet-parity-validation/final19-android-default-{1..10}.log`、`final19-android-derp-{1..3}.log`、`final19-android-cancel.log`。各実行でメッセージとファイル名を変え、過去の受信履歴を成功と誤認しない。画面とIMEの位置を測って実ADBタップし、ブラウザのファイル選択は有効なボタンから行う。双方向ファイルのSHA-256は全13回で`e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19`。
 
 修正前は`baseline16-7.log`で初回テキストの欠落が再現した。修正後の`final18`の2回目はCDP接続前に外部のADB force-stopが入り、実通信を評価できなかった。後続`final19`では各操作の時刻とlogcatを記録して全回を逐次実行し、13回の通信と取消試験が失敗なく完了した。
 
-Apple保存修正時のnative unitは16件成功（Apple renameの3件、並行保存、既存ファイル・ディレクトリ・symlink保持を含む）。最終コードのローカルiOS IPA SHA-256は`84a883aa2492d0b2121406608cdded222c477551c0d2dafe8c15ef0a9bf583bf`。実機には未インストール。
+Apple保存修正時のnative unitは16件成功（Apple renameの3件、並行保存、既存ファイル・ディレクトリ・symlink保持を含む）。iPhone 12 ProにインストールしたローカルiOS IPA SHA-256は`84a883aa2492d0b2121406608cdded222c477551c0d2dafe8c15ef0a9bf583bf`。
+
+iPhone 12 Proのインストール・起動は `/tmp/ponlet-parity-validation/final20-{install,launch}.json`、端末を識別したWebView画面操作は `final21-ios-{identity,ui,camera}.log` と `final21-iphone12pro.png` に記録。最初の `final20` のUI操作は以前のAndroid用CDPポートを参照していたため、iOSの検証結果から除外した。以降はUDIDを指定して別ポートに作った専用接続を使う。実ページのUAには `iPhone OS 18_7` が含まれるが、OSバージョンは `devicectl device info details` の26.6.1を採用する。
+
+実通信の再実行用に `tests/e2e/test_ios_browser_real.mjs` を追加した。専用CDPプロセスのUDID/ポートと実ページのiPhone/iPad識別を操作前に検査する。双方向テキスト、131071バイトの双方向転送、同名2件を保存した後の両ファイルの再読込・SHA-256照合を行う。実行手順は [IOS_DEVICE_VALIDATION.md](../tests/e2e/IOS_DEVICE_VALIDATION.md)。`PONLET_IOS_UDID` を必須とし、接続先と証跡の保存先を明示できる。DERP指定はWeb側のWebRTCを無効にして両端のDERP表示も検査する。
+
+設定・補助操作と経路表示の再確認手順は [SETTINGS_ROUTE_VALIDATION.md](../tests/e2e/SETTINGS_ROUTE_VALIDATION.md) にまとめた。設定の読み書き失敗を含むUI回帰、通常経路／DERPの実通信、端点ごとの `transport` と保存内容を同じ記録へ残す。画面の経路ラベルは「この端末で確認した経路」と明示し、相手側の表示と異なる場合があることを説明する。
+
+iOSの通信成功は `/tmp/ponlet-parity-validation/ios12-final/default/result.json` (16:02 JST)、`derp2/result.json` (16:03 JST) に記録。各回の保存ファイルをホスト側でも再読込し、131071バイトは `e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19`、同名88/87バイトはそれぞれ `dde26c699be3d5c7a3266a97857a016afe29a239a3ae63abdef97cfee37e212e` / `fcfb86131d7d735d24785d59be03a9feb32f5eb96365ffdc73585dcde927734b` と一致した。DERP初回はWeb→iOS受信まで成功したが、CDPのclickが送信ボタン以外の要素へ届いて再送信が始まらなかった。検証側を有効なDOMボタンのclickへ直して再実行した。通信不具合の再現とは扱わない。
+
+アプリ再起動後、最終検証コードでも同じ双方向転送と保存内容の検査が成功した (`default-final/result.json`、16:24 JST)。この標準設定の再試験ではWeb側の経路表示はWebRTC、iOS側はDERPであり、両端で同じ表示だったとは記録しない。各端点が最後に報告した経路として保持し、packet単位の経路はこの試験では検証していない。
+
+実カメラ映像の初回/再表示は `native-fallback/camera-open.png` / `camera-reopen.png`、日本語本文のOSプレビューは `native-fallback/received-preview.png` に記録した。いずれもUDIDを明示したDVTで取得し、画像自体を確認した。OSプレビュー終了後はPonletだけを再起動して通常のQR待受へ戻した。OSの閉じるボタン操作が成功した証拠とはしていない。
 
 macOS最終ファイル照合は`macos-production-roundtrip-09b3146.json`に記録。最初の52バイトは`6c891aac58cccef1a811ad49597b03d18271c53f95707662e60518a545ab9346`、同名の66バイトとWebへの返送結果はどちらも`5c32f2b72d7dc570fda1ee2bb6364951a87641a38a804384d029022e4392fa44`。
 

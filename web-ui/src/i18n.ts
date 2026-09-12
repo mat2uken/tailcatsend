@@ -54,6 +54,9 @@ const translations = {
     scannerStarting: "カメラを準備しています…",
     scannerReady: "相手のQRコードを枠内に映してください",
     telemetryUnavailable: "この環境では利用状況データの送信を利用できません。",
+    transportObserved: "この端末で確認した経路",
+    transportUnknown: "経路を確認中…",
+    transportHint: "この端末が最後に確認した経路です。相手側と異なることがあります。",
 
     app: "Ponlet",
     cancel: "キャンセル",
@@ -125,6 +128,9 @@ const translations = {
     scannerStarting: "Starting camera…",
     scannerReady: "Place the peer’s QR code inside the frame",
     telemetryUnavailable: "Usage data collection is unavailable in this environment.",
+    transportObserved: "Path observed on this device",
+    transportUnknown: "Checking path…",
+    transportHint: "This is the last path observed by this device; the peer may show another path.",
 
     app: "Ponlet",
     cancel: "Cancel",
@@ -186,7 +192,7 @@ export function transportLabel(path: TransportPath): string {
     return isJapanese ? "WebRTC DataChannel" : "WebRTC DataChannel";
   }
   if (path === "derp") {
-    return "DERP relay";
+    return isJapanese ? "DERPリレー" : "DERP relay";
   }
-  return "";
+  return uiText.transportUnknown;
 }

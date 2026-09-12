@@ -6,6 +6,7 @@ use tailsend_transport_api::TransportPath;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AppEvent {
     StateChanged(SessionState),
+    /// The latest path observed by this endpoint's data stream.
     TransportChanged(TransportPath),
     TextReceived {
         text: String,

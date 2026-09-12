@@ -44,6 +44,7 @@ export interface BackendSnapshot {
     incoming: boolean;
     status: string;
   } | null;
+  /** Last path observed by this app's endpoint; the peer can observe another path. */
   transport: TransportPath;
 }
 
