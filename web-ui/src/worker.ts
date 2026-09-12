@@ -152,13 +152,13 @@ interface GoConnectionProxy {
   closeWrite(): Promise<unknown>;
   getTransport(): number;
   port: number;
-  read(length: number): Promise<Uint8Array | GoReadProxyResult | null>;
+  readInto(destination: Uint8Array, length?: number): Promise<GoReadProxyResult>;
   write(bytes: Uint8Array): Promise<unknown>;
 }
 
 interface GoReadProxyResult {
-  bytes: Uint8Array | null;
   code: number;
+  count: number;
   error?: string;
 }
 
@@ -305,7 +305,13 @@ function connectionProxy(descriptor: GoConnectionDescriptor): GoConnectionProxy 
   return {
     port: descriptor.port,
     getTransport: () => currentTransport,
-    read: async (length) => {
+    readInto: async (destination, length = destination.byteLength) => {
+      if (!Number.isSafeInteger(length) || length < 0 || length > destination.byteLength) {
+        throw new Error("Tailcat readInto received an invalid length");
+      }
+      if (length === 0) {
+        return { count: 0, code: 0 };
+      }
       const buffer =
         readBuffer && readBuffer.byteLength >= length
           ? readBuffer
@@ -337,25 +343,25 @@ function connectionProxy(descriptor: GoConnectionDescriptor): GoConnectionProxy 
       updateTransport(result.transportType);
       const byteLength = result.byteLength ?? 0;
       const byteOffset = result.byteOffset ?? 0;
-      if (!result.buffer || byteLength === 0) {
-        if (typeof result.statusCode === "number" && result.statusCode !== 0) {
-          return {
-            bytes: null,
-            code: result.statusCode,
-            error: result.statusMessage,
-          } satisfies GoReadProxyResult;
-        }
-        return null;
+      if (
+        !Number.isSafeInteger(byteLength) ||
+        byteLength < 0 ||
+        byteLength > length ||
+        !Number.isSafeInteger(byteOffset) ||
+        byteOffset < 0 ||
+        (byteLength > 0 &&
+          (!isArrayBuffer(result.buffer) || byteOffset + byteLength > result.buffer.byteLength))
+      ) {
+        throw new Error("Tailcat readInto returned an invalid byte range");
       }
-      const bytes = new Uint8Array(result.buffer, byteOffset, byteLength);
-      if (typeof result.statusCode === "number" && result.statusCode !== 0) {
-        return {
-          bytes,
-          code: result.statusCode,
-          error: result.statusMessage,
-        } satisfies GoReadProxyResult;
+      if (byteLength > 0 && result.buffer) {
+        destination.set(new Uint8Array(result.buffer, byteOffset, byteLength));
       }
-      return bytes;
+      return {
+        count: byteLength,
+        code: result.statusCode ?? 0,
+        error: result.statusMessage,
+      };
     },
     write: async (bytes) => {
       const buffer =
