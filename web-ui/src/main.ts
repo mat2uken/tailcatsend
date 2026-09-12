@@ -453,6 +453,8 @@ async function startApplication(): Promise<void> {
     await session.start();
     if (invitationFromHash && snapshot.val.state !== "error") {
       void perform(() => backend.join(invitationFromHash));
+    } else if (snapshot.val.state === "ready" && !snapshot.val.error && !snapshot.val.inviteUrl) {
+      void perform(() => backend.createInvite());
     }
   } catch (error) {
     await run(async () => {

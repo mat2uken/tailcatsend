@@ -108,17 +108,14 @@ const host = await context.newPage();
 let cdp;
 try {
   await host.goto(`http://127.0.0.1:${port}/`, { waitUntil: "networkidle" });
-  await waitFor(
-    () => snapshot(host),
-    (value) => value.state === "ready",
-    "browser ready",
-  );
-  await host.getByRole("button", { name: /Create invite|招待を作成/ }).click();
   const invitation = await waitFor(
     () => snapshot(host),
     (value) => typeof value.inviteUrl === "string" && value.inviteUrl.length > 0,
     "invite",
   );
+  await host
+    .getByRole("img", { name: /Invitation QR code|招待QRコード/ })
+    .waitFor({ state: "visible", timeout: 30_000 });
 
   const pid = adb("shell", "pidof", "jp.yasagure.ponlet");
   if (!pid) {

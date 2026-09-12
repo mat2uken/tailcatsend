@@ -154,13 +154,14 @@ async function main() {
       ? `http://127.0.0.1:${port}/?transport=${encodeURIComponent(transportOverride)}`
       : `http://127.0.0.1:${port}/`;
     await host.goto(pageUrl, { waitUntil: "networkidle" });
-    await waitForSnapshot(host, (value) => value.state === "ready", "browser startup");
-    await host.getByRole("button", { name: /Create invite|招待を作成/ }).click({ force: true });
     const inviteSnapshot = await waitForSnapshot(
       host,
       (value) => typeof value.inviteUrl === "string" && value.inviteUrl.length > 0,
       "browser invite",
     );
+    await host
+      .getByRole("img", { name: /Invitation QR code|招待QRコード/ })
+      .waitFor({ state: "visible", timeout: 30_000 });
 
     cdp = await chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);
     const android = cdp

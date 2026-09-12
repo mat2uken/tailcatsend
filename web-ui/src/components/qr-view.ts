@@ -34,21 +34,23 @@ export function createQrView(options: QrViewOptions): QrViewComponent {
   let qrUrl = "";
 
   async function renderInviteQr(url: string | null): Promise<void> {
+    const nextUrl = isPresent(url) ? url : "";
+    // State updates can repeat the URL while the worker is still rendering it.
+    // Only a different invitation should invalidate that pending response.
+    if (nextUrl === qrUrl) {
+      return;
+    }
     const request = ++qrRequest;
+    qrUrl = nextUrl;
+    qrCanvas.hidden = true;
+    qrLabel.hidden = true;
+    qrContainer.hidden = true;
     const backend = options.getBackend();
-    if (!isPresent(url) || url.length === 0 || !backend.qrCode) {
-      qrCanvas.hidden = true;
-      qrLabel.hidden = true;
-      qrContainer.hidden = true;
-      qrUrl = "";
+    if (nextUrl.length === 0 || !backend.qrCode) {
       return;
     }
-    if (url === qrUrl) {
-      return;
-    }
-    qrUrl = url;
     try {
-      const bitmap = await backend.qrCode(url);
+      const bitmap = await backend.qrCode(nextUrl);
       if (request !== qrRequest) {
         return;
       }
@@ -64,10 +66,10 @@ export function createQrView(options: QrViewOptions): QrViewComponent {
       qrLabel.hidden = false;
       qrContainer.hidden = false;
     } catch (error) {
-      qrCanvas.hidden = true;
-      qrLabel.hidden = true;
-      qrContainer.hidden = true;
       if (request === qrRequest) {
+        qrCanvas.hidden = true;
+        qrLabel.hidden = true;
+        qrContainer.hidden = true;
         options.onError?.(error);
       }
     }

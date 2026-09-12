@@ -122,19 +122,20 @@ async function main() {
     : `${base}/`;
 
   try {
-    await host.goto(pageUrl, { waitUntil: "networkidle" });
-    await waitForSnapshot(host, (value) => value.state === "ready", "host backend startup");
-    await host.getByRole("button", { name: /Create invite|招待を作成/ }).click();
+    await host.goto(pageUrl, { waitUntil: "domcontentloaded" });
     const inviteSnapshot = await waitForSnapshot(
       host,
       (value) => typeof value.inviteUrl === "string" && value.inviteUrl.length > 0,
       "invite creation",
     );
+    await host
+      .getByRole("img", { name: /Invitation QR code|招待QRコード/ })
+      .waitFor({ state: "visible", timeout: 30_000 });
     const invite = new URL(inviteSnapshot.inviteUrl);
     const joinUrl = transportOverride
       ? `${base}/?transport=${encodeURIComponent(transportOverride)}#${invite.hash.slice(1)}`
       : `${base}/#${invite.hash.slice(1)}`;
-    await joiner.goto(joinUrl, { waitUntil: "networkidle" });
+    await joiner.goto(joinUrl, { waitUntil: "domcontentloaded" });
 
     await waitForSnapshot(host, (value) => value.state === "connected", "host connection");
     await waitForSnapshot(joiner, (value) => value.state === "connected", "joiner connection");

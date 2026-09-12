@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { createBackend } from "../src/backend.ts";
 import { initialSnapshot } from "../src/api/application-api.ts";
 import { Session } from "../src/session.ts";
@@ -16,10 +16,31 @@ function navigatorWith(properties = {}) {
 
 function deferred() {
   let resolve;
-  const promise = new Promise((done) => {
+  let reject;
+  const promise = new Promise((done, fail) => {
     resolve = done;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
+}
+
+function installCanvasContext() {
+  const writes = [];
+  Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+    configurable: true,
+    value: () => ({ putImageData: (imageData) => writes.push(imageData) }),
+  });
+  Object.defineProperty(globalThis, "ImageData", {
+    configurable: true,
+    value: class ImageData {
+      constructor(data, width, height) {
+        this.data = data;
+        this.width = width;
+        this.height = height;
+      }
+    },
+  });
+  return writes;
 }
 
 function bridge(overrides = {}) {
@@ -444,4 +465,81 @@ it("createQrView provides a centered card container with frame, canvas, and labe
   expect(qrView.container.contains(qrView.label)).toBe(true);
   expect(qrView.canvas.classList.contains("invite-qr")).toBe(true);
   expect(qrView.label.classList.contains("qr-label")).toBe(true);
+});
+
+it("keeps a QR render alive when a state update repeats its pending URL", async () => {
+  installCanvasContext();
+  const render = deferred();
+  const backend = { ...bridge(), qrCode: () => render.promise };
+  const qrView = createQrView({ getBackend: () => backend });
+
+  const first = qrView.renderInviteQr("https://example.test/#i=repeat");
+  const repeated = qrView.renderInviteQr("https://example.test/#i=repeat");
+  render.resolve({ width: 3, height: 2, rgbaPixels: new Uint8Array(24) });
+  await Promise.all([first, repeated]);
+
+  expect(qrView.canvas.hidden).toBe(false);
+  expect(qrView.container.hidden).toBe(false);
+  expect(qrView.canvas.width).toBe(3);
+  expect(qrView.canvas.height).toBe(2);
+});
+
+it("cancels an old QR render when the invitation URL changes", async () => {
+  installCanvasContext();
+  const oldRender = deferred();
+  const newRender = deferred();
+  const backend = {
+    ...bridge(),
+    qrCode: (url) => (url.endsWith("old") ? oldRender.promise : newRender.promise),
+  };
+  const qrView = createQrView({ getBackend: () => backend });
+
+  const old = qrView.renderInviteQr("https://example.test/#i=old");
+  const newer = qrView.renderInviteQr("https://example.test/#i=new");
+  newRender.resolve({ width: 5, height: 4, rgbaPixels: new Uint8Array(80) });
+  await newer;
+  oldRender.resolve({ width: 1, height: 1, rgbaPixels: new Uint8Array(4) });
+  await old;
+
+  expect(qrView.canvas.hidden).toBe(false);
+  expect(qrView.canvas.width).toBe(5);
+  expect(qrView.canvas.height).toBe(4);
+});
+
+it("cancels an old QR render when the invitation is cleared", async () => {
+  installCanvasContext();
+  const render = deferred();
+  const backend = { ...bridge(), qrCode: () => render.promise };
+  const qrView = createQrView({ getBackend: () => backend });
+
+  const pending = qrView.renderInviteQr("https://example.test/#i=cleared");
+  await qrView.renderInviteQr(null);
+  render.resolve({ width: 2, height: 2, rgbaPixels: new Uint8Array(16) });
+  await pending;
+
+  expect(qrView.canvas.hidden).toBe(true);
+  expect(qrView.container.hidden).toBe(true);
+});
+
+it("does not let a stale QR failure hide a newer rendered invitation", async () => {
+  installCanvasContext();
+  const oldRender = deferred();
+  const newRender = deferred();
+  const onError = vi.fn();
+  const backend = {
+    ...bridge(),
+    qrCode: (url) => (url.endsWith("old") ? oldRender.promise : newRender.promise),
+  };
+  const qrView = createQrView({ getBackend: () => backend, onError });
+
+  const old = qrView.renderInviteQr("https://example.test/#i=old");
+  const newer = qrView.renderInviteQr("https://example.test/#i=new");
+  newRender.resolve({ width: 4, height: 4, rgbaPixels: new Uint8Array(64) });
+  await newer;
+  oldRender.reject(new Error("old render failed"));
+  await old;
+
+  expect(qrView.container.hidden).toBe(false);
+  expect(qrView.canvas.hidden).toBe(false);
+  expect(onError).not.toHaveBeenCalled();
 });
