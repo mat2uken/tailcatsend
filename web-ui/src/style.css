@@ -4,6 +4,9 @@
     system-ui,
     -apple-system,
     BlinkMacSystemFont,
+    "Hiragino Sans",
+    "Noto Sans JP",
+    "Yu Gothic UI",
     "Segoe UI",
     sans-serif;
   --safe-top: env(safe-area-inset-top, 0px);
@@ -24,7 +27,7 @@
 
   --text-primary: #f3f4f6;
   --text-secondary: #9ca3af;
-  --text-muted: #6b7280;
+  --text-muted: #94a3b8;
 
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -50,11 +53,16 @@ body {
   background: radial-gradient(circle at 50% 0%, #1e2430 0%, var(--bg-base) 52rem);
   color: var(--text-primary);
   overflow-x: hidden;
+  overscroll-behavior-y: contain;
   -webkit-tap-highlight-color: transparent;
 }
 :focus-visible {
-  outline: 2px solid #3b82f6;
+  outline: 2px solid var(--primary);
   outline-offset: 2px;
+}
+h1,
+h2 {
+  text-wrap: balance;
 }
 button,
 input,
@@ -129,9 +137,7 @@ button:disabled {
   font-size: 1.35rem;
   font-weight: 700;
   letter-spacing: -0.01em;
-  background: linear-gradient(135deg, #ffffff 40%, #93c5fd 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  color: #ffffff;
 }
 .topbar-actions {
   display: flex;
@@ -209,7 +215,7 @@ button:disabled {
 .status-pill.waiting .status-dot {
   background: #f59e0b;
   box-shadow: 0 0 6px rgba(245, 158, 11, 0.6);
-  animation: status-pulse 1.8s infinite;
+  animation: status-pulse 2.8s ease-in-out infinite;
 }
 .status-pill.connected {
   background: rgba(59, 130, 246, 0.12);
@@ -236,7 +242,7 @@ button:disabled {
 }
 .status-pill.preparing .status-dot {
   background: #9ca3af;
-  animation: status-pulse 1.8s infinite;
+  animation: status-pulse 2.8s ease-in-out infinite;
 }
 @keyframes status-pulse {
   0%,
@@ -245,8 +251,8 @@ button:disabled {
     transform: scale(1);
   }
   50% {
-    opacity: 0.4;
-    transform: scale(0.85);
+    opacity: 0.55;
+    transform: scale(0.92);
   }
 }
 .transport-path {
@@ -276,7 +282,7 @@ button:disabled {
 .qr-frame {
   background: #ffffff;
   padding: 16px;
-  border-radius: 16px;
+  border-radius: 20px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
   display: inline-flex;
   align-items: center;
@@ -306,10 +312,13 @@ button:disabled {
   border-radius: var(--radius-md);
   color: #93c5fd;
   text-decoration: none;
+  font: inherit;
   font-size: 0.875rem;
   font-weight: 500;
   min-height: 44px;
   margin: 0.25rem auto;
+  touch-action: manipulation;
+  user-select: none;
   transition:
     background-color var(--transition),
     border-color var(--transition),
@@ -354,7 +363,6 @@ button:disabled {
 }
 .join-input:focus,
 .composer:focus {
-  outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.22);
 }
@@ -443,6 +451,7 @@ progress::-moz-progress-bar {
 .received-item-size {
   color: var(--text-muted);
   font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
 }
 .received-item-actions {
   display: flex;
@@ -450,7 +459,7 @@ progress::-moz-progress-bar {
   flex-shrink: 0;
 }
 .received-item-actions button {
-  min-height: 38px;
+  min-height: 44px;
   padding: 0.45rem 0.75rem;
   font-size: 0.825rem;
 }
@@ -459,6 +468,7 @@ progress::-moz-progress-bar {
   max-height: 22rem;
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior-y: contain;
   padding: 0.85rem;
   background: var(--bg-inset);
   border: 1px solid var(--border-subtle);
@@ -513,6 +523,8 @@ progress::-moz-progress-bar {
   gap: 0.65rem;
   align-items: center;
   margin: 1.25rem 0;
+  min-height: 44px;
+  touch-action: manipulation;
   font-size: 0.95rem;
   cursor: pointer;
 }
@@ -539,6 +551,7 @@ progress::-moz-progress-bar {
   margin: auto;
   max-width: min(28rem, calc(100vw - 2rem));
   width: calc(100% - 2rem);
+  overscroll-behavior-y: contain;
 }
 .scanner-dialog::backdrop,
 .settings-dialog::backdrop {
@@ -702,5 +715,40 @@ progress::-moz-progress-bar {
   }
   .message-bubble {
     max-width: 90%;
+  }
+}
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem 1rem;
+  margin: auto;
+  width: 100%;
+}
+.empty-state-title {
+  margin: 0 0 0.35rem 0;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-wrap: balance;
+}
+.empty-state-hint {
+  margin: 0;
+  font-size: 0.825rem;
+  color: var(--text-muted);
+  max-width: 22rem;
+  line-height: 1.45;
+  text-wrap: balance;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

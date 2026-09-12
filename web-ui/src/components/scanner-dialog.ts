@@ -18,6 +18,7 @@ export interface ScannerDialogComponent {
 
 export function createScannerDialog(): ScannerDialogComponent {
   const dialog = document.createElement("dialog");
+  dialog.setAttribute("aria-labelledby", "scanner-dialog-title");
   const video = document.createElement("video");
   video.className = "scanner-video";
   video.autoplay = true;
@@ -49,7 +50,7 @@ export function createScannerDialog(): ScannerDialogComponent {
   const preview = div({ class: "scanner-preview" }, video, reticle);
 
   dialog.append(
-    h2(uiText.scan),
+    h2({ id: "scanner-dialog-title" }, uiText.scan),
     preview,
     p({ class: "scanner-status" }, ""),
     button(

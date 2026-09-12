@@ -1,5 +1,5 @@
 import van from "vanjs-core";
-import { isJapanese, uiText } from "../i18n";
+import { uiText } from "../i18n";
 
 const { button, h2, input, label, p } = van.tags;
 
@@ -13,8 +13,9 @@ export interface SettingsDialogComponent {
 
 export function createSettingsDialog(): SettingsDialogComponent {
   const dialog = document.createElement("dialog");
+  dialog.setAttribute("aria-labelledby", "settings-dialog-title");
   let returnFocus: HTMLElement | null = null;
-  const telemetryToggle = input({ type: "checkbox" });
+  const telemetryToggle = input({ id: "settings-telemetry-toggle", type: "checkbox" });
   telemetryToggle.checked = localStorage.getItem(TELEMETRY_STORAGE_KEY) !== "off";
 
   function closeSettings(): void {
@@ -41,12 +42,12 @@ export function createSettingsDialog(): SettingsDialogComponent {
 
   dialog.className = "settings-dialog";
   dialog.append(
-    h2(uiText.settings),
+    h2({ id: "settings-dialog-title" }, uiText.settings),
     p(uiText.settingsDescription),
     label(
-      { class: "settings-toggle" },
+      { class: "settings-toggle", for: "settings-telemetry-toggle" },
       telemetryToggle,
-      isJapanese ? "テレメトリを許可" : "Allow telemetry",
+      uiText.allowTelemetry,
     ),
     button(
       { class: "secondary dialog-close", type: "button", onclick: () => closeSettings() },

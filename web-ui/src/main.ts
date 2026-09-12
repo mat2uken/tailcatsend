@@ -4,14 +4,17 @@ import { initialSnapshot, type PonletBackend } from "./api/application-api";
 import { Session, type Message } from "./session";
 import { showToast } from "./lib/toast";
 import { checkForUpdate } from "./update/client";
-import { uiText, transportLabel } from "./i18n";
+import { isJapanese, uiText, transportLabel } from "./i18n";
 import { createSettingsDialog } from "./components/settings-dialog";
 import { createScannerDialog } from "./components/scanner-dialog";
 import { createQrView } from "./components/qr-view";
 import "./style.css";
 
+if (typeof document !== "undefined") {
+  document.documentElement.lang = isJapanese ? "ja" : "en";
+}
+
 const {
-  a,
   button,
   div,
   footer,
@@ -103,24 +106,63 @@ function formatBytes(bytes: number): string {
 
 const statusDot = span({ class: "status-dot" });
 const statusText = span({ class: "status-text" });
-const status = div({ class: "status-pill preparing", role: "status" }, statusDot, statusText);
+const status = div(
+  {
+    class: "status-pill preparing",
+    role: "status",
+    "aria-live": "polite",
+    "aria-label": uiText.statusAriaLabel,
+  },
+  statusDot,
+  statusText,
+);
 const transport = span({ class: "transport-path" });
 const peer = span({ class: "peer-name" });
-const invite = a({ class: "invite-link", target: "_blank", rel: "noreferrer" });
-const log = div({ class: "message-log", role: "log" });
+const invite = button({ class: "invite-link", type: "button" });
+const log = div({
+  class: "message-log",
+  role: "log",
+  "aria-live": "polite",
+  "aria-relevant": "additions",
+  "aria-label": uiText.messageLogAriaLabel,
+});
 const transferName = span({ class: "transfer-name" });
-const transferProgress = progress({ max: 1, value: 0 });
+const transferProgress = progress({
+  max: 1,
+  value: 0,
+  "aria-label": uiText.transferProgressAriaLabel,
+});
 const transferBytes = span({ class: "transfer-bytes" });
 const cancelButton = button({ class: "secondary", type: "button" }, uiText.cancel);
 const sendButton = button({ class: "primary", type: "button" }, uiText.send);
 const fileButton = button({ class: "secondary", type: "button" }, uiText.chooseFile);
-const fileInput = input({ type: "file", multiple: true, hidden: true });
-const textInput = textarea({ class: "composer", rows: 3, placeholder: uiText.message });
+const fileInput = input({
+  type: "file",
+  multiple: true,
+  hidden: true,
+  "aria-label": uiText.fileInputAriaLabel,
+});
+const textInput = textarea({
+  class: "composer",
+  rows: 3,
+  placeholder: uiText.message,
+  "aria-label": uiText.messageInputAriaLabel,
+  spellcheck: "true",
+});
 const copyTextButton = button({ class: "secondary", type: "button" }, uiText.copy);
 const shareTextButton = button({ class: "secondary", type: "button" }, uiText.share);
 const saveTextButton = button({ class: "secondary", type: "button" }, uiText.save);
 const receivedList = ul({ class: "received-list" });
-const joinInput = input({ class: "join-input", placeholder: uiText.invitation });
+const joinInput = input({
+  class: "join-input",
+  type: "url",
+  inputmode: "url",
+  placeholder: uiText.invitation,
+  autocomplete: "off",
+  autocapitalize: "off",
+  spellcheck: "false",
+  "aria-label": uiText.joinInputAriaLabel,
+});
 const scanButton = button({ class: "secondary", type: "button" }, uiText.scan);
 const invitationFromHash = window.location.hash.startsWith("#i=")
   ? `${window.location.origin}${window.location.pathname}${window.location.hash}`
@@ -162,7 +204,6 @@ van.derive(() => {
   transport.textContent = transportLabel(value.transport);
   peer.textContent = value.peerName || uiText.app;
   invite.textContent = value.inviteUrl ? uiText.saved : "";
-  invite.href = "#";
   invite.hidden = !value.inviteUrl;
   disconnectButton.hidden = !value.canDisconnect;
   const hasTransfer = value.transfer != null;
@@ -193,8 +234,19 @@ van.derive(() => {
 });
 
 van.derive(() => {
+  const items = snapshot.val.received;
+  if (items.length === 0) {
+    receivedList.replaceChildren(
+      li(
+        { class: "empty-state" },
+        p({ class: "empty-state-title" }, uiText.noReceivedFiles),
+        p({ class: "empty-state-hint" }, uiText.noReceivedFilesHint),
+      ),
+    );
+    return;
+  }
   receivedList.replaceChildren(
-    ...snapshot.val.received.map((item) => {
+    ...items.map((item) => {
       const pathButton = button({ class: "secondary", type: "button" }, uiText.copyPath);
       const openButton = button({ class: "secondary", type: "button" }, uiText.openFile);
       pathButton.addEventListener(
@@ -220,8 +272,19 @@ van.derive(() => {
 });
 
 van.derive(() => {
+  const msgList = messages.val;
+  if (msgList.length === 0) {
+    log.replaceChildren(
+      div(
+        { class: "empty-state" },
+        p({ class: "empty-state-title" }, uiText.noMessages),
+        p({ class: "empty-state-hint" }, uiText.noMessagesHint),
+      ),
+    );
+    return;
+  }
   log.replaceChildren(
-    ...messages.val.map((message) =>
+    ...msgList.map((message) =>
       p(
         {
           class: `message-bubble ${message.incoming ? "incoming" : "outgoing"}`,
@@ -378,7 +441,7 @@ document.body.append(
       div({ class: "composer-actions" }, sendButton),
     ),
   ),
-  footer({ class: "footer" }, "P2P transfer · end-to-end encrypted"),
+  footer({ class: "footer" }, uiText.footer),
 );
 
 async function startApplication(): Promise<void> {

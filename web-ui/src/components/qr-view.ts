@@ -18,7 +18,14 @@ export interface QrViewComponent {
 }
 
 export function createQrView(options: QrViewOptions): QrViewComponent {
-  const qrCanvas = canvas({ class: "invite-qr", width: 256, height: 256, hidden: true });
+  const qrCanvas = canvas({
+    class: "invite-qr",
+    width: 256,
+    height: 256,
+    hidden: true,
+    role: "img",
+    "aria-label": uiText.qrLabel,
+  });
   const qrFrame = div({ class: "qr-frame" }, qrCanvas);
   const qrLabel = p({ class: "qr-label" }, uiText.qrLabel);
   const qrContainer = div({ class: "qr-container", hidden: true }, qrFrame, qrLabel);

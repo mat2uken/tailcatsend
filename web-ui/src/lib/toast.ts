@@ -14,7 +14,11 @@ let activeAnchorDismiss: (() => void) | null = null;
 
 function getOrCreateContainer(): HTMLDivElement {
   if (!toastContainer || !document.body.contains(toastContainer)) {
-    toastContainer = div({ class: "toast-container c-toast-container" });
+    toastContainer = div({
+      class: "toast-container c-toast-container",
+      role: "region",
+      "aria-label": "Notifications",
+    });
     document.body.append(toastContainer);
   }
   return toastContainer;
@@ -42,7 +46,14 @@ export function showToast(message: string, durationOrOptions?: number | ToastOpt
       activeAnchorDismiss = null;
     }
 
-    const toastEl = div({ class: "toast-anchor toast c-toast" }, message);
+    const toastEl = div(
+      {
+        class: "toast-anchor toast c-toast",
+        role: "status",
+        "aria-live": "polite",
+      },
+      message,
+    );
     document.body.append(toastEl);
     placeAnchor(anchor, toastEl, positionOptions);
 
@@ -76,7 +87,14 @@ export function showToast(message: string, durationOrOptions?: number | ToastOpt
   }
 
   const container = getOrCreateContainer();
-  const toastEl = div({ class: "toast c-toast" }, message);
+  const toastEl = div(
+    {
+      class: "toast c-toast",
+      role: "status",
+      "aria-live": "polite",
+    },
+    message,
+  );
   container.append(toastEl);
 
   let timer: ReturnType<typeof setTimeout> | null = null;
