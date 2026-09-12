@@ -97,24 +97,31 @@ nativeの通知変換では現在のsnapshotに過去のsequenceを付けてい�
 
 ## 検証結果
 
-アプリ実装 `87336969378bd5961abcee5bbce36ac9a5d42c2d` の [全OSビルド](https://github.com/mat2uken/tailcatsend/actions/runs/34675248569) はWindows、Linux、macOS、iOS、Androidすべて成功。GitHub Release公開は行っていない。
+最終アプリ実装 `09b31468b23b4d097f1536db868969e6302f6d06` を `main` にfast-forwardし、push後のremote HEAD一致を確認した。[全OSビルド](https://github.com/mat2uken/tailcatsend/actions/runs/34677234985) はWindows、Linux、macOS、iOS、Androidすべて成功。GitHub Release、TestFlight、Google Playへの公開は行っていない。
 
 | 対象 | 今回確認した結果 | 未確認・補足 |
 | --- | --- | --- |
-| 共通UI | unit 103件、UI E2E 6件成功。360px幅の長いファイル名と入力欄の表示を含む。 | 実backendの通信は別途確認。 |
-| 共通core/transfer | coreの接続世代・取消・通知復元・経路表示など20件、transferの半切断・部分I/O・受信取消など20件成功。 | OS画面の成功を意味しない。 |
-| Android実機 | APK SHA-256 `d7077d5ab8e154c17ec2104e8c333a12988a15a5a4a2e3b2a45f58d0a24ca628`。WebRTCとDERPでQR再生成2回、双方向テキスト、Webから131071バイト受信とSHA-256一致、64MiB送信取消後の再転送を確認。 | 転送取消は開始直後。Androidからのファイル送信はこの実行では未検証。 |
-| Androidカメラ・ファイル表示 | 同じAPKで実カメラ映像、閉じる→再表示→閉じるを確認。受信ファイルのOpenが`ACTION_VIEW`とFileProvider URI/read grantを渡し、OSの選択画面を表示。 | `.bin`を開けるアプリでの内容表示と、光学的なQR読取そのものは未検証。 |
-| macOS実機 | Release `.app`の起動とQR、Webとの双方向テキスト、ファイル受信とSHA-256一致、TextEditで日本語内容の表示を確認。Apple保存修正後は同名の59/60バイトを即時保存し、両方の内容を保持。OSファイル選択からWebへ60バイトを返送し、ダウンロードした内容もSHA-256一致。 | 修正後のapp executable SHA-256は`0f6d682e1cf3f5c6c6bb7678cbdf2317dec04b9d4f3047c71c8f8d949c4da34b`。 |
-| iOS | Firebaseを含むビルド、IPA生成、codesign検査成功。選択した19個のbundleを梱包。 | 接続中のXSはロックのため最新アプリのインストール不可。12 Proも起動を拒否。実機のカメラ・ファイル表示・通信は成功扱いにしない。 |
+| 共通UI | 最終Pages CIでunit 103件、UI E2E 6件成功。360px幅の長いファイル名と入力欄の表示を含む。 | 実backendの通信は次の行で確認。 |
+| Web実通信 | 最終Pages CIでChromium標準/DERP・Firefox・WebKit通常/永続コンテキストの5条件が成功。双方向テキストとファイル保存内容を照合。 | ローカルの`final17-web-*.log`でも同じ5条件が成功。CIとローカルの生成物は別に識別する。 |
+| 共通core/transfer/native通知 | 最終Linux CIでcore 20件、transfer 20件、native通知8件が成功。 | OS画面の成功を意味しない。 |
+| Android実機 | 最終APK SHA-256 `d6eede2abca700411815a4ef50106f27058079d771b2cca29ee59c5023dd2cea`。各回の起動後にQR再生成2回を行い、WebRTC 10回・DERP 3回すべてで双方向テキスト、双方向131071バイトファイルとSHA-256一致を確認。64MiB送信取消後の再転送も成功。 | 転送取消は開始直後。Androidからのファイル送信は受信済みテストファイルのFileRequestをnative APIへ渡す方法。Document Pickerの操作自体は未検証。 |
+| Androidカメラ・ファイル表示 | 先行APK `d7077d5…`で実カメラ映像、閉じる→再表示→閉じるを確認。受信ファイルのOpenが`ACTION_VIEW`とFileProvider URI/read grantを渡し、OSの選択画面を表示。 | 最終APKでこのOS画面操作は再実行していない。`.bin`の内容表示と光学的なQR読取は未検証。 |
+| macOS実機 | 最終Release `.app`の起動、QR待受・再生成、本番Webとの双方向テキストを確認。同名の52/66バイトを即時保存して両方を保持。受信ファイルをTextEditで開いて日本語内容を確認。OSファイル選択から66バイトを本番Webへ返送し、ダウンロード内容もSHA-256一致。 | app executable SHA-256 `87b46f46be7a3957d30d6166bac37312f3384bc5d05bc1bc0a01542574c7b39d`。ad-hoc署名を検査。 |
+| iOS | 最終コードでFirebaseを含むCI配布ビルドとローカル開発ビルド、IPA生成、codesign検査が成功。選択した19個のbundleを梱包。 | XSは当初ロック中。その後ロック解除不要になったが別作業の実機テスト使用中だったため、最終appのinstall/launchを行わなかった。12 Proはロック中。実機のカメラ・ファイル表示・通信は未検証。 |
 | Windows/Linux | 上記CIで最終配布用ビルド成功。 | 実機UIとOS間通信は未検証。 |
 
-Android実通信の記録は `/tmp/ponlet-parity-validation/final11-android-{default,derp,cancel}.log`。各実行でメッセージとファイル名を変え、過去の受信履歴を成功と誤認しない。画面とIMEの位置を測って実ADBタップし、ファイル選択は有効なボタンから行う。
+Android最終検証は `/tmp/ponlet-parity-validation/final19-android-default-{1..10}.log`、`final19-android-derp-{1..3}.log`、`final19-android-cancel.log`。各実行でメッセージとファイル名を変え、過去の受信履歴を成功と誤認しない。画面とIMEの位置を測って実ADBタップし、ブラウザのファイル選択は有効なボタンから行う。双方向ファイルのSHA-256は全13回で`e62687a569033a3798c1f1f3a1d6a70c2d7d7cff347b3e708cd30d3de42dac19`。
 
-Apple保存修正後のnative unitは16件成功（Apple renameの3件、並行保存、既存ファイル・ディレクトリ・symlink保持を含む）。iOS再ビルドも成功し、IPA SHA-256は`917f28f534512c185183e41042e7b4f13e89b7204991a99c6aae1f2676ea9e1f`。実機には未インストール。
+修正前は`baseline16-7.log`で初回テキストの欠落が再現した。修正後の`final18`の2回目はCDP接続前に外部のADB force-stopが入り、実通信を評価できなかった。後続`final19`では各操作の時刻とlogcatを記録して全回を逐次実行し、13回の通信と取消試験が失敗なく完了した。
 
-Web実装 `8733696` の [プレビュー配信](https://github.com/mat2uken/tailcatsend/actions/runs/34675878256) は、同一実行でGo/Rust WASMとUIを生成し、Chromium標準/DERP・Firefox・WebKit通常/永続コンテキストの双方向通信と保存照合を通過した。公開URLの本番更新は別途記録する。
+Apple保存修正時のnative unitは16件成功（Apple renameの3件、並行保存、既存ファイル・ディレクトリ・symlink保持を含む）。最終コードのローカルiOS IPA SHA-256は`84a883aa2492d0b2121406608cdded222c477551c0d2dafe8c15ef0a9bf583bf`。実機には未インストール。
 
-テキスト半切断の修正後にRust WASMを再生成し、上記5条件の実通信を再検証してすべて成功した（`final17-web-*.log`）。Rust WASM SHA-256は`1e739298139a65f345c8ec4794939cc2102c655296ee56a867a28c0af04ca7f8`。native通知の新しい8件のunitも成功した（`final18-native-transport-test.log`）。修正前のAndroid連続試験では7回目でテキスト欠落が再現しているため、以前の成功回だけを通知修正後の成功証拠とは扱わない。
+macOS最終ファイル照合は`macos-production-roundtrip-09b3146.json`に記録。最初の52バイトは`6c891aac58cccef1a811ad49597b03d18271c53f95707662e60518a545ab9346`、同名の66バイトとWebへの返送結果はどちらも`5c32f2b72d7dc570fda1ee2bb6364951a87641a38a804384d029022e4392fa44`。
+
+## 本番Webへの反映
+
+2026-09-12 15:14 JST、[最終Pages CI](https://github.com/mat2uken/tailcatsend/actions/runs/34677336376) が成功し、[本番URL](https://ponlet.mat2uken.app/)へ配信した。固定配信先は`https://57b6d0fe.mktailcatsend.pages.dev`。本番と固定配信先のHTML、UI JS/CSS、Worker、Go WASM、wasm_exec.js、Rust WASMの7ファイルをSHA-256で照合して一致を確認した（`production-verification-09b3146.json`）。本番Rust WASMのSHA-256は`850ee7f1c6068c404d6c82298fa04d99cc2e5b8086ccbcac65ba5abe91e9cbc1`。
+
+公開URLを開き直して起動時のQR待受、再生成前後の招待URLの相違、期限の更新、日本語への切替を確認。その本番Webと上記の最終macOSアプリで双方向通信と保存内容も確認した。署名付きWeb更新設定は今回の配信環境では無効のため、存在しない署名manifestを検証済みとはしていない。
 
 保存APIの実装には [WHATWG File System](https://fs.spec.whatwg.org/#api-filesystemsyncaccesshandle) と [WebKitのOPFS説明](https://webkit.org/blog/12257/the-file-system-access-api-with-origin-private-file-system/) を参照した。
