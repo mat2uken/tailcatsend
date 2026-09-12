@@ -575,6 +575,115 @@ async fn partial_write_checks_cancellation_before_retrying() {
     assert_eq!(*writes.lock().unwrap(), b"he");
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum TextSendEvent {
+    Write(Vec<u8>),
+    CloseWrite,
+}
+
+struct TextSendStream {
+    events: Arc<Mutex<Vec<TextSendEvent>>>,
+    fail_close_write: bool,
+    cancel_on_write: Option<Arc<AtomicBool>>,
+}
+
+#[async_trait]
+impl DuplexStream for TextSendStream {
+    async fn read(&mut self, _: &mut [u8]) -> Result<usize, TransportError> {
+        panic!("text sending does not require a reply");
+    }
+
+    async fn write_all(&mut self, _: &[u8]) -> Result<(), TransportError> {
+        panic!("must use partial-I/O-aware write");
+    }
+
+    async fn write(&mut self, bytes: &[u8]) -> Result<usize, TransportError> {
+        self.events
+            .lock()
+            .unwrap()
+            .push(TextSendEvent::Write(bytes.to_vec()));
+        if let Some(cancel) = &self.cancel_on_write {
+            cancel.store(true, Ordering::Release);
+        }
+        Ok(bytes.len())
+    }
+
+    async fn close_write(&mut self) -> Result<(), TransportError> {
+        self.events.lock().unwrap().push(TextSendEvent::CloseWrite);
+        if self.fail_close_write {
+            Err(TransportError::Io("half-close failed".into()))
+        } else {
+            Ok(())
+        }
+    }
+
+    async fn close(&mut self) -> Result<(), TransportError> {
+        panic!("the caller owns the full stream close");
+    }
+}
+
+#[tokio::test]
+async fn live_text_sends_complete_line_before_half_close() {
+    for text in ["日本語 ✅", "日本語 ✅\n"] {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let mut stream: Box<dyn DuplexStream> = Box::new(TextSendStream {
+            events: events.clone(),
+            fail_close_write: false,
+            cancel_on_write: None,
+        });
+        send_live_text_stream(&mut stream, text, Arc::new(AtomicBool::new(false)))
+            .await
+            .unwrap();
+        assert_eq!(
+            *events.lock().unwrap(),
+            vec![
+                TextSendEvent::Write("日本語 ✅\n".as_bytes().to_vec()),
+                TextSendEvent::CloseWrite,
+            ]
+        );
+    }
+}
+
+#[tokio::test]
+async fn live_text_half_close_failure_is_not_reported_as_success() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let mut stream: Box<dyn DuplexStream> = Box::new(TextSendStream {
+        events: events.clone(),
+        fail_close_write: true,
+        cancel_on_write: None,
+    });
+    let result =
+        send_live_text_stream(&mut stream, "hello", Arc::new(AtomicBool::new(false))).await;
+    assert!(matches!(
+        result,
+        Err(TransferError::Transport(TransportError::Io(message))) if message == "half-close failed"
+    ));
+    assert_eq!(
+        *events.lock().unwrap(),
+        vec![
+            TextSendEvent::Write(b"hello\n".to_vec()),
+            TextSendEvent::CloseWrite
+        ]
+    );
+}
+
+#[tokio::test]
+async fn live_text_checks_cancellation_after_final_write() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let cancel = Arc::new(AtomicBool::new(false));
+    let mut stream: Box<dyn DuplexStream> = Box::new(TextSendStream {
+        events: events.clone(),
+        fail_close_write: false,
+        cancel_on_write: Some(cancel.clone()),
+    });
+    let result = send_live_text_stream(&mut stream, "hello", cancel).await;
+    assert!(matches!(result, Err(TransferError::Cancelled)));
+    assert_eq!(
+        *events.lock().unwrap(),
+        vec![TextSendEvent::Write(b"hello\n".to_vec())]
+    );
+}
+
 #[tokio::test]
 async fn named_header_rejects_invalid_adapter_count_without_panicking() {
     let mut stream: Box<dyn DuplexStream> = Box::new(FragmentedStream {

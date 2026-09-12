@@ -6,13 +6,17 @@
 //! of the C ABI call; lifecycle operations still use a blocking task because
 //! they do not carry a caller buffer.
 
+mod event_router;
+
+use event_router::{shared_router, EventReceiver};
+
 use std::sync::atomic::AtomicU8;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::runtime::{Handle, RuntimeFlavor};
 
 use tailsend_native_bridge::{
-    status, TcEvent, TcHandle, TC_BUFFER_TOO_SMALL, TC_CANCELLED, TC_EOF, TC_EVENT_INCOMING_STREAM,
+    status, TcHandle, TC_BUFFER_TOO_SMALL, TC_CANCELLED, TC_EOF, TC_EVENT_INCOMING_STREAM,
     TC_EVENT_LISTENER_ERROR, TC_EVENT_STREAM_ERROR, TC_INVALID_HANDLE_ERROR, TC_NETWORK_ERROR,
     TC_OK, TC_PROTOCOL_ERROR, TC_TIMEOUT,
 };
@@ -104,6 +108,7 @@ impl NativeTailcatTransport {
 
     pub fn shutdown() -> Result<(), TransportError> {
         let code = unsafe { tailsend_native_bridge::tc_shutdown() };
+        event_router::close_all_listeners();
         status(code).map_err(|error| transport_error(error.code()))
     }
 
@@ -165,6 +170,8 @@ impl TailcatTransport for NativeTailcatTransport {
         let derp = options.derp_map_url.into_bytes();
         let verbose = u8::from(options.verbose);
         let result = tokio::task::spawn_blocking(move || {
+            let router = shared_router()?;
+            let creating = router.begin_create();
             let mut handle = 0;
             let code = unsafe {
                 tailsend_native_bridge::tc_listener_create(
@@ -184,10 +191,18 @@ impl TailcatTransport for NativeTailcatTransport {
                     return Err(error);
                 }
             };
+            let events = match creating.register(handle) {
+                Ok(events) => events,
+                Err(error) => {
+                    let _ = unsafe { tailsend_native_bridge::tc_listener_close(handle) };
+                    return Err(error);
+                }
+            };
             Ok(NativeListener {
                 handle,
                 address,
                 closed: Arc::new(AtomicBool::new(false)),
+                events: Arc::new(events),
             })
         })
         .await
@@ -231,6 +246,7 @@ struct NativeListener {
     handle: TcHandle,
     address: String,
     closed: Arc<AtomicBool>,
+    events: Arc<EventReceiver>,
 }
 
 #[async_trait::async_trait]
@@ -240,33 +256,22 @@ impl Listener for NativeListener {
     }
 
     async fn accept(&self) -> Result<IncomingStream, TransportError> {
-        if self.closed.load(Ordering::Acquire) {
-            return Err(TransportError::ListenerClosed);
-        }
-        let handle = self.handle;
-        let closed = self.closed.clone();
-        tokio::task::spawn_blocking(move || loop {
-            if closed.load(Ordering::Acquire) {
+        loop {
+            if self.closed.load(Ordering::Acquire) {
                 return Err(TransportError::ListenerClosed);
             }
-            let mut event = TcEvent::default();
-            let code = unsafe { tailsend_native_bridge::tc_wait_event(1_000, &mut event) };
-            if code == TC_TIMEOUT {
-                continue;
-            }
-            if code != TC_OK {
-                return Err(transport_error(code));
-            }
-            if event.owner_handle != handle {
-                if event.event_type == TC_EVENT_INCOMING_STREAM && event.object_handle != 0 {
-                    let _ = unsafe { tailsend_native_bridge::tc_stream_close(event.object_handle) };
-                }
-                continue;
-            }
+            let event = self.events.recv().await?;
             match event.event_type {
                 TC_EVENT_INCOMING_STREAM => {
+                    // No await between removing the handle from its queue and
+                    // giving it an owner, so cancelling accept cannot leak it.
+                    let stream = call_native(|| NativeStream::new(event.object_handle));
+                    if self.closed.load(Ordering::Acquire) {
+                        call_native(|| drop(stream));
+                        return Err(TransportError::ListenerClosed);
+                    }
                     return Ok(IncomingStream {
-                        stream: Box::new(NativeStream::new(event.object_handle)),
+                        stream: Box::new(stream),
                         port: event.port,
                     });
                 }
@@ -278,9 +283,7 @@ impl Listener for NativeListener {
                 }
                 _ => {}
             }
-        })
-        .await
-        .map_err(|error| TransportError::Internal(format!("accept task failed: {error}")))?
+        }
     }
 
     async fn close(&self) -> Result<(), TransportError> {
@@ -288,8 +291,10 @@ impl Listener for NativeListener {
             return Ok(());
         }
         let handle = self.handle;
-        let code = tokio::task::spawn_blocking(move || unsafe {
-            tailsend_native_bridge::tc_listener_close(handle)
+        let events = self.events.clone();
+        let code = tokio::task::spawn_blocking(move || {
+            events.close();
+            unsafe { tailsend_native_bridge::tc_listener_close(handle) }
         })
         .await
         .map_err(|error| TransportError::Internal(format!("listener close failed: {error}")))?;
@@ -304,9 +309,12 @@ impl Listener for NativeListener {
 impl Drop for NativeListener {
     fn drop(&mut self) {
         if !self.closed.swap(true, Ordering::AcqRel) {
-            unsafe {
-                let _ = tailsend_native_bridge::tc_listener_close(self.handle);
-            }
+            call_native(|| {
+                self.events.close();
+                unsafe {
+                    let _ = tailsend_native_bridge::tc_listener_close(self.handle);
+                }
+            });
         }
     }
 }

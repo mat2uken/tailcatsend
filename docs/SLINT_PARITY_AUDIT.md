@@ -19,7 +19,7 @@
 | コミット | 時刻 (JST) | 変更と影響 |
 | --- | --- | --- |
 | `3d6400a` | 9/10 22:47 | 共通Web UIの初期実装を追加。言語・履歴・招待期限などのSlint機能は未移植だった。移行文書も機能一致を未完了と記載。 |
-| `90e2c91` | 9/10 23:18 | native受信処理で存在確認後にrenameする保存処理を導入。同時受信が同じ名前を選ぶと上書きされ得た。`7547b39` (9/11 05:18) の連番改善後も残った。 |
+| `90e2c91` | 9/10 23:18 | nativeで全listenerが1つの通知列を取り合い、別listener宛のstreamを閉じる実装を導入。QR再生成後の最初の受信を壊し得た。保存も存在確認後のrenameとなり、同時受信が同名を選ぶと上書きされ得た。`7547b39` (9/11 05:18) の連番改善後も残った。 |
 | `988f1a8` | 9/10 23:40 | Web配信を新UIへ切替。未移植機能が公開Webから失われた。 |
 | `784ffde` | 9/11 00:08 | macOS/Windows/Linuxの入口をTauriへ切替。旧Desktopの設定・履歴・clipboard操作等が製品経路から外れた。 |
 | `373322f` | 9/11 01:37 | QR描画・カメラUIを追加。BarcodeDetector限定で、カメラ画面の取消Promiseも完了しない実装だった。 |
@@ -62,6 +62,8 @@ nativeの通知変換では現在のsnapshotに過去のsequenceを付けてい�
 
 ## 追加検証で見つかった問題
 
+- 旧Slint Webの `988f1a8^:dist/index.html:1023–1025` は本文と末尾改行をまとめて送信し、`closeWrite` の完了後にstreamを閉じていた。`3d6400a` で追加した共通Rustのテキスト送信は本文/改行を別々に書き、半切断を行わず、Web接続を切り替えた `988f1a8` からこの差が実送信に入った。共通処理を改行終端の一括送信、取消検査、半切断の順に戻し、送信順序・半切断失敗・最後の書込後の取消をunitで検査する。gVisorの通常の`Close`自体も送信キューへFINを追加するため、この差だけをAndroidの初回テキスト欠落の全原因とは断定しない。受信EOF待ちや新しい応答メッセージは追加しない。
+- QR再生成後の初回メッセージが届かないnativeの競合を確認した。`90e2c91`で追加した`NativeListener::accept`は全待受で1つの`tc_wait_event`を取り合い、別ownerの通知を取得するとそのstreamを閉じていた。終了前に待機へ入った旧listenerが新listenerの最初の通知を取り出すと、新接続を閉じてしまう。修正前実機では送信側が`completed / 56 of 56 bytes`なのにAndroidの受信履歴が空になることを記録した（`baseline16-7.log`）。通知を一度だけ取り出してownerごとの待受へ配送し、listener終了時は自分の待機と保留通知だけを終了する。
 - Webの連続再生成で応答が止まる現象を再現した。Goのlistener/streamのcloseが同期JavaScript callback内でネットワーク終了を待つ実装だった。終了をPromise内のgoroutineへ移し、二重終了も防ぐ。該当実装は移行前の `87bfff7` にも存在しており、移行で新たに入った不具合とは断定しない。
 - native scannerに採用した公式plugin 2.4.4にも取消処理の不具合があった。Androidはcamera providerの準備後に取消済み画面が再開し、scanのPromiseが終了しない可能性があった。iOSもqueued startとmetadata通知に対して終了したscanを拒否する検査を追加した。修正版を `vendor/tauri-plugin-barcode-scanner` に置き、出所・ライセンス・変更理由を保持した。
 - macOSではcamera用途説明をTauriのInfo.plist、単独実行ファイルの埋込plist、手動で作る.appのplistに揃えた。
@@ -86,6 +88,7 @@ nativeの通知変換では現在のsnapshotに過去のsequenceを付けてい�
 
 - UIテストをmockの表示確認だけで終えず、実backendに合わせた送信応答、再試行、言語、期限、履歴、scanner終了を検証する。
 - coreでは接続の作り直し、全streamの取消、遅延イベント、peer情報保持、snapshot履歴/終了結果の復元を検証する。
+- native通知は旧待受終了後の配送、複数待受、登録前通知、待機取消、終了時の全待機解除と保留stream解放を8件の決定的テストで検証する。Release workflowでもcore/transfer/native通知のunitを実行する。
 - Pages配信前に、同じ実行で生成したGo WASM・Rust WASM・UIを組み合わせて実通信する。標準経路とDERPで双方向テキスト/ファイルの保存内容を照合する。
 - Chromiumに加えてFirefox/WebKitでも実backendを動かし、ブラウザの保存API差を検出する。
 - 実通信テストは不正招待、待受の連続更新、自分の送信履歴、バッチ取消、切断後の待受も確認する。
@@ -99,10 +102,10 @@ nativeの通知変換では現在のsnapshotに過去のsequenceを付けてい�
 | 対象 | 今回確認した結果 | 未確認・補足 |
 | --- | --- | --- |
 | 共通UI | unit 103件、UI E2E 6件成功。360px幅の長いファイル名と入力欄の表示を含む。 | 実backendの通信は別途確認。 |
-| 共通core | 接続世代・取消・通知復元・経路表示など20件成功。 | OS画面の成功を意味しない。 |
+| 共通core/transfer | coreの接続世代・取消・通知復元・経路表示など20件、transferの半切断・部分I/O・受信取消など20件成功。 | OS画面の成功を意味しない。 |
 | Android実機 | APK SHA-256 `d7077d5ab8e154c17ec2104e8c333a12988a15a5a4a2e3b2a45f58d0a24ca628`。WebRTCとDERPでQR再生成2回、双方向テキスト、Webから131071バイト受信とSHA-256一致、64MiB送信取消後の再転送を確認。 | 転送取消は開始直後。Androidからのファイル送信はこの実行では未検証。 |
 | Androidカメラ・ファイル表示 | 同じAPKで実カメラ映像、閉じる→再表示→閉じるを確認。受信ファイルのOpenが`ACTION_VIEW`とFileProvider URI/read grantを渡し、OSの選択画面を表示。 | `.bin`を開けるアプリでの内容表示と、光学的なQR読取そのものは未検証。 |
-| macOS実機 | Release `.app`の起動とQR、Webとの双方向テキスト、ファイル受信とSHA-256一致、TextEditで日本語内容の表示を確認。Apple保存修正後は同名の59/60バイトを即時保存し、両方の内容を保持。OSファイル選択からWebへ60バイトを返送し、ダウンロードした内容もSHA-256一致。 | 修正後のapp executable SHA-256は`0f6d682e1cf3f5c6c6bb7678cbdf2317dec04b9d4f3047c71c8f8d949c4da34`。 |
+| macOS実機 | Release `.app`の起動とQR、Webとの双方向テキスト、ファイル受信とSHA-256一致、TextEditで日本語内容の表示を確認。Apple保存修正後は同名の59/60バイトを即時保存し、両方の内容を保持。OSファイル選択からWebへ60バイトを返送し、ダウンロードした内容もSHA-256一致。 | 修正後のapp executable SHA-256は`0f6d682e1cf3f5c6c6bb7678cbdf2317dec04b9d4f3047c71c8f8d949c4da34b`。 |
 | iOS | Firebaseを含むビルド、IPA生成、codesign検査成功。選択した19個のbundleを梱包。 | 接続中のXSはロックのため最新アプリのインストール不可。12 Proも起動を拒否。実機のカメラ・ファイル表示・通信は成功扱いにしない。 |
 | Windows/Linux | 上記CIで最終配布用ビルド成功。 | 実機UIとOS間通信は未検証。 |
 
@@ -111,5 +114,7 @@ Android実通信の記録は `/tmp/ponlet-parity-validation/final11-android-{def
 Apple保存修正後のnative unitは16件成功（Apple renameの3件、並行保存、既存ファイル・ディレクトリ・symlink保持を含む）。iOS再ビルドも成功し、IPA SHA-256は`917f28f534512c185183e41042e7b4f13e89b7204991a99c6aae1f2676ea9e1f`。実機には未インストール。
 
 Web実装 `8733696` の [プレビュー配信](https://github.com/mat2uken/tailcatsend/actions/runs/34675878256) は、同一実行でGo/Rust WASMとUIを生成し、Chromium標準/DERP・Firefox・WebKit通常/永続コンテキストの双方向通信と保存照合を通過した。公開URLの本番更新は別途記録する。
+
+テキスト半切断の修正後にRust WASMを再生成し、上記5条件の実通信を再検証してすべて成功した（`final17-web-*.log`）。Rust WASM SHA-256は`1e739298139a65f345c8ec4794939cc2102c655296ee56a867a28c0af04ca7f8`。native通知の新しい8件のunitも成功した（`final18-native-transport-test.log`）。修正前のAndroid連続試験では7回目でテキスト欠落が再現しているため、以前の成功回だけを通知修正後の成功証拠とは扱わない。
 
 保存APIの実装には [WHATWG File System](https://fs.spec.whatwg.org/#api-filesystemsyncaccesshandle) と [WebKitのOPFS説明](https://webkit.org/blog/12257/the-file-system-access-api-with-origin-private-file-system/) を参照した。

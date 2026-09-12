@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
-import { createReadStream, existsSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { execFileSync } from "node:child_process";
 import playwright from "../../web-ui/node_modules/playwright/index.js";
@@ -284,6 +284,27 @@ async function main() {
     if (actualHash !== expectedHash) {
       throw new Error(`Android file hash mismatch: ${actualHash} != ${expectedHash}`);
     }
+    // Exercise the native file source with the just-received test file. The
+    // Android document picker is a separate UI check; this uses its resulting
+    // FileRequest and verifies the full reverse transfer and browser download.
+    const reverseFileName = `android-to-browser-${runId}-日本語.bin`;
+    await android.evaluate(
+      (file) => window.__TAURI_INTERNALS__.invoke("ponlet_send_files", { files: [file] }),
+      { name: reverseFileName, size: received.size, mime: null, path: received.localPathOrHandle },
+    );
+    await waitForSnapshot(host,
+      (value) => value.received?.some((item) => item.name === reverseFileName),
+      "Browser reverse file receive");
+    const [download] = await Promise.all([
+      host.waitForEvent("download"),
+      host.getByRole("button", { name: /^(Open|開く)$/ }).click(),
+    ]);
+    const reversePath = await download.path();
+    if (!reversePath) throw new Error("Reverse file download path was not created");
+    const reverseHash = sha256(readFileSync(reversePath));
+    if (reverseHash !== expectedHash) {
+      throw new Error(`Browser reverse file hash mismatch: ${reverseHash} != ${expectedHash}`);
+    }
     const browserFinal = await snapshot(host);
     assertTransport(browserFinal, "browser");
     assertTransport(androidAfter, "android");
@@ -301,17 +322,23 @@ async function main() {
             bytes: received.size,
             sha256: actualHash,
           },
+          reverseFile: { name: reverseFileName, bytes: received.size, sha256: reverseHash },
         },
         null,
         2,
       ),
     );
   } catch (error) {
+    console.error("Browser diagnostics", await host.evaluate(async () => ({
+      snapshot: await window.__ponletBackend?.snapshot?.(),
+      draft: document.querySelector("textarea")?.value,
+    })).catch(String));
     if (android) {
       console.error("Android diagnostics", await android.evaluate(async () => {
         const state = await window.__TAURI_INTERNALS__.invoke("ponlet_snapshot");
         return {
           state: state.state, error: state.error, transport: state.transport,
+          receivedMessages: state.receivedMessages,
           clicks: window.__ponletTestClicks,
           draft: document.querySelector("textarea")?.value,
           syntheticMessages: [...document.querySelectorAll(".message-bubble")].map(e => e.textContent).filter(text => text.includes("実通信")),

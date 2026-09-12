@@ -393,7 +393,8 @@ pub async fn receive_named_file_stream(
     result
 }
 
-/// Send one newline-terminated text message on the persistent text stream.
+/// Send one newline-terminated text message, then finish the write side.
+/// Callers own the stream and close it after this operation completes.
 pub async fn send_live_text_stream(
     stream: &mut Box<dyn DuplexStream>,
     text: &str,
@@ -405,8 +406,14 @@ pub async fn send_live_text_stream(
     if cancel_flag.load(Ordering::Relaxed) {
         return Err(TransferError::Cancelled);
     }
-    write_fully(stream, text.as_bytes(), &cancel_flag).await?;
-    write_fully(stream, b"\n", &cancel_flag).await?;
+    let mut payload = Vec::with_capacity(text.len() + 1);
+    payload.extend_from_slice(text.as_bytes());
+    if !payload.ends_with(b"\n") {
+        payload.push(b'\n');
+    }
+    write_fully(stream, &payload, &cancel_flag).await?;
+    check_cancelled(&cancel_flag)?;
+    stream.close_write().await?;
     Ok(())
 }
 
