@@ -24,7 +24,7 @@ interface ReceivedFile {
   createSyncAccessHandle?(): Promise<SyncReceivedAccess>;
   createWritable?(): Promise<ReceivedWriter>;
   getFile(): Promise<Blob>;
-  move?(name: string): Promise<void>;
+  move?(directory: ReceivedDirectory, name: string): Promise<void>;
   readonly name: string;
 }
 
@@ -160,7 +160,9 @@ export async function commitReceivedFile(
         // finishes, not only while selecting its name.
         if (typeof file.move === "function") {
           try {
-            await file.move(destination);
+            // WebKit requires the directory+name form. Chromium supports it
+            // too; the single-name overload is not portable.
+            await file.move(directory, destination);
             return destination;
           } catch (error) {
             if (errorName(error) !== "NotSupportedError") {
@@ -176,4 +178,232 @@ export async function commitReceivedFile(
     }
     throw new Error("Too many files with the same received name");
   });
+}
+
+interface StorageRoot extends ReceivedDirectory {
+  getDirectoryHandle(name: string, options: { create: boolean }): Promise<ReceivedDirectory>;
+}
+
+interface WorkerStorage {
+  getDirectory?(): Promise<StorageRoot>;
+}
+
+interface WorkerReceivedItem {
+  localPathOrHandle: string;
+  name: string;
+  size: number;
+}
+
+interface WorkerReceivedSink {
+  abort(): Promise<void>;
+  commit(expectedSize: number): Promise<WorkerReceivedItem>;
+  write(chunk: Uint8Array): Promise<void>;
+}
+
+interface PreparedReceive {
+  cleanup(): Promise<void>;
+  finish(size: number): Promise<WorkerReceivedItem>;
+  writer: ReceivedWriter;
+}
+
+const receivedBlobUrls = new Set<string>();
+const receivedBlobNames = new Set<string>();
+const pendingReceives = new Set<() => Promise<void>>();
+const pendingPreparations = new Set<Promise<WorkerReceivedSink>>();
+let storageGeneration = 0;
+
+function memoryReceive(name: string): PreparedReceive {
+  // Blob snapshots each chunk before Rust reuses its transfer buffer. This
+  // compatibility path retains the complete file in the worker, never the UI.
+  const parts: Array<Blob> = [];
+  const discard = async (): Promise<void> => {
+    parts.length = 0;
+  };
+  return {
+    cleanup: discard,
+    finish: async (size) => {
+      const blob = new Blob(parts, { type: "application/octet-stream" });
+      if (blob.size !== size) {
+        throw new Error("Received Blob size mismatch");
+      }
+      let number = 0;
+      while (receivedBlobNames.has(numberedName(name, number))) {
+        number++;
+      }
+      const savedName = numberedName(name, number);
+      const url = URL.createObjectURL(blob);
+      receivedBlobUrls.add(url);
+      receivedBlobNames.add(savedName);
+      parts.length = 0;
+      return { name: savedName, size, localPathOrHandle: url };
+    },
+    writer: {
+      abort: discard,
+      close: async () => undefined,
+      write: async (chunk) => {
+        parts.push(new Blob([chunk as Uint8Array<ArrayBuffer>]));
+      },
+    },
+  };
+}
+
+function managedReceive(prepared: PreparedReceive, generation: number): WorkerReceivedSink {
+  let phase: "open" | "closing" | "completed" | "aborted" | "failed" = "open";
+  let size = 0;
+  let queue = Promise.resolve();
+  let cleanup: Promise<void> | undefined;
+  const clean = (): Promise<void> => (cleanup ??= prepared.cleanup());
+  const ensureLive = (): void => {
+    if (generation !== storageGeneration || ["completed", "aborted", "failed"].includes(phase)) {
+      throw new Error("Received file sink is closed");
+    }
+  };
+  const enqueue = <T>(operation: () => Promise<T>): Promise<T> => {
+    const result = queue.then(async () => {
+      try {
+        ensureLive();
+        return await operation();
+      } catch (error) {
+        phase = "failed";
+        try {
+          await clean().catch(() => undefined);
+        } finally {
+          pendingReceives.delete(abort);
+        }
+        throw error;
+      }
+    });
+    queue = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  };
+  const abort = (): Promise<void> => {
+    if (phase === "completed") {
+      return Promise.resolve();
+    }
+    phase = "aborted";
+    return queue.then(clean).finally(() => pendingReceives.delete(abort));
+  };
+  pendingReceives.add(abort);
+  return {
+    abort,
+    commit: (expectedSize) => {
+      if (phase !== "open") {
+        return Promise.reject(new Error("Received file sink is closed"));
+      }
+      phase = "closing";
+      return enqueue(async () => {
+        if (!Number.isSafeInteger(expectedSize) || size !== expectedSize) {
+          throw new Error("Received file size mismatch");
+        }
+        await prepared.writer.close();
+        ensureLive();
+        const item = await prepared.finish(size);
+        if (generation !== storageGeneration || phase !== "closing") {
+          if (receivedBlobUrls.delete(item.localPathOrHandle)) {
+            URL.revokeObjectURL(item.localPathOrHandle);
+          }
+          throw new Error("Received file sink is closed");
+        }
+        phase = "completed";
+        pendingReceives.delete(abort);
+        return item;
+      });
+    },
+    write: (chunk) => {
+      if (phase !== "open") {
+        return Promise.reject(new Error("Received file sink is closed"));
+      }
+      return enqueue(async () => {
+        await prepared.writer.write(chunk);
+        ensureLive();
+        size += chunk.byteLength;
+      });
+    },
+  };
+}
+
+/** Select storage once, before any received bytes have been accepted. */
+async function prepareReceive(
+  name: string,
+  storage: WorkerStorage | undefined = globalThis.navigator?.storage as WorkerStorage | undefined,
+  locks: StorageLockManager | undefined = globalThis.navigator?.locks,
+): Promise<WorkerReceivedSink> {
+  const generation = storageGeneration;
+  let temporaryName = "";
+  let directory: ReceivedDirectory | undefined;
+  let writer: ReceivedWriter | undefined;
+  let file: ReceivedFile | undefined;
+  const cleanup = async (): Promise<void> => {
+    await writer?.abort().catch(() => undefined);
+    if (file) {
+      await directory?.removeEntry(temporaryName).catch(() => undefined);
+    }
+  };
+  try {
+    if (!storage?.getDirectory) {
+      throw new Error("OPFS is unavailable");
+    }
+    const root = await storage.getDirectory();
+    directory = await root.getDirectoryHandle("Ponlet", { create: true });
+    temporaryName = `.ponlet-${crypto.randomUUID()}.part`;
+    file = await directory.getFileHandle(temporaryName, { create: true });
+    writer = await createReceivedWriter(file);
+    if (generation !== storageGeneration) {
+      throw new Error("Received file storage was disposed");
+    }
+  } catch (error) {
+    await cleanup();
+    if (generation !== storageGeneration) {
+      throw error;
+    }
+    // Private browsing can expose OPFS but reject getDirectory with UnknownError.
+    // Only preparation failures select memory; later I/O failures remain errors.
+    return managedReceive(memoryReceive(name), generation);
+  }
+  const preparedDirectory = directory;
+  const preparedFile = file;
+  return managedReceive(
+    {
+      cleanup,
+      finish: async (size) => {
+        const savedName = await commitReceivedFile(preparedDirectory, preparedFile, name, locks);
+        return { name: savedName, size, localPathOrHandle: `opfs:/Ponlet/${savedName}` };
+      },
+      writer,
+    },
+    generation,
+  );
+}
+
+export function prepareReceivedFile(
+  name: string,
+  storage: WorkerStorage | undefined = globalThis.navigator?.storage as WorkerStorage | undefined,
+  locks: StorageLockManager | undefined = globalThis.navigator?.locks,
+): Promise<WorkerReceivedSink> {
+  const operation = prepareReceive(name, storage, locks);
+  pendingPreparations.add(operation);
+  void operation.then(
+    () => pendingPreparations.delete(operation),
+    () => pendingPreparations.delete(operation),
+  );
+  return operation;
+}
+
+/** Normal disconnect preserves received files. Only backend disposal calls this. */
+export async function disposeReceivedFiles(): Promise<void> {
+  storageGeneration++;
+  // A writer can finish opening after disposal starts. Wait for its generation
+  // check and cleanup before the caller is allowed to terminate this worker.
+  await Promise.allSettled([
+    ...pendingPreparations,
+    ...Array.from(pendingReceives, (abort) => abort()),
+  ]);
+  for (const url of receivedBlobUrls) {
+    URL.revokeObjectURL(url);
+  }
+  receivedBlobUrls.clear();
+  receivedBlobNames.clear();
 }

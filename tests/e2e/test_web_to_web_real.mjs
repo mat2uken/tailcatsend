@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
-import { createReadStream, existsSync, readFileSync } from "node:fs";
+import { createReadStream, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { resolve, sep } from "node:path";
 import playwright from "../../web-ui/node_modules/playwright/index.js";
 
 const browserName = process.env.PONLET_TEST_BROWSER ?? "chromium";
+const persistent = process.env.PONLET_TEST_PERSISTENT === "1";
 if (!["chromium", "firefox", "webkit"].includes(browserName)) {
   throw new Error(`unsupported PONLET_TEST_BROWSER: ${browserName}`);
 }
@@ -104,6 +106,16 @@ function assertTransport(snapshotValue, label) {
   }
 }
 
+async function downloadReceived(page, index = 0) {
+  const [download] = await Promise.all([
+    page.waitForEvent("download", { timeout: 30_000 }),
+    page.locator(".received-item").nth(index).getByRole("button", { name: /Open|開く/ }).click(),
+  ]);
+  const path = await download.path();
+  if (!path) throw new Error("received download path was not created");
+  return readFileSync(path);
+}
+
 async function main() {
   const required = [
     "dist/assets/tailcat.wasm.gz",
@@ -117,8 +129,11 @@ async function main() {
   }
 
   const { server, port } = await serveStatic();
-  const browser = await playwright[browserName].launch({ headless: true });
-  const context = await browser.newContext({ acceptDownloads: true });
+  const profile = persistent ? mkdtempSync(resolve(tmpdir(), "ponlet-browser-test-")) : null;
+  const browser = persistent ? null : await playwright[browserName].launch({ headless: true });
+  const context = persistent
+    ? await playwright[browserName].launchPersistentContext(profile, { headless: true, acceptDownloads: true })
+    : await browser.newContext({ acceptDownloads: true });
   const deadline = setTimeout(() => {
     console.error("Real browser transfer test exceeded five minutes");
     void context.close();
@@ -201,12 +216,7 @@ async function main() {
       "file receive",
     );
     const received = await snapshot(joiner);
-    const downloadPromise = joiner.waitForEvent("download");
-    await joiner.getByRole("button", { name: /Open|開く/ }).click();
-    const download = await downloadPromise;
-    const downloadPath = await download.path();
-    if (!downloadPath) throw new Error("download path was not created");
-    const actualBytes = readFileSync(downloadPath);
+    const actualBytes = await downloadReceived(joiner);
     const actualHash = sha256(actualBytes);
     if (actualHash !== expectedHash) {
       throw new Error(`received hash mismatch: ${actualHash} != ${expectedHash}`);
@@ -233,12 +243,7 @@ async function main() {
       "reverse file receive",
     );
     const reverseReceived = await snapshot(host);
-    const reverseDownloadPromise = host.waitForEvent("download");
-    await host.getByRole("button", { name: /Open|開く/ }).click();
-    const reverseDownload = await reverseDownloadPromise;
-    const reverseDownloadPath = await reverseDownload.path();
-    if (!reverseDownloadPath) throw new Error("reverse download path was not created");
-    const reverseActualBytes = readFileSync(reverseDownloadPath);
+    const reverseActualBytes = await downloadReceived(host);
     const reverseActualHash = sha256(reverseActualBytes);
     if (reverseActualHash !== reverseHash) {
       throw new Error(`reverse received hash mismatch: ${reverseActualHash} != ${reverseHash}`);
@@ -259,13 +264,8 @@ async function main() {
       throw new Error("Same-name receives share a storage handle");
     }
     const savedHashes = [];
-    for (const item of sameNameFiles) {
-      const pending = joiner.waitForEvent("download");
-      await joiner.evaluate((receivedItem) => window.__ponletBackend.openReceivedItem(receivedItem), item);
-      const saved = await pending;
-      const path = await saved.path();
-      if (!path) throw new Error("same-name download path was not created");
-      savedHashes.push(sha256(readFileSync(path)));
+    for (let index = 0; index < sameNameFiles.length; index++) {
+      savedHashes.push(sha256(await downloadReceived(joiner, index)));
     }
     if (!savedHashes.includes(expectedHash) || !savedHashes.includes(sha256(duplicateBytes))) {
       throw new Error(`Same-name file contents were replaced: ${JSON.stringify(savedHashes)}`);
@@ -296,6 +296,7 @@ async function main() {
       JSON.stringify(
         {
           browser: browserName,
+          persistent,
           regressions: { invalidInvitationPreserved: true, repeatedInvitation: true, outgoingHistory: true, sameNameFilesPreserved: true, batchCancelled: true, waitingAfterDisconnect: true },
           host: { state: hostFinal.state, transport: hostFinal.transport },
           joiner: { state: joinerFinal.state, transport: joinerFinal.transport },
@@ -322,7 +323,8 @@ async function main() {
   } finally {
     clearTimeout(deadline);
     await context.close();
-    await browser.close();
+    await browser?.close();
+    if (profile) rmSync(profile, { recursive: true, force: true });
     await new Promise((resolveServer) => server.close(resolveServer));
   }
 }

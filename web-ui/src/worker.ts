@@ -9,7 +9,12 @@ import {
   qrPayload,
   type IpcFrame,
 } from "./ipc";
-import { commitReceivedFile, createReceivedWriter } from "./worker-storage";
+import {
+  commitReceivedFile,
+  createReceivedWriter,
+  disposeReceivedFiles,
+  prepareReceivedFile,
+} from "./worker-storage";
 
 /**
  * The worker keeps Rust state and OPFS in one execution context. Go stays in
@@ -154,6 +159,7 @@ interface GoConnectionProxy {
   getTransport(): number;
   port: number;
   readInto(destination: Uint8Array, length?: number): Promise<GoReadProxyResult>;
+  readonly transportType: number;
   write(bytes: Uint8Array): Promise<unknown>;
 }
 
@@ -180,10 +186,12 @@ const scope = globalThis as typeof globalThis & {
   __ponletBackend?: RustBackend;
   __ponletCommitReceivedFile?: typeof commitReceivedFile;
   __ponletCreateReceivedWriter?: typeof createReceivedWriter;
+  __ponletPrepareReceivedFile?: typeof prepareReceivedFile;
   tailSendTailcat?: GoTransportProxy;
 };
 scope.__ponletCommitReceivedFile = commitReceivedFile;
 scope.__ponletCreateReceivedWriter = createReceivedWriter;
+scope.__ponletPrepareReceivedFile = prepareReceivedFile;
 
 let goPort: MessagePort | undefined;
 let goRequestId = 0;
@@ -297,7 +305,7 @@ function postGo(command: GoCommand, transfer: Array<Transferable> = []): Promise
 }
 
 function transportType(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  return value === 0 || value === 1 || value === 2 ? value : fallback;
 }
 
 function connectionProxy(descriptor: GoConnectionDescriptor): GoConnectionProxy {
@@ -309,6 +317,9 @@ function connectionProxy(descriptor: GoConnectionDescriptor): GoConnectionProxy 
   };
   return {
     port: descriptor.port,
+    get transportType() {
+      return currentTransport;
+    },
     getTransport: () => currentTransport,
     readInto: async (destination, length = destination.byteLength) => {
       if (!Number.isSafeInteger(length) || length < 0 || length > destination.byteLength) {
@@ -398,6 +409,9 @@ function connectionProxy(descriptor: GoConnectionDescriptor): GoConnectionProxy 
         isArrayBuffer((result as { buffer?: unknown }).buffer)
       ) {
         writeBuffer = (result as { buffer: ArrayBuffer }).buffer;
+      }
+      if (result && typeof result === "object" && "transportType" in result) {
+        updateTransport(result.transportType);
       }
       return result;
     },
@@ -588,7 +602,18 @@ async function handleRpcFrame(frame: IpcFrame, attachments: Array<unknown>): Pro
       await backend.cancelTransfer(value as string);
       return responseFrame(frame, 0, new Uint8Array());
     case Opcode.Disconnect:
-      await backend.disconnect();
+      try {
+        await backend.disconnect();
+      } finally {
+        if (
+          value &&
+          typeof value === "object" &&
+          "disposeStorage" in value &&
+          value.disposeStorage === true
+        ) {
+          await disposeReceivedFiles();
+        }
+      }
       return responseFrame(frame, 0, new Uint8Array());
     case Opcode.Subscribe:
       return responseFrame(frame, 0, jsonBytes(await backend.snapshot()));

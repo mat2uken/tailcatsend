@@ -2,11 +2,11 @@
 import PackageDescription
 let package = Package(
     name: "tauri-plugin-ponlet-platform",
-    platforms: [.iOS(.v17)],
+    platforms: [.iOS(.v17), .macOS(.v10_15)],
     products: [.library(name: "tauri-plugin-ponlet-platform", type: .static, targets: ["tauri-plugin-ponlet-platform"])],
     dependencies: [
         .package(name: "Tauri", path: "../.tauri/tauri-api"),
-        .package(url: "https://github.com/firebase/firebase-ios-sdk", from: "12.0.0")
+        .package(url: "https://github.com/firebase/firebase-ios-sdk", exact: "12.19.1")
     ],
     targets: [.target(name: "tauri-plugin-ponlet-platform", dependencies: [
         .byName(name: "Tauri"),

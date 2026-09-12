@@ -410,7 +410,7 @@ function startWorkerBackend(wasmUrl: string): Promise<NativeBridge> {
         }
         disposed = true;
         try {
-          await rpc.call(Opcode.Disconnect);
+          await rpc.call(Opcode.Disconnect, { disposeStorage: true });
         } catch {
           // The worker may already be stopping during pagehide. Closing the
           // port below still releases all pending requests in that case.

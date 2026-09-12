@@ -656,83 +656,34 @@ impl FileSource for WebFileSource {
 }
 
 struct WebFileSink {
-    directory: JsValue,
-    file: JsValue,
-    writable: JsValue,
-    temporary_name: String,
-    final_name: String,
+    sink: JsValue,
     size: u64,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct WorkerReceivedItem {
+    name: String,
+    size: u64,
+    local_path_or_handle: String,
 }
 
 impl WebFileSink {
     async fn prepare(name: &str) -> Result<Self, StorageError> {
         let safe = sanitize_filename(name).map_err(|error| StorageError::Io(error.to_string()))?;
         let global = js_sys::global();
-        let navigator = Reflect::get(&global, &JsValue::from_str("navigator"))
+        // The worker selects OPFS or its Blob compatibility sink before the
+        // first byte. Write/commit failures never switch storage mid-transfer.
+        let prepare = function(&global, "__ponletPrepareReceivedFile").map_err(|_| {
+            StorageError::Unsupported("browser receive storage is unavailable".into())
+        })?;
+        let opened = prepare
+            .call1(&global, &JsValue::from_str(&safe))
             .map_err(|error| StorageError::Io(format!("{error:?}")))?;
-        let storage = Reflect::get(&navigator, &JsValue::from_str("storage"))
-            .map_err(|error| StorageError::Io(format!("{error:?}")))?;
-        let root = promise(
-            function(&storage, "getDirectory")
-                .map_err(|error| StorageError::Io(error.to_string()))?
-                .call0(&storage)
-                .map_err(|error| StorageError::Io(format!("{error:?}")))?,
-        )
-        .await
-        .map_err(|error| StorageError::Io(error.to_string()))?;
-        let options = Object::new();
-        Reflect::set(&options, &JsValue::from_str("create"), &JsValue::TRUE)
-            .map_err(|error| StorageError::Io(format!("{error:?}")))?;
-        let directory = promise(
-            function(&root, "getDirectoryHandle")
-                .map_err(|error| StorageError::Io(error.to_string()))?
-                .call2(&root, &JsValue::from_str("Ponlet"), &options)
-                .map_err(|error| StorageError::Io(format!("{error:?}")))?,
-        )
-        .await
-        .map_err(|error| StorageError::Io(error.to_string()))?;
-        let temporary_name = format!(".ponlet-{}.part", id_string(new_id()));
-        let file = promise(
-            function(&directory, "getFileHandle")
-                .map_err(|error| StorageError::Io(error.to_string()))?
-                .call2(&directory, &JsValue::from_str(&temporary_name), &options)
-                .map_err(|error| StorageError::Io(format!("{error:?}")))?,
-        )
-        .await
-        .map_err(|error| StorageError::Io(error.to_string()))?;
-        let writable = async {
-            let create = function(&global, "__ponletCreateReceivedWriter").map_err(|_| {
-                StorageError::Unsupported("OPFS worker writer is unavailable".into())
-            })?;
-            let opened = create
-                .call1(&global, &file)
-                .map_err(|error| StorageError::Io(format!("{error:?}")))?;
-            promise(opened)
-                .await
-                .map_err(|error| StorageError::Io(error.to_string()))
-        }
-        .await;
-        let writable = match writable {
-            Ok(writer) => writer,
-            Err(error) => {
-                if let Ok(remove) = function(&directory, "removeEntry") {
-                    if let Ok(result) =
-                        remove.call1(&directory, &JsValue::from_str(&temporary_name))
-                    {
-                        let _ = promise(result).await;
-                    }
-                }
-                return Err(error);
-            }
-        };
-        Ok(Self {
-            directory,
-            file,
-            writable,
-            temporary_name,
-            final_name: safe,
-            size: 0,
-        })
+        let sink = promise(opened)
+            .await
+            .map_err(|error| StorageError::Io(error.to_string()))?;
+        Ok(Self { sink, size: 0 })
     }
 }
 
@@ -741,9 +692,9 @@ impl IncomingFileSink for WebFileSink {
     async fn write(&mut self, chunk: &[u8]) -> Result<(), StorageError> {
         let bytes = Uint8Array::new_with_length(chunk.len() as u32);
         bytes.copy_from(chunk);
-        let write = function(&self.writable, "write")
+        let write = function(&self.sink, "write")
             .map_err(|error| StorageError::Io(error.to_string()))?
-            .call1(&self.writable, &bytes)
+            .call1(&self.sink, &bytes)
             .map_err(|error| StorageError::Io(format!("{error:?}")))?;
         promise(write)
             .await
@@ -752,38 +703,24 @@ impl IncomingFileSink for WebFileSink {
         Ok(())
     }
 
-    async fn commit(mut self: Box<Self>) -> Result<ReceivedItem, StorageError> {
+    async fn commit(self: Box<Self>) -> Result<ReceivedItem, StorageError> {
         let result = async {
-            let close = function(&self.writable, "close")
+            let commit = function(&self.sink, "commit")
                 .map_err(|error| StorageError::Io(error.to_string()))?
-                .call0(&self.writable)
+                .call1(&self.sink, &JsValue::from_f64(self.size as f64))
                 .map_err(|error| StorageError::Io(format!("{error:?}")))?;
-            promise(close)
+            let committed = promise(commit)
                 .await
                 .map_err(|error| StorageError::Io(error.to_string()))?;
-            // The worker holds an origin-wide Web Lock while choosing and
-            // moving to the final name, preserving files from other tabs too.
-            let global = js_sys::global();
-            let commit = function(&global, "__ponletCommitReceivedFile").map_err(|_| {
-                StorageError::Unsupported("safe OPFS commit is unavailable".into())
-            })?;
-            let moved = commit
-                .call3(
-                    &global,
-                    &self.directory,
-                    &self.file,
-                    &JsValue::from_str(&self.final_name),
-                )
-                .map_err(|error| StorageError::Io(format!("{error:?}")))?;
-            self.final_name = promise(moved)
-                .await
-                .map_err(|error| StorageError::Io(error.to_string()))?
-                .as_string()
-                .ok_or_else(|| StorageError::Io("OPFS commit returned no filename".into()))?;
+            let item: WorkerReceivedItem = serde_wasm_bindgen::from_value(committed)
+                .map_err(|error| StorageError::Io(error.to_string()))?;
+            if item.size != self.size {
+                return Err(StorageError::Io("received file size mismatch".into()));
+            }
             Ok(ReceivedItem {
-                name: self.final_name.clone(),
-                size: self.size,
-                local_path_or_handle: format!("opfs:/Ponlet/{}", self.final_name),
+                name: item.name,
+                size: item.size,
+                local_path_or_handle: item.local_path_or_handle,
             })
         }
         .await;
@@ -793,19 +730,14 @@ impl IncomingFileSink for WebFileSink {
         result
     }
 
-    async fn abort(mut self: Box<Self>) -> Result<(), StorageError> {
-        if let Ok(abort) = function(&self.writable, "abort") {
-            if let Ok(result) = abort.call0(&self.writable) {
-                let _ = promise(result).await;
-            }
-        }
-        if let Ok(remove) = function(&self.directory, "removeEntry") {
-            if let Ok(result) =
-                remove.call1(&self.directory, &JsValue::from_str(&self.temporary_name))
-            {
-                let _ = promise(result).await;
-            }
-        }
+    async fn abort(self: Box<Self>) -> Result<(), StorageError> {
+        let abort = function(&self.sink, "abort")
+            .map_err(|error| StorageError::Io(error.to_string()))?
+            .call0(&self.sink)
+            .map_err(|error| StorageError::Io(format!("{error:?}")))?;
+        promise(abort)
+            .await
+            .map_err(|error| StorageError::Io(error.to_string()))?;
         Ok(())
     }
 }

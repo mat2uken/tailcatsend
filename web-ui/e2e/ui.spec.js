@@ -117,6 +117,43 @@ async function installBackend(page, { failFirstInvite = false, connected = false
   );
 }
 
+test("keeps long received filenames and message controls inside a narrow screen", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await installBackend(page, { connected: true });
+  await page.goto("/");
+  await page.evaluate(() => {
+    window.__testPonlet.publish({
+      received: [
+        {
+          id: "narrow-file",
+          name: `long-file-${"日本語".repeat(40)}.bin`,
+          size: 131071,
+          localPathOrHandle: "/received/narrow-file.bin",
+        },
+      ],
+    });
+    window.__testPonlet.text("A".repeat(240), true);
+  });
+  await expect(page.locator(".received-item")).toHaveCount(1);
+  for (const selector of [
+    ".connection-card",
+    ".transfer-card",
+    ".chat-card",
+    ".composer",
+    ".received-item",
+  ]) {
+    const rect = await page.locator(selector).boundingBox();
+    expect(rect.x).toBeGreaterThanOrEqual(0);
+    expect(rect.x + rect.width).toBeLessThanOrEqual(360);
+  }
+  expect(await page.evaluate(() => document.body.scrollWidth)).toBeLessThanOrEqual(360);
+  await page.getByRole("textbox", { name: "Message input", exact: true }).fill("narrow reply");
+  await page.getByRole("button", { name: "Send", exact: true }).click();
+  await expect(page.locator(".message-bubble.outgoing")).toContainText("narrow reply");
+});
+
 test("restores invitation waiting, live language, expiry and hidden controls", async ({ page }) => {
   await installBackend(page);
   await page.goto("/");

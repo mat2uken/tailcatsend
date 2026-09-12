@@ -29,7 +29,9 @@ function sharedStorage(initial = []) {
     entries.set(temporary, contents);
     return {
       name: temporary,
-      async move(name) {
+      async move(directory, name) {
+        expect(directory.getFileHandle).toBeTypeOf("function");
+        expect(name).toBeTypeOf("string");
         await beforeMove();
         // OPFS move replaces a target file. The helper must prevent that.
         entries.set(name, entries.get(temporary));

@@ -55,14 +55,15 @@ const clock = window.setInterval(() => {
 
 function createSession(): Session {
   return new Session(getBackend(), (view) => {
+    now.val = Date.now();
     const nextUrl = view.snapshot.inviteUrl ?? "";
     const remaining = Math.max(0, view.snapshot.inviteExpiresInSecs);
     if (nextUrl !== inviteUrl) {
       inviteUrl = nextUrl;
-      inviteDeadline = Date.now() + remaining * 1000;
+      inviteDeadline = now.val + remaining * 1000;
     } else if (nextUrl) {
       // Repeated snapshots must never extend an invitation's lifetime.
-      inviteDeadline = Math.min(inviteDeadline, Date.now() + remaining * 1000);
+      inviteDeadline = Math.min(inviteDeadline, now.val + remaining * 1000);
     }
     snapshot.val = view.snapshot;
     messages.val = view.messages;

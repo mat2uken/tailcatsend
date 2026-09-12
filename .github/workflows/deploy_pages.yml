@@ -140,6 +140,7 @@ jobs:
           npm run test:e2e:real:derp
           PONLET_TEST_BROWSER=firefox npm run test:e2e:real
           PONLET_TEST_BROWSER=webkit npm run test:e2e:real
+          PONLET_TEST_BROWSER=webkit PONLET_TEST_PERSISTENT=1 npm run test:e2e:real
 
       - name: Configure signed browser updates
         env:

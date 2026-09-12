@@ -111,6 +111,37 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+async function tapAndroidButton(page, locator) {
+  await locator.waitFor({ state: "visible" });
+  await locator.scrollIntoViewIfNeeded();
+  // Android WebView's IME pans the visual viewport independently of layout.
+  // CDP clicks can hit a different row; send a real device tap at the visible
+  // button's measured center. Ponlet's edge-to-edge WebView starts at (0, 0).
+  let point;
+  for (let attempt = 0; attempt < 30; attempt++) {
+    point = await locator.evaluate((element) => {
+      if (element.disabled) return null;
+      const rect = element.getBoundingClientRect();
+      const view = visualViewport;
+      const x = rect.x + rect.width / 2;
+      const y = rect.y + rect.height / 2;
+      if (y < view.offsetTop || y >= view.offsetTop + view.height) {
+        scrollBy(0, y - view.offsetTop - view.height / 2);
+        return null;
+      }
+      if (!element.contains(document.elementFromPoint(x, y))) return null;
+      return {
+        x: Math.round((x - view.offsetLeft) * view.scale * devicePixelRatio),
+        y: Math.round((y - view.offsetTop) * view.scale * devicePixelRatio),
+      };
+    });
+    if (point) break;
+    await page.waitForTimeout(100);
+  }
+  if (!point) throw new Error("Android button is not available in the visible viewport");
+  adb("shell", "input", "tap", String(point.x), String(point.y));
+}
+
 function assertTransport(snapshotValue, label) {
   if (!knownTransportPaths.has(snapshotValue.transport)) {
     throw new Error(`${label} reported an unknown transport: ${snapshotValue.transport}`);
@@ -149,6 +180,7 @@ async function main() {
   }
   const host = await context.newPage();
   let cdp;
+  let android;
   try {
     const pageUrl = transportOverride
       ? `http://127.0.0.1:${port}/?transport=${encodeURIComponent(transportOverride)}`
@@ -164,12 +196,34 @@ async function main() {
       .waitFor({ state: "visible", timeout: 30_000 });
 
     cdp = await chromium.connectOverCDP(`http://127.0.0.1:${cdpPort}`);
-    const android = cdp
+    android = cdp
       .contexts()
       .flatMap((value) => value.pages())
       .find((value) => value.url().startsWith("http://tauri.localhost"));
     if (!android) {
       throw new Error("Android WebView page not found");
+    }
+    await android.evaluate(() => {
+      window.__ponletTestClicks = [];
+      document.addEventListener("click", (event) => {
+        window.__ponletTestClicks.push(event.target.closest("button")?.textContent ?? event.target.tagName);
+        if (window.__ponletTestClicks.length > 8) window.__ponletTestClicks.shift();
+      });
+    });
+    const regeneratedInvites = [];
+    for (let index = 0; index < 2; index++) {
+      const previous = await android.evaluate(() =>
+        window.__TAURI_INTERNALS__.invoke("ponlet_snapshot"),
+      );
+      await tapAndroidButton(android,
+        android.getByRole("button", { name: /^(Regenerate|再生成|Create invite|招待を作成)$/ }));
+      const regenerated = await waitForAndroidSnapshot(
+        android,
+        (value) => value.inviteUrl && value.inviteUrl !== previous.inviteUrl,
+        `Android QR regeneration ${index + 1}`,
+      );
+      await android.getByRole("img", { name: /Invitation QR code|招待QRコード/ }).waitFor();
+      regeneratedInvites.push(sha256(regenerated.inviteUrl));
     }
     await android.evaluate(
       (invite) => window.__TAURI_INTERNALS__.invoke("ponlet_join", { invite }),
@@ -188,12 +242,12 @@ async function main() {
 
     const text = "Browser→Android 実通信: 日本語 ✅";
     await host.locator("textarea").fill(text);
-    await host.getByRole("button", { name: /Send|送信/ }).click({ force: true });
+    await host.getByRole("button", { name: /Send|送信/ }).click();
     await android.getByText(`[Peer]: ${text}`).first().waitFor({ state: "visible" });
 
     const reverseText = "Android→Browser 実通信: reply ↔ 日本語";
     await android.locator("textarea").fill(reverseText);
-    await android.getByRole("button", { name: /Send|送信/ }).click({ force: true });
+    await tapAndroidButton(android, android.getByRole("button", { name: /Send|送信/ }));
     await host.getByText(`[Peer]: ${reverseText}`).first().waitFor({ state: "visible" });
 
     const bytes = Buffer.from(Array.from({ length: 131_071 }, (_, index) => (index * 13) % 251));
@@ -236,6 +290,7 @@ async function main() {
           android: { state: androidAfter.state, transport: androidAfter.transport },
           text,
           reverseText,
+          regeneratedInvites,
           file: {
             name: received.name,
             bytes: received.size,
@@ -246,6 +301,21 @@ async function main() {
         2,
       ),
     );
+  } catch (error) {
+    if (android) {
+      console.error("Android diagnostics", await android.evaluate(async () => {
+        const state = await window.__TAURI_INTERNALS__.invoke("ponlet_snapshot");
+        return {
+          state: state.state, error: state.error, transport: state.transport,
+          clicks: window.__ponletTestClicks,
+          draft: document.querySelector("textarea")?.value,
+          syntheticMessages: [...document.querySelectorAll(".message-bubble")].map(e => e.textContent).filter(text => text.includes("実通信")),
+          clientWidth: document.documentElement.clientWidth, innerWidth, innerHeight,
+          visual: { offsetTop: visualViewport.offsetTop, height: visualViewport.height, scale: visualViewport.scale },
+        };
+      }).catch(String));
+    }
+    throw error;
   } finally {
     await cdp?.close();
     await context.close();

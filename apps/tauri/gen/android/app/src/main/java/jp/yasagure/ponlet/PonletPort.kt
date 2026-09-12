@@ -77,16 +77,19 @@ object PonletPort {
         object : WebViewCompat.WebMessageListener {
           override fun onPostMessage(
             view: WebView,
-            message: WebMessageCompat?,
-            sourceOrigin: android.net.Uri?,
+            message: WebMessageCompat,
+            sourceOrigin: android.net.Uri,
             isMainFrame: Boolean,
-            replyProxy: JavaScriptReplyProxy?,
+            replyProxy: JavaScriptReplyProxy,
           ) {
-            val input = message?.arrayBuffer ?: run {
-              replyProxy?.postMessage(ByteArray(0))
+            if (message.type != WebMessageCompat.TYPE_ARRAY_BUFFER) {
+              replyProxy.postMessage(ByteArray(0))
               return
             }
-            if (replyProxy == null) return
+            val input = message.arrayBuffer ?: run {
+              replyProxy.postMessage(ByteArray(0))
+              return
+            }
             worker.execute {
               val output = try { handleBatch(input) ?: ByteArray(0) } catch (_: Throwable) { ByteArray(0) }
               main.post {

@@ -539,6 +539,17 @@ fn record_telemetry(observation: Option<(&'static str, Vec<(&'static str, String
 }
 
 fn emit_locked(inner: &mut ServiceState, queue_limit: usize, event: AppEvent) -> BackendEvent {
+    // An accepted stream may not expose a route, especially when its status
+    // is sampled during shutdown. That is a missing observation, not evidence
+    // that another stream's measured route disappeared. Keep the last route
+    // in this session in both snapshots and delivered/replayed events. State
+    // transitions reset the route when connecting, disconnecting or failing.
+    let event = match event {
+        AppEvent::TransportChanged(TransportPath::Unknown) => {
+            AppEvent::TransportChanged(inner.snapshot.app.transport_path)
+        }
+        event => event,
+    };
     if let AppEvent::TransferCompleted { transfer_id }
     | AppEvent::TransferCancelled { transfer_id, .. } = &event
     {
@@ -903,6 +914,78 @@ mod tests {
             AppEvent::TransportChanged(TransportPath::Derp)
         ));
         assert_eq!(snapshot.app.transport_path, TransportPath::Derp);
+    }
+
+    #[test]
+    fn unavailable_stream_route_preserves_measured_path_in_snapshot_and_events() {
+        let service = BackendService::default();
+        let scope = service.begin_session();
+        scope.set_state(SessionState::Booting);
+        scope.set_transport_path(TransportPath::Derp);
+        let (_, mut subscriber) = service.subscribe_with_snapshot();
+
+        // A different incoming stream finishes without reporting a route.
+        let event = scope.set_transport_path(TransportPath::Unknown).unwrap();
+        assert!(matches!(
+            event.event,
+            AppEvent::TransportChanged(TransportPath::Derp)
+        ));
+        assert_eq!(service.snapshot().app.transport_path, TransportPath::Derp);
+        assert!(matches!(
+            subscriber.try_recv().unwrap().event,
+            AppEvent::TransportChanged(TransportPath::Derp)
+        ));
+        assert!(matches!(
+            service.events_since(event.sequence - 1).unwrap()[0].event,
+            AppEvent::TransportChanged(TransportPath::Derp)
+        ));
+
+        // A later measured change is still adopted in either direction.
+        scope.set_transport_path(TransportPath::WebRtc);
+        assert_eq!(service.snapshot().app.transport_path, TransportPath::WebRtc);
+        scope.set_transport_path(TransportPath::Derp);
+        assert_eq!(service.snapshot().app.transport_path, TransportPath::Derp);
+    }
+
+    #[test]
+    fn missing_route_is_not_inferred_and_replacement_sessions_reset_old_measurements() {
+        let service = BackendService::default();
+        assert!(matches!(
+            service.set_transport_path(TransportPath::Unknown).event,
+            AppEvent::TransportChanged(TransportPath::Unknown)
+        ));
+        let previous = service.begin_session();
+        previous.set_transport_path(TransportPath::Derp);
+        let disconnected = service.begin_session();
+        disconnected.set_state(SessionState::Disconnected {
+            reason: "ready".into(),
+        });
+        assert_eq!(
+            service.snapshot().app.transport_path,
+            TransportPath::Unknown
+        );
+        assert!(previous.set_transport_path(TransportPath::WebRtc).is_none());
+        assert!(matches!(
+            disconnected
+                .set_transport_path(TransportPath::Unknown)
+                .unwrap()
+                .event,
+            AppEvent::TransportChanged(TransportPath::Unknown)
+        ));
+        disconnected.set_transport_path(TransportPath::Derp);
+        let replacement = service.begin_session();
+        replacement.set_state(SessionState::Booting);
+        assert!(matches!(
+            replacement
+                .set_transport_path(TransportPath::Unknown)
+                .unwrap()
+                .event,
+            AppEvent::TransportChanged(TransportPath::Unknown)
+        ));
+        assert_eq!(
+            service.snapshot().app.transport_path,
+            TransportPath::Unknown
+        );
     }
 
     #[test]

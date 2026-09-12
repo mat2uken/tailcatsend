@@ -152,6 +152,7 @@ button:disabled {
 .shell {
   flex: 1;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 1.25rem;
   max-width: 880px;
   width: 100%;
@@ -161,6 +162,8 @@ button:disabled {
 .connection-card,
 .transfer-card,
 .chat-card {
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr);
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
@@ -420,6 +423,7 @@ progress::-moz-progress-bar {
 }
 .received-list {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.5rem;
   margin: 0;
   padding: 0;

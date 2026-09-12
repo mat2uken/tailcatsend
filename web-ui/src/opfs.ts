@@ -88,18 +88,37 @@ async function opfsFile(handleName: string): Promise<File> {
 
 /** Download a completed browser receive without copying it through the UI. */
 export async function downloadOpfsItem(handleName: string, name: string): Promise<void> {
-  const file = await opfsFile(handleName);
-  const url = URL.createObjectURL(file);
+  let url: string;
+  let downloadName = name;
+  let revokeAfterDownload = false;
+  if (handleName.startsWith("blob:")) {
+    // A completed compatibility receive is already a Blob URL in the worker.
+    // Passing its URL avoids reading the complete file back into the UI.
+    const parsed = new URL(handleName);
+    if (parsed.origin !== globalThis.location.origin) {
+      throw new Error("Received Blob URL belongs to another origin");
+    }
+    url = parsed.href;
+  } else {
+    const file = await opfsFile(handleName);
+    url = URL.createObjectURL(file);
+    downloadName ||= file.name;
+    revokeAfterDownload = true;
+  }
   const link = document.createElement("a");
   link.href = url;
-  link.download = name || file.name;
+  link.download = downloadName || "received.bin";
   link.hidden = true;
   document.body.append(link);
   try {
     link.click();
   } finally {
     link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
+    // Worker-owned URLs survive repeated downloads and normal disconnects.
+    // Backend disposal explicitly revokes them after aborting partial receives.
+    if (revokeAfterDownload) {
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    }
   }
 }
 
