@@ -113,7 +113,6 @@ function sha256(bytes) {
 
 async function tapAndroidButton(page, locator) {
   await locator.waitFor({ state: "visible" });
-  await locator.scrollIntoViewIfNeeded();
   // Android WebView's IME pans the visual viewport independently of layout.
   // CDP clicks can hit a different row; send a real device tap at the visible
   // button's measured center. Ponlet's edge-to-edge WebView starts at (0, 0).
@@ -152,6 +151,7 @@ function assertTransport(snapshotValue, label) {
 }
 
 async function main() {
+  const runId = Date.now().toString();
   if (!serial) {
     throw new Error("PONLET_ANDROID_SERIAL is required");
   }
@@ -240,20 +240,25 @@ async function main() {
       "Android connection",
     );
 
-    const text = "Browser→Android 実通信: 日本語 ✅";
+    const text = `Browser→Android 実通信: 日本語 ✅ ${runId}`;
     await host.locator("textarea").fill(text);
     await host.getByRole("button", { name: /Send|送信/ }).click();
     await android.getByText(`[Peer]: ${text}`).first().waitFor({ state: "visible" });
 
-    const reverseText = "Android→Browser 実通信: reply ↔ 日本語";
+    const reverseText = `Android→Browser 実通信: reply ↔ 日本語 ${runId}`;
     await android.locator("textarea").fill(reverseText);
     await tapAndroidButton(android, android.getByRole("button", { name: /Send|送信/ }));
     await host.getByText(`[Peer]: ${reverseText}`).first().waitFor({ state: "visible" });
 
     const bytes = Buffer.from(Array.from({ length: 131_071 }, (_, index) => (index * 13) % 251));
     const expectedHash = sha256(bytes);
-    await host.locator('input[type="file"]').setInputFiles({
-      name: "browser-to-android-日本語.bin",
+    const fileName = `browser-to-android-${runId}-日本語.bin`;
+    const [fileChooser] = await Promise.all([
+      host.waitForEvent("filechooser"),
+      host.getByRole("button", { name: /Choose file|ファイルを選択/ }).click(),
+    ]);
+    await fileChooser.setFiles({
+      name: fileName,
       mimeType: "application/octet-stream",
       buffer: bytes,
     });
@@ -261,11 +266,11 @@ async function main() {
       android,
       (value) =>
         value.state === "connected" &&
-        value.received?.some((item) => item.name === "browser-to-android-日本語.bin"),
+        value.received?.some((item) => item.name === fileName),
       "Android file receive",
     );
     const received = androidAfter.received.find(
-      (item) => item.name === "browser-to-android-日本語.bin",
+      (item) => item.name === fileName,
     );
     const relativePath = received.localPathOrHandle.replace(
       /^\/data\/user\/0\/jp\.yasagure\.ponlet\//,
