@@ -178,15 +178,23 @@ else
   mkdir -p "${repo_dir}/apps/tauri/gen/apple/assets"
   apple_project_dir="${repo_dir}/apps/tauri/gen/apple"
   apple_project_spec="${apple_project_dir}/project.yml"
-  if [[ "${platform}" == "ios" && -n "${DEVELOPMENT_TEAM:-}" && -n "${PROVISIONING_PROFILE_SPECIFIER:-}" ]]; then
-    # The Tauri CLI imports the certificate/profile, but XcodeGen still needs
-    # the manual signing settings in the generated project. Keep the checked
-    # in spec portable and add the CI values only to this temporary spec.
+  development_team="${DEVELOPMENT_TEAM:-${APPLE_DEVELOPMENT_TEAM:-}}"
+  if [[ "${platform}" == "ios" && -n "${development_team}" ]]; then
+    # Supply signing settings to XcodeGen as well as the Tauri CLI. A team
+    # alone uses automatic development signing for local device validation;
+    # a supplied profile keeps the existing manual distribution signing.
+    export APPLE_DEVELOPMENT_TEAM="${development_team}"
+    signing_style="${CODE_SIGN_STYLE:-Automatic}"
+    signing_identity="${CODE_SIGN_IDENTITY:-Apple Development}"
+    if [[ -n "${PROVISIONING_PROFILE_SPECIFIER:-}" ]]; then
+      signing_style="${CODE_SIGN_STYLE:-Manual}"
+      signing_identity="${CODE_SIGN_IDENTITY:-Apple Distribution}"
+    fi
     signed_project_spec="$(mktemp "${apple_project_dir}/project-signing.XXXXXX.yml")"
     trap 'rm -f -- "${signed_project_spec}"' EXIT
     python3 - "${apple_project_spec}" "${signed_project_spec}" \
-      "${DEVELOPMENT_TEAM}" "${CODE_SIGN_STYLE:-Manual}" \
-      "${CODE_SIGN_IDENTITY:-Apple Distribution}" "${PROVISIONING_PROFILE_SPECIFIER}" <<'PY'
+      "${development_team}" "${signing_style}" \
+      "${signing_identity}" "${PROVISIONING_PROFILE_SPECIFIER:-}" <<'PY'
 from pathlib import Path
 import json
 import sys
@@ -200,26 +208,28 @@ settings = {
     "DEVELOPMENT_TEAM": team,
     "CODE_SIGN_STYLE": style,
     "CODE_SIGN_IDENTITY": identity,
-    "PROVISIONING_PROFILE_SPECIFIER": profile,
 }
+if profile:
+    settings["PROVISIONING_PROFILE_SPECIFIER"] = profile
 overlay = "".join(f"      {key}: {json.dumps(value)}\n" for key, value in settings.items())
 Path(target).write_text(text.replace(needle, needle + overlay, 1))
 PY
     apple_project_spec="${signed_project_spec}"
 
-    # Tauri's export option discovery does not reliably derive the profile
-    # map from an XcodeGen-generated pbxproj. Supply the distribution profile
-    # explicitly, then restore the checked-in development spec on exit.
-    export_options_path="${apple_project_dir}/ExportOptions.plist"
-    export_options_backup="$(mktemp "${apple_project_dir}/ExportOptions.backup.XXXXXX.plist")"
-    cp "${export_options_path}" "${export_options_backup}"
-    restore_ios_signing_files() {
-      cp "${export_options_backup}" "${export_options_path}"
-      rm -f -- "${export_options_backup}" "${signed_project_spec}"
-    }
-    trap restore_ios_signing_files EXIT
-    python3 - "${export_options_path}" "${DEVELOPMENT_TEAM}" \
-      "${CODE_SIGN_IDENTITY:-Apple Distribution}" "${PROVISIONING_PROFILE_SPECIFIER}" <<'PY'
+    if [[ -n "${PROVISIONING_PROFILE_SPECIFIER:-}" ]]; then
+      # Tauri's export option discovery does not reliably derive the profile
+      # map from an XcodeGen-generated pbxproj. Supply the distribution profile
+      # explicitly, then restore the checked-in development spec on exit.
+      export_options_path="${apple_project_dir}/ExportOptions.plist"
+      export_options_backup="$(mktemp "${apple_project_dir}/ExportOptions.backup.XXXXXX.plist")"
+      cp "${export_options_path}" "${export_options_backup}"
+      restore_ios_signing_files() {
+        cp "${export_options_backup}" "${export_options_path}"
+        rm -f -- "${export_options_backup}" "${signed_project_spec}"
+      }
+      trap restore_ios_signing_files EXIT
+      python3 - "${export_options_path}" "${development_team}" \
+        "${CODE_SIGN_IDENTITY:-Apple Distribution}" "${PROVISIONING_PROFILE_SPECIFIER}" <<'PY'
 from pathlib import Path
 import plistlib
 import sys
@@ -237,6 +247,7 @@ options = {
 with Path(path).open("wb") as output:
     plistlib.dump(options, output, sort_keys=False)
 PY
+    fi
   fi
   (cd "${apple_project_dir}" && xcodegen generate --spec "$(basename "${apple_project_spec}")")
   (cd "${repo_dir}/apps/tauri" && cargo tauri ios build "${tauri_args[@]}" --target "${mobile_target}")

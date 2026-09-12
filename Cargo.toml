@@ -17,6 +17,10 @@ members = [
     "apps/web",
     "apps/tauri",
 ]
+exclude = ["vendor/tauri-plugin-barcode-scanner"]
+
+[patch.crates-io]
+tauri-plugin-barcode-scanner = { path = "vendor/tauri-plugin-barcode-scanner" }
 
 [workspace.dependencies]
 # Internal crates

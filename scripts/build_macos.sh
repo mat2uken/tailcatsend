@@ -82,6 +82,10 @@ cat << 'PLIST' > "$APP_BUNDLE/Contents/Info.plist"
     <string>1</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSCameraUsageDescription</key>
+    <string>Ponlet uses the camera to scan invitation QR codes and connect to another device.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Ponlet uses the local network for direct device connections and file transfers.</string>
 </dict>
 </plist>
 PLIST

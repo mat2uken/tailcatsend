@@ -48,6 +48,7 @@ DerivedData/
 
 # Android build artifacts & credentials
 .gradle/
+.kotlin/
 *.keystore
 *.jks
 *.aab

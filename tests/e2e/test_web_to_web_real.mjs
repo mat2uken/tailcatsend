@@ -133,6 +133,15 @@ async function main() {
   }
   const host = await context.newPage();
   const joiner = await context.newPage();
+  const diagnostics = [];
+  for (const [name, page] of [["host", host], ["joiner", joiner]]) {
+    const remember = (message) => {
+      diagnostics.push(`${name}: ${message}`);
+      if (diagnostics.length > 80) diagnostics.shift();
+    };
+    page.on("console", (message) => remember(message.text()));
+    page.on("pageerror", (error) => remember(String(error)));
+  }
   const base = `http://127.0.0.1:${port}`;
   const pageUrl = transportOverride
     ? `${base}/?transport=${encodeURIComponent(transportOverride)}`
@@ -158,6 +167,7 @@ async function main() {
     }
     // Replacing the listener must not let a late close/handshake error win.
     for (let attempt = 0; attempt < 2; attempt++) {
+      console.log(`Regenerating invitation ${attempt + 1}/2`);
       const previous = inviteSnapshot.inviteUrl;
       await host.getByRole("button", { name: /Create invite|Regenerate|招待を作成|再生成/, exact: true }).click();
       inviteSnapshot = await waitForSnapshot(host, (value) => value.inviteUrl && value.inviteUrl !== previous, "replace invitation");
@@ -306,6 +316,9 @@ async function main() {
         2,
       ),
     );
+  } catch (error) {
+    console.error(diagnostics.join("\n"));
+    throw error;
   } finally {
     clearTimeout(deadline);
     await context.close();

@@ -59,6 +59,14 @@
 nativeの通知変換では現在のsnapshotに過去のsequenceを付けていた箇所も修正した。
 現在のsequenceと復元情報を一緒に渡し、遅れた通知が新しい状態を上書きしない。binary frameのsequenceもpayloadと一致させ、以前の接続エラーを新しいsnapshotに付けない。
 
+## 追加検証で見つかった問題
+
+- Webの連続再生成で応答が止まる現象を再現した。Goのlistener/streamのcloseが同期JavaScript callback内でネットワーク終了を待つ実装だった。終了をPromise内のgoroutineへ移し、二重終了も防ぐ。該当実装は移行前の `87bfff7` にも存在しており、移行で新たに入った不具合とは断定しない。
+- native scannerに採用した公式plugin 2.4.4にも取消処理の不具合があった。Androidはcamera providerの準備後に取消済み画面が再開し、scanのPromiseが終了しない可能性があった。iOSもqueued startとmetadata通知に対して終了したscanを拒否する検査を追加した。修正版を `vendor/tauri-plugin-barcode-scanner` に置き、出所・ライセンス・変更理由を保持した。
+- macOSではcamera用途説明をTauriのInfo.plist、単独実行ファイルの埋込plist、手動で作る.appのplistに揃えた。
+- 復元したAndroid Firebase依存がKotlin 2.2のmetadataを含むため、旧Kotlin 1.9.25ではコンパイルできなかった。既存AGP/Gradleの対応範囲内でKotlin 2.2.21へ更新した。
+- iOSのビルド手順に、既存のmanual配布署名に加え、team指定のみで行う実機開発署名を追加した。署名情報は一時project specだけに適用する。
+
 ## 喪失として数えなかった項目
 
 - 旧Desktop/Webのカメラは未対応案内だけだった。今回のportable decoderは対応範囲を増やす。

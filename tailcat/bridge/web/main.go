@@ -131,18 +131,26 @@ func tailcatListen(this js.Value, args []js.Value) any {
 		currentServer = srv
 		clientsMu.Unlock()
 
+		var closeOnce sync.Once
+		var closeErr error
 		return map[string]any{
 			"addr":           string(addr),
 			"address":        string(addr),
 			"privateKeyJSON": string(keyOut),
 			"close": js.FuncOf(func(this js.Value, args []js.Value) any {
-				clientsMu.Lock()
-				if currentServer == srv {
-					currentServer = nil
-				}
-				clientsMu.Unlock()
-				srv.Close()
-				return nil
+				// Close can wait for network callbacks. Never block the JavaScript
+				// event loop while those callbacks are needed to finish shutdown.
+				return makePromise(func() (any, error) {
+					closeOnce.Do(func() {
+						clientsMu.Lock()
+						if currentServer == srv {
+							currentServer = nil
+						}
+						clientsMu.Unlock()
+						closeErr = srv.Close()
+					})
+					return js.Undefined(), closeErr
+				})
 			}),
 		}, nil
 	})
@@ -263,6 +271,8 @@ func pingUntil(ctx context.Context, cl *tailcat.Client) error {
 func makeJSConn(c net.Conn, port uint16, transport uint8, currentTransport func() uint8, onClose func()) js.Value {
 	buf := make([]byte, 64<<10)
 	writeBuf := make([]byte, 64<<10)
+	var closeOnce sync.Once
+	var closeErr error
 	return js.ValueOf(map[string]any{
 		"port":          int(port),
 		"transportType": int(transport),
@@ -345,11 +355,15 @@ func makeJSConn(c net.Conn, port uint16, transport uint8, currentTransport func(
 			})
 		}),
 		"close": js.FuncOf(func(this js.Value, args []js.Value) any {
-			c.Close()
-			if onClose != nil {
-				onClose()
-			}
-			return nil
+			return makePromise(func() (any, error) {
+				closeOnce.Do(func() {
+					closeErr = c.Close()
+					if onClose != nil {
+						onClose()
+					}
+				})
+				return js.Undefined(), closeErr
+			})
 		}),
 	})
 }
