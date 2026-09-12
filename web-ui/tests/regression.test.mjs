@@ -5,6 +5,7 @@ import { Session } from "../src/session.ts";
 import { openOpfsSink } from "../src/opfs.ts";
 import { placeAnchor } from "../src/lib/position.ts";
 import { resolvePublicUrl } from "../src/lib/public-url.ts";
+import { createQrView } from "../src/components/qr-view.ts";
 
 function navigatorWith(properties = {}) {
   Object.defineProperty(globalThis, "navigator", {
@@ -422,4 +423,25 @@ it("popover clamps to the visible viewport including its offset", () => {
   expect(floating.style.left).toBe("142px");
   expect(floating.style.top).toBe("182px");
   Object.defineProperty(window, "visualViewport", { configurable: true, value: undefined });
+});
+
+it("createQrView provides a centered card container with frame, canvas, and label", () => {
+  const backend = {
+    ...bridge(),
+    qrCode: async () => ({
+      width: 2,
+      height: 2,
+      rgbaPixels: new Uint8Array(16),
+    }),
+  };
+  const qrView = createQrView({ getBackend: () => backend });
+  expect(qrView.container).toBeDefined();
+  expect(qrView.container.classList.contains("qr-container")).toBe(true);
+  expect(qrView.container.hidden).toBe(true);
+  const frame = qrView.container.querySelector(".qr-frame");
+  expect(frame).not.toBeNull();
+  expect(frame.contains(qrView.canvas)).toBe(true);
+  expect(qrView.container.contains(qrView.label)).toBe(true);
+  expect(qrView.canvas.classList.contains("invite-qr")).toBe(true);
+  expect(qrView.label.classList.contains("qr-label")).toBe(true);
 });

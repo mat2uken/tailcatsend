@@ -48,7 +48,10 @@ export function createSettingsDialog(): SettingsDialogComponent {
       telemetryToggle,
       isJapanese ? "テレメトリを許可" : "Allow telemetry",
     ),
-    button({ type: "button", onclick: () => closeSettings() }, uiText.close),
+    button(
+      { class: "secondary dialog-close", type: "button", onclick: () => closeSettings() },
+      uiText.close,
+    ),
   );
 
   dialog.addEventListener("cancel", (event) => {

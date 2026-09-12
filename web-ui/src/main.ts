@@ -88,7 +88,22 @@ const qrView = createQrView({
   },
 });
 
-const status = span({ class: "status" });
+function formatBytes(bytes: number): string {
+  if (bytes <= 0 || !Number.isFinite(bytes)) {
+    return "0 B";
+  }
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  const exponent = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  if (exponent === 0) {
+    return `${bytes} B`;
+  }
+  const value = bytes / Math.pow(1024, exponent);
+  return `${value.toFixed(1)} ${units[exponent]}`;
+}
+
+const statusDot = span({ class: "status-dot" });
+const statusText = span({ class: "status-text" });
+const status = div({ class: "status-pill preparing", role: "status" }, statusDot, statusText);
 const transport = span({ class: "transport-path" });
 const peer = span({ class: "peer-name" });
 const invite = a({ class: "invite-link", target: "_blank", rel: "noreferrer" });
@@ -125,7 +140,17 @@ const settingsButton = button(
 van.derive(() => {
   const value = snapshot.val;
   void qrView.renderInviteQr(value.inviteUrl);
-  status.textContent =
+  const stateClass = value.error
+    ? "error"
+    : value.state === "ready"
+      ? "ready"
+      : value.state === "connected"
+        ? "connected"
+        : value.state === "awaiting-peer"
+          ? "waiting"
+          : "preparing";
+  status.className = `status-pill ${stateClass}`;
+  statusText.textContent =
     value.error ??
     (value.state === "ready"
       ? uiText.ready
@@ -156,8 +181,10 @@ van.derive(() => {
       !lastReceivedText.val;
   if (value.transfer) {
     transferName.textContent = value.transfer.name;
-    transferProgress.value = value.transfer.total ? value.transfer.done / value.transfer.total : 0;
-    transferBytes.textContent = `${value.transfer.done.toLocaleString()} / ${value.transfer.total.toLocaleString()} bytes`;
+    const ratio = value.transfer.total ? value.transfer.done / value.transfer.total : 0;
+    transferProgress.value = ratio;
+    const percent = Math.round(ratio * 100);
+    transferBytes.textContent = `${formatBytes(value.transfer.done)} / ${formatBytes(value.transfer.total)} (${percent}%)`;
   } else {
     transferName.textContent = "";
     transferProgress.value = 0;
@@ -184,7 +211,7 @@ van.derive(() => {
         div(
           { class: "received-item-meta" },
           item.name,
-          span({ class: "received-item-size" }, `${item.size.toLocaleString()} bytes`),
+          span({ class: "received-item-size" }, formatBytes(item.size)),
         ),
         div({ class: "received-item-actions" }, openButton, pathButton),
       );
@@ -195,9 +222,16 @@ van.derive(() => {
 van.derive(() => {
   log.replaceChildren(
     ...messages.val.map((message) =>
-      p({ class: "message" }, `${message.incoming ? "[Peer]" : "[Me]"}: ${message.text}`),
+      p(
+        {
+          class: `message-bubble ${message.incoming ? "incoming" : "outgoing"}`,
+        },
+        span({ class: "message-sender" }, message.incoming ? "[Peer]: " : "[Me]: "),
+        span({ class: "message-text" }, message.text),
+      ),
     ),
   );
+  log.scrollTop = log.scrollHeight;
 });
 
 textInput.addEventListener("input", () => (textDraft.val = textInput.value));
@@ -308,10 +342,9 @@ document.body.append(
     { class: "shell" },
     section(
       { class: "connection-card" },
-      status,
-      transport,
-      qrView.label,
-      qrView.canvas,
+      div({ class: "connection-status-row" }, status, transport),
+      qrView.container,
+      invite,
       div(
         { class: "connection-actions" },
         joinInput,
@@ -320,7 +353,6 @@ document.body.append(
         createButton,
         disconnectButton,
       ),
-      invite,
     ),
     section(
       { class: "transfer-card" },

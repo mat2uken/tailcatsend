@@ -1,7 +1,7 @@
 import van from "vanjs-core";
 import { uiText } from "../i18n";
 
-const { button, h2, p } = van.tags;
+const { button, div, h2, p } = van.tags;
 
 type BarcodeDetectorLike = {
   detect(video: HTMLVideoElement): Promise<Array<{ rawValue?: string }>>;
@@ -45,11 +45,17 @@ export function createScannerDialog(): ScannerDialogComponent {
     returnFocus = null;
   }
 
+  const reticle = div({ class: "scanner-reticle" });
+  const preview = div({ class: "scanner-preview" }, video, reticle);
+
   dialog.append(
     h2(uiText.scan),
-    video,
+    preview,
     p({ class: "scanner-status" }, ""),
-    button({ type: "button", onclick: () => closeScanner() }, uiText.close),
+    button(
+      { class: "secondary dialog-close", type: "button", onclick: () => closeScanner() },
+      uiText.close,
+    ),
   );
 
   dialog.addEventListener("cancel", (event) => {
