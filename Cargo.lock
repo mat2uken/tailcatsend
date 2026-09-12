@@ -4323,6 +4323,7 @@ dependencies = [
  "bytes",
  "futures",
  "jni",
+ "libc",
  "log",
  "rand 0.8.8",
  "serde",

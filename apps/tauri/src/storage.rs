@@ -194,23 +194,44 @@ async fn commit_received_file(source: &Path, path: &Path) -> Result<PathBuf, Sto
 
     // Claim the destination atomically, including against other processes.
     // Checking existence before rename can overwrite a concurrent receive.
-    // A hard link publishes the already flushed file without replacing any
-    // existing entry. Filesystems without hard links use an exclusive create.
+    // Apple uses an exclusive rename: hard links to Downloads can stall in
+    // linkat even for a tiny file. Other platforms retain the hard-link path.
+    // Unsupported filesystems use exclusive create, never a replacing rename.
     // Avoid enumerating Downloads, which may block on a cloud file provider.
     let mut existing = HashSet::new();
     for _ in 0..10_000 {
         let unique = unique_received_name(&existing, candidate);
         let destination = parent.join(&unique);
+        #[cfg(target_vendor = "apple")]
+        let claimed = match rename_received_file_exclusively(source, &destination).await {
+            Ok(()) => Ok(true),
+            Err(error)
+                if matches!(
+                    error.raw_os_error(),
+                    Some(libc::ENOTSUP | libc::EOPNOTSUPP | libc::ENOSYS | libc::EXDEV)
+                ) =>
+            {
+                copy_received_file_exclusively(source, &destination)
+                    .await
+                    .map(|()| false)
+            }
+            Err(error) => Err(error),
+        };
+        #[cfg(not(target_vendor = "apple"))]
         let claimed = match tokio::fs::hard_link(source, &destination).await {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Err(error),
             Err(_) => copy_received_file_exclusively(source, &destination).await,
-        };
+        }
+        .map(|()| false);
         match claimed {
-            Ok(()) => {
-                // The final file is durable. An orphaned temporary link must
-                // not turn a successful receive into a failed/retried one.
-                let _ = tokio::fs::remove_file(source).await;
+            Ok(source_consumed) => {
+                // Exclusive rename has already consumed the temporary path.
+                // For a copy/link, failed temporary cleanup must not turn a
+                // durable receive into a failed/retried one.
+                if !source_consumed {
+                    let _ = tokio::fs::remove_file(source).await;
+                }
                 return Ok(destination);
             }
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
@@ -223,6 +244,33 @@ async fn commit_received_file(source: &Path, path: &Path) -> Result<PathBuf, Sto
     Err(StorageError::Io(
         "too many files with the same received name".into(),
     ))
+}
+
+#[cfg(target_vendor = "apple")]
+async fn rename_received_file_exclusively(
+    source: &Path,
+    destination: &Path,
+) -> std::io::Result<()> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    let source = CString::new(source.as_os_str().as_bytes())
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
+    let destination = CString::new(destination.as_os_str().as_bytes())
+        .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidInput, error))?;
+    tokio::task::spawn_blocking(move || {
+        // SAFETY: both owned CStrings are NUL-terminated and live until the
+        // call returns. RENAME_EXCL rejects every existing destination entry.
+        let result =
+            unsafe { libc::renamex_np(source.as_ptr(), destination.as_ptr(), libc::RENAME_EXCL) };
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    })
+    .await
+    .map_err(std::io::Error::other)?
 }
 
 async fn copy_received_file_exclusively(source: &Path, destination: &Path) -> std::io::Result<()> {
@@ -507,6 +555,57 @@ mod tests {
             b"previous receive"
         );
         assert_eq!(std::fs::read_dir(&directory.0).unwrap().count(), count + 1);
+    }
+
+    #[cfg(target_vendor = "apple")]
+    #[tokio::test]
+    async fn apple_exclusive_rename_consumes_source_only_on_success() {
+        let directory = TestDirectory::new();
+        let source = directory.0.join("一時ファイル.part");
+        let destination = directory.0.join("受信.txt");
+        tokio::fs::write(&source, b"new receive").await.unwrap();
+        rename_received_file_exclusively(&source, &destination)
+            .await
+            .unwrap();
+        assert!(!source.exists());
+        assert_eq!(tokio::fs::read(destination).await.unwrap(), b"new receive");
+    }
+
+    #[cfg(target_vendor = "apple")]
+    #[tokio::test]
+    async fn apple_exclusive_rename_preserves_existing_target_and_source() {
+        let directory = TestDirectory::new();
+        let source = directory.0.join("temporary.part");
+        let destination = directory.0.join("received.txt");
+        tokio::fs::write(&source, b"new receive").await.unwrap();
+        tokio::fs::write(&destination, b"previous receive")
+            .await
+            .unwrap();
+        let error = rename_received_file_exclusively(&source, &destination)
+            .await
+            .unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(libc::EEXIST));
+        assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
+        assert_eq!(tokio::fs::read(source).await.unwrap(), b"new receive");
+        assert_eq!(
+            tokio::fs::read(destination).await.unwrap(),
+            b"previous receive"
+        );
+    }
+
+    #[cfg(target_vendor = "apple")]
+    #[tokio::test]
+    async fn apple_exclusive_rename_retains_source_on_other_failure() {
+        let directory = TestDirectory::new();
+        let source = directory.0.join("temporary.part");
+        let destination = directory.0.join("missing").join("received.txt");
+        tokio::fs::write(&source, b"new receive").await.unwrap();
+        let error = rename_received_file_exclusively(&source, &destination)
+            .await
+            .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+        assert_eq!(tokio::fs::read(source).await.unwrap(), b"new receive");
+        assert!(!destination.exists());
     }
 
     #[tokio::test]

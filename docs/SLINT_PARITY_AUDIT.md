@@ -72,6 +72,7 @@ nativeの通知変換では現在のsnapshotに過去のsequenceを付けてい�
 - 複数のstreamを使う通信で、一方のstreamが返した未判定の経路情報によって、別streamで確認済みの経路表示が消える問題を修正した。同じ接続世代で最後に確認した経路を保持し、新しい接続ではリセットする。
 - Android実機の既存テストは、nativeの接続完了直後に未有効化の送信ボタンを強制clickしていた。UIが操作可能になるまで待つ実操作へ変更し、QR再生成も実際のボタンと招待内容の変化で検査する。
 - 復旧後のAndroid実機で、長い受信ファイル名を表示した際に379pxの画面に対してカード右端が450pxまで広がることを確認した。Gridの列の最小幅を0にして画面内へ収め、360px幅で長い名前・メッセージ・送信操作を検証する。Gridの導入自体は `0cc621c` (9/10 22:53) で、今回の再現条件をその時点の実機成功/失敗とは扱わない。
+- 今回の同名保存保護で追加したhard linkが、macOS実機のDownloadsで93バイトの保存確定に152秒かかることを確認した。待機中のprocess sampleは`linkat`内で停止していた。Apple系では`renamex_np(RENAME_EXCL)`で既存ファイルを置換しない移動を行い、未対応の保存先だけ排他的コピーを使う。通常の上書きrenameへ戻さない。これは今回の修正中に見つけた遅延で、旧移行由来とはしていない。
 
 ## 喪失として数えなかった項目
 
@@ -91,6 +92,24 @@ nativeの通知変換では現在のsnapshotに過去のsequenceを付けてい�
 - `PONLET_TEST_DIST` / `PONLET_TEST_UI_DIST` により検証用の生成先を明示でき、古いignored distを誤って使わない。
 - build、実機操作、通信経路、保存内容、公開/ストア状態は別々に記録する。
 
-最終結果は下記へ追記する。作業中のビルド成功を、全プラットフォームの実機成功として扱わない。
+## 検証結果
+
+アプリ実装 `87336969378bd5961abcee5bbce36ac9a5d42c2d` の [全OSビルド](https://github.com/mat2uken/tailcatsend/actions/runs/34675248569) はWindows、Linux、macOS、iOS、Androidすべて成功。GitHub Release公開は行っていない。
+
+| 対象 | 今回確認した結果 | 未確認・補足 |
+| --- | --- | --- |
+| 共通UI | unit 103件、UI E2E 6件成功。360px幅の長いファイル名と入力欄の表示を含む。 | 実backendの通信は別途確認。 |
+| 共通core | 接続世代・取消・通知復元・経路表示など20件成功。 | OS画面の成功を意味しない。 |
+| Android実機 | APK SHA-256 `d7077d5ab8e154c17ec2104e8c333a12988a15a5a4a2e3b2a45f58d0a24ca628`。WebRTCとDERPでQR再生成2回、双方向テキスト、Webから131071バイト受信とSHA-256一致、64MiB送信取消後の再転送を確認。 | 転送取消は開始直後。Androidからのファイル送信はこの実行では未検証。 |
+| Androidカメラ・ファイル表示 | 同じAPKで実カメラ映像、閉じる→再表示→閉じるを確認。受信ファイルのOpenが`ACTION_VIEW`とFileProvider URI/read grantを渡し、OSの選択画面を表示。 | `.bin`を開けるアプリでの内容表示と、光学的なQR読取そのものは未検証。 |
+| macOS実機 | Release `.app`の起動とQR、Webとの双方向テキスト、ファイル受信とSHA-256一致、TextEditで日本語内容の表示を確認。Apple保存修正後は同名の59/60バイトを即時保存し、両方の内容を保持。OSファイル選択からWebへ60バイトを返送し、ダウンロードした内容もSHA-256一致。 | 修正後のapp executable SHA-256は`0f6d682e1cf3f5c6c6bb7678cbdf2317dec04b9d4f3047c71c8f8d949c4da34`。 |
+| iOS | Firebaseを含むビルド、IPA生成、codesign検査成功。選択した19個のbundleを梱包。 | 接続中のXSはロックのため最新アプリのインストール不可。12 Proも起動を拒否。実機のカメラ・ファイル表示・通信は成功扱いにしない。 |
+| Windows/Linux | 上記CIで最終配布用ビルド成功。 | 実機UIとOS間通信は未検証。 |
+
+Android実通信の記録は `/tmp/ponlet-parity-validation/final11-android-{default,derp,cancel}.log`。各実行でメッセージとファイル名を変え、過去の受信履歴を成功と誤認しない。画面とIMEの位置を測って実ADBタップし、ファイル選択は有効なボタンから行う。
+
+Apple保存修正後のnative unitは16件成功（Apple renameの3件、並行保存、既存ファイル・ディレクトリ・symlink保持を含む）。iOS再ビルドも成功し、IPA SHA-256は`917f28f534512c185183e41042e7b4f13e89b7204991a99c6aae1f2676ea9e1f`。実機には未インストール。
+
+Web実装 `8733696` の [プレビュー配信](https://github.com/mat2uken/tailcatsend/actions/runs/34675878256) は、同一実行でGo/Rust WASMとUIを生成し、Chromium標準/DERP・Firefox・WebKit通常/永続コンテキストの双方向通信と保存照合を通過した。公開URLの本番更新は別途記録する。
 
 保存APIの実装には [WHATWG File System](https://fs.spec.whatwg.org/#api-filesystemsyncaccesshandle) と [WebKitのOPFS説明](https://webkit.org/blog/12257/the-file-system-access-api-with-origin-private-file-system/) を参照した。
