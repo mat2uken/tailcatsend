@@ -43,15 +43,31 @@ const lastTransfer = van.state<TransferResult | null>(null);
 const transferRate = van.state(0);
 const textDraft = van.state("");
 const joinDraft = van.state("");
+const activeTab = van.state<"transfer" | "messages">("transfer");
+const connectionMode = van.state<"qr" | "join">("qr");
+const messageMenuOpen = van.state<string | null>(null);
+const chatMenuOpen = van.state(false);
 const operationBusy = van.state(false);
 let session: Session | undefined;
 let starting: Promise<void> | undefined;
+let wasConnected = false;
+let viewedMessageCount = 0;
+const viewportWidth = van.state(window.innerWidth);
 const now = van.state(Date.now());
 let inviteUrl = "";
 let inviteDeadline = 0;
 const clock = window.setInterval(() => {
   now.val = Date.now();
 }, 1000);
+
+function updateViewportMetrics(): void {
+  viewportWidth.val = window.innerWidth;
+  const height = window.visualViewport?.height ?? window.innerHeight;
+  document.documentElement.style.setProperty("--viewport-height", `${height}px`);
+}
+window.addEventListener("resize", updateViewportMetrics, { passive: true });
+window.visualViewport?.addEventListener("resize", updateViewportMetrics, { passive: true });
+updateViewportMetrics();
 
 function createSession(): Session {
   return new Session(getBackend(), (view) => {
@@ -131,12 +147,10 @@ export function formatBytes(bytes: number): string {
     : `${(bytes / Math.pow(1024, exponent)).toFixed(1)} ${units[exponent]}`;
 }
 function exportText(): string {
-  return (
-    lastReceivedText.val ||
-    messages.val
-      .map((message) => `${message.incoming ? "[Peer]" : "[Me]"}: ${message.text}`)
-      .join("\n")
-  );
+  return [...messages.val]
+    .reverse()
+    .map((message) => `${message.incoming ? "[Peer]" : "[Me]"}: ${message.text}`)
+    .join("\n");
 }
 async function readClipboard(): Promise<string> {
   if (backend?.readClipboard) {
@@ -161,6 +175,23 @@ const status = div(
 );
 const transport = span({ class: "transport-path" });
 const peer = span({ class: "peer-name" });
+const connectionInfoButton = button(
+  {
+    class: "icon-button connection-info-button",
+    type: "button",
+    "aria-label": () => uiText.connectionDetails,
+  },
+  "ⓘ",
+);
+const connectionInfoPeer = p({ class: "connection-info-peer" });
+const connectionInfoRoute = p({ class: "connection-info-route" });
+const connectionInfoClose = button({ class: "secondary", type: "button" }, () => uiText.close);
+const connectionInfoPanel = div(
+  { class: "connection-info-panel", hidden: true, role: "dialog" },
+  connectionInfoPeer,
+  connectionInfoRoute,
+  connectionInfoClose,
+);
 const invite = button({ class: "invite-link", type: "button" }, () => uiText.saved);
 const expiry = p({ class: "invite-expiry" });
 const log = div({
@@ -191,7 +222,10 @@ const transferDetails = div(
   cancelButton,
   dismissButton,
 );
-const sendButton = button({ class: "primary", type: "button" }, () => uiText.send);
+const sendButton = button(
+  { class: "primary composer-send", type: "button", "aria-label": () => uiText.send },
+  "➤",
+);
 const fileButton = button({ class: "secondary", type: "button" }, () => uiText.chooseFile);
 const fileInput = input({
   type: "file",
@@ -201,12 +235,15 @@ const fileInput = input({
 });
 const textInput = textarea({
   class: "composer",
-  rows: 3,
+  rows: 1,
   placeholder: () => uiText.message,
   "aria-label": () => uiText.messageInputAriaLabel,
   spellcheck: "true",
 });
-const pasteButton = button({ class: "secondary", type: "button" }, () => uiText.paste);
+const pasteButton = button(
+  { class: "secondary composer-paste", type: "button", "aria-label": () => uiText.paste },
+  "📋",
+);
 const clearDraftButton = button({ class: "secondary", type: "button" }, () => uiText.clearDraft);
 const clearHistoryButton = button(
   { class: "secondary", type: "button" },
@@ -215,6 +252,18 @@ const clearHistoryButton = button(
 const copyTextButton = button({ class: "secondary", type: "button" }, () => uiText.copy);
 const shareTextButton = button({ class: "secondary", type: "button" }, () => uiText.share);
 const saveTextButton = button({ class: "secondary", type: "button" }, () => uiText.save);
+const chatMoreButton = button(
+  { class: "icon-button chat-more-button", type: "button", "aria-label": () => uiText.chatActions },
+  "⋯",
+);
+const historyMenu = div(
+  { class: "chat-menu", hidden: true },
+  copyTextButton,
+  shareTextButton,
+  saveTextButton,
+  clearHistoryButton,
+  clearDraftButton,
+);
 const downloadsButton = button(
   { class: "secondary", type: "button", hidden: true },
   () => uiText.downloads,
@@ -252,23 +301,222 @@ const settingsButton = button(
   { class: "icon-button", type: "button", "aria-label": () => uiText.settings },
   "⚙",
 );
+const qrModeButton = button(
+  { class: "connection-mode-button", type: "button", role: "tab", id: "qr-mode-tab" },
+  () => uiText.showQr,
+);
+const joinModeButton = button(
+  { class: "connection-mode-button", type: "button", role: "tab", id: "join-mode-tab" },
+  () => uiText.joinPeer,
+);
+const connectionModeSwitch = div(
+  { class: "connection-mode-switch", role: "tablist" },
+  qrModeButton,
+  joinModeButton,
+);
+const qrPane = div(
+  {
+    class: "invite-pane qr-pane",
+    role: "tabpanel",
+    id: "qr-pane",
+    "aria-labelledby": "qr-mode-tab",
+  },
+  qrView.container,
+  expiry,
+  invite,
+  createButton,
+);
+const joinPane = div(
+  {
+    class: "invite-pane join-pane",
+    role: "tabpanel",
+    id: "join-pane",
+    "aria-labelledby": "join-mode-tab",
+  },
+  joinInput,
+  div({ class: "join-actions" }, pasteJoinButton, scanButton, connectButton),
+);
+const inviteArea = div(
+  { class: "invite-area" },
+  connectionModeSwitch,
+  div({ class: "invite-mode-panes" }, qrPane, joinPane),
+);
+const transferBadge = span({ class: "tab-badge", hidden: true });
+const messagesBadge = span({ class: "tab-badge", hidden: true });
+const transferTabButton = button(
+  {
+    class: "workspace-tab",
+    type: "button",
+    role: "tab",
+    id: "transfer-tab",
+    "aria-controls": "transfer-panel",
+  },
+  span({ class: "tab-label" }, () => uiText.transfer),
+  transferBadge,
+);
+const messagesTabButton = button(
+  {
+    class: "workspace-tab",
+    type: "button",
+    role: "tab",
+    id: "messages-tab",
+    "aria-controls": "messages-panel",
+  },
+  span({ class: "tab-label" }, () => uiText.messages),
+  messagesBadge,
+);
+const workspaceTabs = div(
+  { class: "workspace-tabs", role: "tablist", "aria-label": () => uiText.workspaceTabs },
+  transferTabButton,
+  messagesTabButton,
+);
+const connectionHeader = div(
+  { class: "connection-header" },
+  div({ class: "connection-status-row" }, status, transport, retryButton),
+  div({ class: "connection-peer-row" }, peer, connectionInfoButton, disconnectButton),
+);
+const connectionCard = section(
+  { class: "connection-card" },
+  connectionHeader,
+  connectionInfoPanel,
+  inviteArea,
+);
+const transferCard = section(
+  {
+    class: "transfer-card",
+    id: "transfer-panel",
+    role: "tabpanel",
+    "aria-labelledby": "transfer-tab",
+  },
+  div(
+    { class: "panel-heading" },
+    h2(() => uiText.transfer),
+  ),
+  div({ class: "transfer-row" }, fileButton, fileInput),
+  transferDetails,
+  div(
+    { class: "received-heading" },
+    h2(() => uiText.receivedFiles),
+    downloadsButton,
+  ),
+  receivedList,
+);
+const chatCard = section(
+  {
+    class: "chat-card",
+    id: "messages-panel",
+    role: "tabpanel",
+    "aria-labelledby": "messages-tab",
+  },
+  div(
+    { class: "panel-heading chat-heading" },
+    h2(() => uiText.messages),
+    div({ class: "chat-menu-wrap" }, chatMoreButton, historyMenu),
+  ),
+  log,
+  div(
+    { class: "composer-row" },
+    pasteButton,
+    label({ class: "composer-label" }, textInput),
+    sendButton,
+  ),
+);
+const workspace = section(
+  { class: "workspace", hidden: true },
+  workspaceTabs,
+  div({ class: "workspace-panels" }, transferCard, chatCard),
+);
+
+function isTouchLayout(): boolean {
+  return window.matchMedia?.("(pointer: coarse)").matches === true || window.innerWidth < 600;
+}
+
+function updateComposerHeight(): void {
+  textInput.style.height = "auto";
+  const maxHeight = Number.parseFloat(getComputedStyle(textInput).maxHeight);
+  const height = Math.min(textInput.scrollHeight, Number.isFinite(maxHeight) ? maxHeight : 128);
+  textInput.style.height = `${height}px`;
+  textInput.style.overflowY = textInput.scrollHeight > height ? "auto" : "hidden";
+}
+
+function messageKey(message: Message, index: number): string {
+  return `${message.sequence ?? "message"}-${message.incoming ? "in" : "out"}-${index}`;
+}
+
+function messageAction(action: "copy" | "share" | "save", message: Message): void {
+  void run(async () => {
+    if (action === "copy") {
+      await getBackend().copyText(message.text);
+      showToast(uiText.copiedMessage);
+    } else if (action === "share") {
+      await getBackend().shareText(message.text);
+    } else {
+      await getBackend().saveText(message.text);
+    }
+    messageMenuOpen.val = null;
+  });
+}
 
 van.derive(() => {
   document.documentElement.lang = language.val;
   const value = snapshot.val;
   const remaining = Math.max(0, Math.ceil((inviteDeadline - now.val) / 1000));
   const expired = Boolean(value.inviteUrl) && remaining === 0;
+  const active = value.transfer;
+  const connected =
+    value.state === "connected" || value.state === "transferring" || Boolean(active);
+  const isWide = viewportWidth.val >= 768;
+  if (connected !== wasConnected) {
+    activeTab.val = "transfer";
+    if (!connected) {
+      connectionMode.val = "qr";
+    }
+    viewedMessageCount = messages.val.length;
+    messageMenuOpen.val = null;
+    chatMenuOpen.val = false;
+    wasConnected = connected;
+  }
+  workspace.hidden = !connected;
+  connectionCard.classList.toggle("is-connected", connected);
+  inviteArea.hidden = connected;
+  if (!connected) {
+    connectionInfoPanel.hidden = true;
+  }
+  historyMenu.hidden = !chatMenuOpen.val;
+  connectionModeSwitch.hidden = connected || isWide;
+  qrPane.classList.toggle("is-active", isWide || connectionMode.val === "qr");
+  joinPane.classList.toggle("is-active", isWide || connectionMode.val === "join");
+  qrModeButton.classList.toggle("active", connectionMode.val === "qr");
+  joinModeButton.classList.toggle("active", connectionMode.val === "join");
+  qrModeButton.setAttribute("aria-selected", String(connectionMode.val === "qr"));
+  joinModeButton.setAttribute("aria-selected", String(connectionMode.val === "join"));
+  transferTabButton.classList.toggle("active", activeTab.val === "transfer");
+  messagesTabButton.classList.toggle("active", activeTab.val === "messages");
+  transferTabButton.setAttribute("aria-selected", String(activeTab.val === "transfer"));
+  messagesTabButton.setAttribute("aria-selected", String(activeTab.val === "messages"));
+  transferCard.hidden = !connected || activeTab.val !== "transfer";
+  chatCard.hidden = !connected || activeTab.val !== "messages";
+  transferCard.setAttribute("aria-hidden", String(!connected || activeTab.val !== "transfer"));
+  chatCard.setAttribute("aria-hidden", String(!connected || activeTab.val !== "messages"));
+  if (activeTab.val === "messages") {
+    viewedMessageCount = messages.val.length;
+  }
+  const unreadMessages = Math.max(0, messages.val.length - viewedMessageCount);
+  messagesBadge.hidden = unreadMessages === 0 || activeTab.val === "messages";
+  messagesBadge.textContent = unreadMessages > 99 ? "99+" : String(unreadMessages);
+  const transferNotice = Boolean(active) || Boolean(lastTransfer.val);
+  transferBadge.hidden = !transferNotice || activeTab.val === "transfer";
+  transferBadge.textContent = active ? "•" : "1";
   // Reading the clock updates expiry without issuing another QR request every second.
   expiry.hidden = !value.inviteUrl;
   expiry.classList.toggle("expired", expired);
   expiry.textContent = expired
     ? uiText.expired
     : `${uiText.expires}: ${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")}`;
-  const active = value.transfer;
   const stateClass =
     value.error || expired
       ? "error"
-      : active || value.state === "connected"
+      : connected
         ? "connected"
         : value.state === "ready"
           ? "ready"
@@ -296,7 +544,13 @@ van.derive(() => {
     value.transport === "unknown" ? route : `${uiText.transportObserved}: ${route}`;
   transport.title = uiText.transportHint;
   transport.setAttribute("aria-label", `${uiText.transportObserved}: ${route}`);
-  peer.textContent = value.peerName || uiText.app;
+  transport.hidden = !connected;
+  peer.textContent = value.peerName || uiText.peer;
+  peer.title = value.peerName || uiText.peer;
+  peer.hidden = !connected;
+  connectionInfoButton.hidden = !connected;
+  connectionInfoPeer.textContent = `${uiText.peer}: ${value.peerName || uiText.peer}`;
+  connectionInfoRoute.textContent = `${uiText.transportObserved}: ${route}\n${uiText.transportHint}`;
   invite.hidden = !value.inviteUrl;
   invite.disabled = expired;
   disconnectButton.hidden = !value.canDisconnect;
@@ -386,17 +640,57 @@ van.derive(() => {
 van.derive(() => {
   const previousHeight = log.scrollHeight;
   const previousTop = log.scrollTop;
-  const atNewest = previousTop < 24;
-  const items = messages.val;
+  const atNewest = previousTop + log.clientHeight >= previousHeight - 24;
+  const items = [...messages.val].reverse();
   log.replaceChildren(
     ...(items.length
-      ? items.map((message) =>
-          p(
+      ? items.map((message, index) => {
+          const key = messageKey(message, index);
+          const actionButton = button(
+            {
+              class: "message-menu-button",
+              type: "button",
+              "aria-label": () => uiText.messageActions,
+              "aria-expanded": () => String(messageMenuOpen.val === key),
+            },
+            "⋯",
+          );
+          const copyMessageButton = button(
+            { class: "secondary", type: "button" },
+            () => uiText.copy,
+          );
+          const shareMessageButton = button(
+            { class: "secondary", type: "button" },
+            () => uiText.share,
+          );
+          const saveMessageButton = button(
+            { class: "secondary", type: "button" },
+            () => uiText.save,
+          );
+          const actionMenu = div(
+            { class: "message-menu", hidden: messageMenuOpen.val !== key },
+            copyMessageButton,
+            shareMessageButton,
+            saveMessageButton,
+          );
+          copyMessageButton.addEventListener("click", () => messageAction("copy", message));
+          shareMessageButton.addEventListener("click", () => messageAction("share", message));
+          saveMessageButton.addEventListener("click", () => messageAction("save", message));
+          actionButton.addEventListener("click", (event) => {
+            event.stopPropagation();
+            messageMenuOpen.val = messageMenuOpen.val === key ? null : key;
+          });
+          const bubble = p(
             { class: `message-bubble ${message.incoming ? "incoming" : "outgoing"}` },
-            span({ class: "message-sender" }, message.incoming ? "[Peer]: " : "[Me]: "),
             span({ class: "message-text" }, message.text),
-          ),
-        )
+          );
+          return div(
+            { class: `message-row ${message.incoming ? "incoming" : "outgoing"}` },
+            bubble,
+            actionButton,
+            actionMenu,
+          );
+        })
       : [
           div(
             { class: "empty-state" },
@@ -405,14 +699,21 @@ van.derive(() => {
           ),
         ]),
   );
-  // Messages are newest first. Preserve an older reading position when new items arrive.
-  log.scrollTop = atNewest ? 0 : Math.max(0, previousTop + log.scrollHeight - previousHeight);
+  // Messages are rendered oldest first. Keep an older reading position when new items arrive.
+  log.scrollTop = atNewest ? log.scrollHeight : Math.max(0, previousTop);
 });
 textInput.addEventListener("input", () => {
   textDraft.val = textInput.value;
+  updateComposerHeight();
 });
 textInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && !event.shiftKey && !event.isComposing && event.keyCode !== 229) {
+  if (
+    event.key === "Enter" &&
+    !event.shiftKey &&
+    !event.isComposing &&
+    event.keyCode !== 229 &&
+    !isTouchLayout()
+  ) {
     event.preventDefault();
     sendButton.click();
   }
@@ -431,6 +732,7 @@ sendButton.addEventListener(
       if (textDraft.val === text) {
         textDraft.val = "";
         textInput.value = "";
+        updateComposerHeight();
       }
       textInput.focus();
     }),
@@ -442,17 +744,96 @@ pasteButton.addEventListener(
       const text = await readClipboard();
       textInput.setRangeText(text, textInput.selectionStart, textInput.selectionEnd, "end");
       textDraft.val = textInput.value;
+      updateComposerHeight();
       textInput.focus();
     }),
 );
 clearDraftButton.addEventListener("click", () => {
   textDraft.val = "";
   textInput.value = "";
+  updateComposerHeight();
+  chatMenuOpen.val = false;
   textInput.focus();
 });
 clearHistoryButton.addEventListener("click", () => {
   session?.clearHistory();
+  chatMenuOpen.val = false;
   showToast(uiText.historyCleared);
+});
+
+function selectWorkspaceTab(tab: "transfer" | "messages"): void {
+  const hadUnreadMessages = tab === "messages" && messages.val.length > viewedMessageCount;
+  activeTab.val = tab;
+  messageMenuOpen.val = null;
+  chatMenuOpen.val = false;
+  if (tab === "messages") {
+    viewedMessageCount = messages.val.length;
+    if (hadUnreadMessages) {
+      window.setTimeout(() => {
+        log.scrollTop = log.scrollHeight;
+      }, 0);
+    }
+  }
+}
+transferTabButton.addEventListener("click", () => selectWorkspaceTab("transfer"));
+messagesTabButton.addEventListener("click", () => selectWorkspaceTab("messages"));
+function moveTab(event: KeyboardEvent): void {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+    return;
+  }
+  event.preventDefault();
+  const next: "transfer" | "messages" =
+    event.key === "Home"
+      ? "transfer"
+      : event.key === "End"
+        ? "messages"
+        : event.key === "ArrowLeft"
+          ? "transfer"
+          : "messages";
+  selectWorkspaceTab(next);
+  (next === "transfer" ? transferTabButton : messagesTabButton).focus();
+}
+transferTabButton.addEventListener("keydown", moveTab);
+messagesTabButton.addEventListener("keydown", moveTab);
+qrModeButton.addEventListener("click", () => {
+  connectionMode.val = "qr";
+});
+joinModeButton.addEventListener("click", () => {
+  connectionMode.val = "join";
+  joinInput.focus();
+});
+chatMoreButton.addEventListener("click", (event) => {
+  event.stopPropagation();
+  chatMenuOpen.val = !chatMenuOpen.val;
+});
+connectionInfoButton.addEventListener("click", (event) => {
+  event.stopPropagation();
+  connectionInfoPanel.hidden = !connectionInfoPanel.hidden;
+});
+connectionInfoClose.addEventListener("click", () => {
+  connectionInfoPanel.hidden = true;
+});
+document.addEventListener("click", (event) => {
+  const target = event.target as Element | null;
+  if (!target || typeof target.closest !== "function") {
+    return;
+  }
+  if (!target.closest(".chat-menu-wrap")) {
+    chatMenuOpen.val = false;
+  }
+  if (!target.closest(".message-row")) {
+    messageMenuOpen.val = null;
+  }
+  if (!target.closest(".connection-info-panel, .connection-info-button")) {
+    connectionInfoPanel.hidden = true;
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    chatMenuOpen.val = false;
+    messageMenuOpen.val = null;
+    connectionInfoPanel.hidden = true;
+  }
 });
 fileButton.addEventListener("click", () => {
   if (backend?.pickAndSendFiles) {
@@ -539,6 +920,7 @@ copyTextButton.addEventListener("click", () => {
   if (text) {
     void run(async () => {
       await getBackend().copyText(text);
+      chatMenuOpen.val = false;
       showToast(uiText.copiedMessage);
     });
   }
@@ -546,13 +928,19 @@ copyTextButton.addEventListener("click", () => {
 shareTextButton.addEventListener("click", () => {
   const text = exportText();
   if (text) {
-    void run(() => getBackend().shareText(text));
+    void run(async () => {
+      await getBackend().shareText(text);
+      chatMenuOpen.val = false;
+    });
   }
 });
 saveTextButton.addEventListener("click", () => {
   const text = exportText();
   if (text) {
-    void run(() => getBackend().saveText(text));
+    void run(async () => {
+      await getBackend().saveText(text);
+      chatMenuOpen.val = false;
+    });
   }
 });
 downloadsButton.addEventListener("click", () => void run(() => getBackend().openDownloads!()));
@@ -575,6 +963,23 @@ function externalLink(url: () => string, text: () => string): HTMLAnchorElement 
   });
   return link;
 }
+const settingsLinks = div(
+  { class: "settings-links" },
+  externalLink(
+    () => `https://ponlet.mat2uken.app/privacy_${language.val}.html`,
+    () => uiText.privacy,
+  ),
+  externalLink(
+    () => "https://ponlet.mat2uken.app/licenses.html",
+    () => uiText.licenses,
+  ),
+);
+const settingsCloseButton = settings.dialog.querySelector(".dialog-close");
+if (settingsCloseButton) {
+  settings.dialog.insertBefore(settingsLinks, settingsCloseButton);
+} else {
+  settings.dialog.append(settingsLinks);
+}
 retryButton.addEventListener(
   "click",
   () =>
@@ -594,72 +999,15 @@ document.body.append(
   header(
     { class: "topbar" },
     h1(() => uiText.app),
-    div({ class: "topbar-actions" }, peer, settingsButton),
+    div({ class: "topbar-actions" }, settingsButton),
   ),
-  main(
-    { class: "shell" },
-    section(
-      { class: "connection-card" },
-      div({ class: "connection-status-row" }, status, transport, retryButton),
-      qrView.container,
-      expiry,
-      invite,
-      div(
-        { class: "connection-actions" },
-        joinInput,
-        connectButton,
-        pasteJoinButton,
-        scanButton,
-        createButton,
-        disconnectButton,
-      ),
-    ),
-    section(
-      { class: "transfer-card" },
-      h2(() => uiText.transfer),
-      div({ class: "transfer-row" }, fileButton, fileInput),
-      transferDetails,
-      h2(() => uiText.receivedFiles),
-      downloadsButton,
-      receivedList,
-    ),
-    section(
-      { class: "chat-card" },
-      h2(() => uiText.messages),
-      log,
-      div(
-        { class: "message-actions" },
-        copyTextButton,
-        shareTextButton,
-        saveTextButton,
-        clearHistoryButton,
-      ),
-      label({ class: "composer-label" }, textInput),
-      div(
-        { class: "composer-actions" },
-        sendButton,
-        pasteButton,
-        clearDraftButton,
-        span({ class: "draft-count" }, () => `${Array.from(textDraft.val).length}`),
-      ),
-    ),
-  ),
+  main({ class: "shell" }, connectionCard, workspace),
   footer(
     { class: "footer" },
     p(() => uiText.footer),
-    div(
-      { class: "footer-links" },
-      externalLink(
-        () => `https://ponlet.mat2uken.app/privacy_${language.val}.html`,
-        () => uiText.privacy,
-      ),
-      externalLink(
-        () => "https://ponlet.mat2uken.app/licenses.html",
-        () => uiText.licenses,
-      ),
-    ),
   ),
 );
+updateComposerHeight();
 async function startApplication(joinFromLocation = true): Promise<void> {
   if (starting) {
     return starting;

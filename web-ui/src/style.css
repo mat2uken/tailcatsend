@@ -840,3 +840,480 @@ select {
 .native-scanner .scanner-status {
   color: #fff;
 }
+
+/* Compact connection and chat workspace. */
+:root {
+  --viewport-height: 100dvh;
+}
+body {
+  min-height: var(--viewport-height);
+}
+.topbar,
+.shell,
+.footer {
+  max-width: 1120px;
+}
+.topbar {
+  padding-top: calc(0.75rem + var(--safe-top));
+  padding-bottom: 0.5rem;
+}
+.shell {
+  gap: 0.75rem;
+  padding-bottom: 0.75rem;
+  min-height: 0;
+  align-content: start;
+}
+.connection-card {
+  gap: 0.65rem;
+  padding: 0.8rem;
+  border-radius: var(--radius-md);
+}
+.connection-card.is-connected {
+  align-self: start;
+}
+.connection-header {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.connection-status-row,
+.connection-peer-row {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.connection-status-row {
+  justify-content: flex-start;
+}
+.connection-peer-row {
+  min-height: 2.25rem;
+}
+.connection-peer-row .peer-name {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+}
+.connection-peer-row .disconnect {
+  flex: 0 0 auto;
+}
+.connection-info-button {
+  flex: 0 0 auto;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0.35rem;
+  border-radius: 999px;
+}
+.connection-info-panel {
+  position: relative;
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-inset);
+  color: var(--text-secondary);
+  font-size: 0.82rem;
+  white-space: pre-line;
+}
+.connection-info-panel p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.connection-info-panel button {
+  min-height: 44px;
+  justify-self: end;
+  padding: 0.35rem 0.75rem;
+}
+.invite-area {
+  display: grid;
+  gap: 0.6rem;
+  min-width: 0;
+}
+.connection-mode-switch {
+  display: flex;
+  gap: 0.25rem;
+  padding: 0.2rem;
+  border-radius: var(--radius-md);
+  background: var(--bg-inset);
+}
+.connection-mode-button {
+  flex: 1 1 0;
+  min-height: 44px;
+  padding: 0.45rem 0.7rem;
+  color: var(--text-secondary);
+  background: transparent;
+  border-color: transparent;
+  font-size: 0.85rem;
+}
+.connection-mode-button.active,
+.connection-mode-button:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--surface-secondary);
+  border-color: var(--border-subtle);
+}
+.invite-mode-panes {
+  display: grid;
+  min-width: 0;
+}
+.invite-pane {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+  gap: 0.55rem;
+}
+.invite-pane:not(.is-active) {
+  display: none;
+}
+.qr-pane {
+  justify-items: center;
+}
+.qr-pane .qr-container {
+  margin: 0;
+}
+.qr-pane .invite-qr {
+  width: min(208px, 54vw);
+  height: min(208px, 54vw);
+}
+.qr-pane .qr-frame {
+  padding: 10px;
+  border-radius: 14px;
+}
+.qr-pane .qr-label {
+  margin-top: 0.45rem;
+}
+.qr-pane .invite-link,
+.qr-pane > button {
+  min-height: 44px;
+  margin: 0;
+}
+.join-pane {
+  align-content: center;
+}
+.join-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+.join-actions button {
+  min-width: 0;
+  padding-inline: 0.55rem;
+  white-space: nowrap;
+}
+.workspace {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+  gap: 0.65rem;
+}
+.workspace-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.25rem;
+  padding: 0.25rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+}
+.workspace-tab {
+  min-height: 44px;
+  gap: 0.45rem;
+  color: var(--text-secondary);
+  background: transparent;
+  border-color: transparent;
+  font-weight: 650;
+}
+.workspace-tab.active,
+.workspace-tab:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--surface-secondary);
+  border-color: var(--border-subtle);
+}
+.tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 0.72rem;
+  line-height: 1;
+}
+.workspace-panels {
+  min-height: 0;
+}
+.transfer-card,
+.chat-card {
+  min-height: 0;
+  max-height: calc(var(--viewport-height) - 9rem);
+  padding: 0.85rem;
+  gap: 0.65rem;
+  border-radius: var(--radius-md);
+}
+.panel-heading,
+.received-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-width: 0;
+}
+.panel-heading h2,
+.received-heading h2 {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.received-heading button {
+  min-height: 44px;
+  padding: 0.35rem 0.65rem;
+  white-space: nowrap;
+}
+.transfer-row {
+  min-height: 3rem;
+  padding: 0.55rem 0.7rem;
+}
+.received-list {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 0.15rem;
+}
+.transfer-details {
+  padding: 0.65rem;
+  gap: 0.5rem;
+}
+.transfer-details button {
+  min-height: 44px;
+  padding: 0.4rem 0.65rem;
+}
+.chat-card {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+.chat-heading {
+  position: relative;
+}
+.chat-menu-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+.chat-more-button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0.25rem;
+  border-radius: 999px;
+  font-size: 1.25rem;
+  line-height: 1;
+}
+.chat-menu,
+.message-menu {
+  position: absolute;
+  z-index: 20;
+  display: grid;
+  gap: 0.25rem;
+  min-width: 9rem;
+  max-width: min(15rem, calc(100vw - 2rem));
+  padding: 0.35rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: #222733;
+  box-shadow: var(--shadow-card);
+}
+.chat-menu {
+  top: calc(100% + 0.35rem);
+  right: 0;
+}
+.chat-menu button,
+.message-menu button {
+  justify-content: flex-start;
+  min-height: 44px;
+  padding: 0.45rem 0.65rem;
+  font-size: 0.82rem;
+}
+.message-log {
+  min-height: 0;
+  max-height: none;
+  padding: 0.7rem 0.55rem;
+  gap: 0.45rem;
+  justify-content: flex-start;
+  scroll-behavior: auto;
+}
+.message-row {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 0.25rem;
+  width: fit-content;
+  max-width: min(82%, 42rem);
+}
+.message-row.incoming {
+  align-self: flex-start;
+}
+.message-row.outgoing {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+.message-bubble {
+  max-width: none;
+  margin: 0;
+  padding: 0.55rem 0.8rem;
+  font-size: 0.92rem;
+}
+.message-menu-button {
+  flex: 0 0 auto;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0.2rem;
+  border: 0;
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: transparent;
+  opacity: 0;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+.message-row:hover .message-menu-button,
+.message-row:focus-within .message-menu-button,
+.message-menu-button[aria-expanded="true"] {
+  opacity: 1;
+}
+.message-menu {
+  top: calc(100% + 0.25rem);
+  right: 0;
+}
+.message-row.outgoing .message-menu {
+  right: auto;
+  left: 0;
+}
+.composer-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 0.45rem;
+  min-width: 0;
+  padding-top: 0.15rem;
+}
+.composer-label {
+  min-width: 0;
+}
+.composer {
+  display: block;
+  min-height: 2.75rem;
+  max-height: 7.5rem;
+  height: 2.75rem;
+  padding: 0.65rem 0.8rem;
+  resize: none;
+  overflow-y: hidden;
+  font-size: 16px;
+  line-height: 1.4;
+}
+.composer-paste,
+.composer-send {
+  width: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0;
+  border-radius: 999px;
+  font-size: 1.05rem;
+}
+.composer-send {
+  font-size: 1.35rem;
+}
+.settings-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+.settings-links a {
+  color: #93c5fd;
+  padding: 0.25rem 0;
+  font-size: 0.85rem;
+}
+.footer {
+  padding-top: 0.5rem;
+  padding-bottom: calc(0.75rem + var(--safe-bottom));
+}
+.footer p {
+  margin: 0;
+}
+
+@media (min-width: 768px) {
+  .connection-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+  .connection-status-row {
+    min-width: 0;
+  }
+  .connection-peer-row {
+    justify-content: flex-end;
+  }
+  .invite-mode-panes {
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    gap: 0.9rem;
+  }
+  .invite-pane {
+    display: grid !important;
+    min-height: 12rem;
+    padding: 0.5rem;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    background: rgba(18, 21, 28, 0.45);
+  }
+  .qr-pane .invite-qr {
+    width: min(188px, 20vw);
+    height: min(188px, 20vw);
+  }
+  .workspace-panels {
+    min-height: 20rem;
+  }
+  .chat-card > .panel-heading,
+  .chat-card > .message-log,
+  .chat-card > .composer-row {
+    width: min(100%, 800px);
+    margin-inline: auto;
+  }
+}
+@media (max-width: 767px) {
+  .shell {
+    padding-left: max(0.75rem, var(--safe-left));
+    padding-right: max(0.75rem, var(--safe-right));
+  }
+  .connection-card,
+  .transfer-card,
+  .chat-card {
+    padding: 0.7rem;
+  }
+  .message-menu-button {
+    opacity: 1;
+  }
+  .message-row {
+    max-width: 92%;
+  }
+  .join-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .workspace-panels,
+  .transfer-card,
+  .chat-card {
+    max-height: calc(var(--viewport-height) - 10rem);
+  }
+}
+@media (max-width: 380px) {
+  .join-actions button {
+    font-size: 0.76rem;
+    padding-inline: 0.35rem;
+  }
+  .message-row {
+    max-width: 96%;
+  }
+}

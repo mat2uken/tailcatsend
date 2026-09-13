@@ -4,7 +4,22 @@ test("renders the shared VanJS shell when the backend is unavailable", async ({ 
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Ponlet" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Create invite|招待を作成/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Choose file|ファイルを選択/ })).toBeVisible();
+  await expect(page.locator(".workspace")).toBeHidden();
+  await expect(page.getByRole("button", { name: /Choose file|ファイルを選択/ })).toBeHidden();
+});
+
+test("switches QR and join panes on a narrow disconnected screen", async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await installBackend(page);
+  await page.goto("/");
+  await expect(page.getByRole("img", { name: "Invitation QR code" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Invitation URL", exact: true })).toBeHidden();
+  await page.getByRole("tab", { name: "Join a peer", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Invitation URL", exact: true })).toBeVisible();
+  await expect(page.getByRole("img", { name: "Invitation QR code" })).toBeHidden();
+  await page.getByRole("tab", { name: "Show QR", exact: true }).click();
+  await expect(page.getByRole("img", { name: "Invitation QR code" })).toBeVisible();
+  await expect(page.locator(".workspace")).toBeHidden();
 });
 
 async function installBackend(page, { failFirstInvite = false, connected = false } = {}) {
@@ -137,18 +152,19 @@ test("keeps long received filenames and message controls inside a narrow screen"
     window.__testPonlet.text("A".repeat(240), true);
   });
   await expect(page.locator(".received-item")).toHaveCount(1);
-  for (const selector of [
-    ".connection-card",
-    ".transfer-card",
-    ".chat-card",
-    ".composer",
-    ".received-item",
-  ]) {
+  await expect(page.locator(".transfer-card")).toBeVisible();
+  await expect(page.locator(".chat-card")).toBeHidden();
+  for (const selector of [".connection-card", ".transfer-card", ".received-item"]) {
     const rect = await page.locator(selector).boundingBox();
     expect(rect.x).toBeGreaterThanOrEqual(0);
     expect(rect.x + rect.width).toBeLessThanOrEqual(360);
   }
   expect(await page.evaluate(() => document.body.scrollWidth)).toBeLessThanOrEqual(360);
+  await page.getByRole("tab", { name: "Messages" }).click();
+  await expect(page.locator(".chat-card")).toBeVisible();
+  const composerRect = await page.locator(".composer").boundingBox();
+  expect(composerRect.x).toBeGreaterThanOrEqual(0);
+  expect(composerRect.x + composerRect.width).toBeLessThanOrEqual(360);
   await page.getByRole("textbox", { name: "Message input", exact: true }).fill("narrow reply");
   await page.getByRole("button", { name: "Send", exact: true }).click();
   await expect(page.locator(".message-bubble.outgoing")).toContainText("narrow reply");
@@ -166,6 +182,11 @@ test("restores invitation waiting, live language, expiry and hidden controls", a
   await expect(page.locator("html")).toHaveAttribute("lang", "ja");
   await page.locator("#settings-telemetry-toggle").check();
   expect(await page.evaluate(() => window.__testPonlet.calls)).toContainEqual(["telemetry", true]);
+  await page.getByRole("link", { name: "プライバシーポリシー" }).click();
+  expect(await page.evaluate(() => window.__testPonlet.calls)).toContainEqual([
+    "external",
+    "https://ponlet.mat2uken.app/privacy_ja.html",
+  ]);
   await page.getByRole("button", { name: "閉じる", exact: true }).click();
   await expect(page.getByRole("button", { name: "貼り付けて接続", exact: true })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem("ponlet.language"))).toBe("ja");
@@ -180,11 +201,6 @@ test("restores invitation waiting, live language, expiry and hidden controls", a
   await page.evaluate(() => window.__testPonlet.publish({ inviteExpiresInSecs: 1 }));
   await expect(page.locator(".invite-expiry")).toContainText("期限切れ", { timeout: 4000 });
   await expect(page.getByRole("button", { name: "招待URLをコピー", exact: true })).toBeDisabled();
-  await page.getByRole("link", { name: "プライバシーポリシー" }).click();
-  expect(await page.evaluate(() => window.__testPonlet.calls)).toContainEqual([
-    "external",
-    "https://ponlet.mat2uken.app/privacy_ja.html",
-  ]);
 });
 
 test("retries a failed invitation without disposing the active backend", async ({ page }) => {
@@ -208,11 +224,15 @@ test("restores clipboard actions, history export and clearing, newest position a
 }) => {
   await installBackend(page, { connected: true });
   await page.goto("/");
+  await page.getByRole("tab", { name: "Messages" }).click();
   const composer = page.getByRole("textbox", { name: "Message input", exact: true });
   await composer.fill("sent before any reply");
   await page.getByRole("button", { name: "Send", exact: true }).click();
+  await page.getByRole("button", { name: "Chat actions", exact: true }).click();
   await page.getByRole("button", { name: "Copy", exact: true }).click();
+  await page.getByRole("button", { name: "Chat actions", exact: true }).click();
   await page.getByRole("button", { name: "Save", exact: true }).click();
+  await page.getByRole("button", { name: "Chat actions", exact: true }).click();
   await page.getByRole("button", { name: "Share", exact: true }).click();
   expect(await page.evaluate(() => window.__testPonlet.calls)).toContainEqual([
     "copy",
@@ -226,24 +246,53 @@ test("restores clipboard actions, history export and clearing, newest position a
     "share",
     "[Me]: sent before any reply",
   ]);
+  await page.locator(".message-row.outgoing .message-menu-button").click();
+  await page
+    .locator(".message-row.outgoing .message-menu:not([hidden])")
+    .getByRole("button", { name: "Copy", exact: true })
+    .click();
+  await page.waitForFunction(
+    () =>
+      window.__testPonlet.calls.filter(
+        (call) => call[0] === "copy" && call[1] === "sent before any reply",
+      ).length >= 1,
+  );
+  expect(
+    await page.evaluate(
+      () =>
+        window.__testPonlet.calls.filter(
+          (call) => call[0] === "copy" && call[1] === "sent before any reply",
+        ).length,
+    ),
+  ).toBe(1);
   await page.getByRole("button", { name: "Paste", exact: true }).click();
   await expect(composer).toHaveValue("https://example.test/#i=clipboard");
+  await page.getByRole("button", { name: "Chat actions", exact: true }).click();
   await page.getByRole("button", { name: "Clear input", exact: true }).click();
   await expect(composer).toHaveValue("");
+  await page.getByRole("button", { name: "Disconnect", exact: true }).click();
+  await expect(page.getByRole("img", { name: "Invitation QR code" })).toBeVisible();
   await page.getByRole("button", { name: "Paste & connect", exact: true }).click();
   expect(await page.evaluate(() => window.__testPonlet.calls)).toContainEqual([
     "join",
     "https://example.test/#i=clipboard",
   ]);
+  await page.getByRole("tab", { name: "Messages" }).click();
   await page.evaluate(() => {
     for (let i = 0; i < 40; i++) {
       window.__testPonlet.text(`message ${i}`, true);
     }
   });
-  await expect(page.locator(".message-bubble").first()).toContainText("message 39");
-  expect(await page.locator(".message-log").evaluate((element) => element.scrollTop)).toBe(0);
+  await expect(page.locator(".message-bubble").last()).toContainText("message 39");
+  const messageMetrics = await page.locator(".message-log").evaluate((element) => ({
+    scrollHeight: element.scrollHeight,
+    clientHeight: element.clientHeight,
+  }));
+  expect(messageMetrics.scrollHeight).toBeGreaterThan(messageMetrics.clientHeight);
+  await page.getByRole("button", { name: "Chat actions", exact: true }).click();
   await page.getByRole("button", { name: "Clear history", exact: true }).click();
   await expect(page.locator(".message-bubble")).toHaveCount(0);
+  await page.getByRole("button", { name: "Chat actions", exact: true }).click();
   await expect(page.getByRole("button", { name: "Copy", exact: true })).toBeDisabled();
   await page.evaluate(() =>
     window.__testPonlet.publish({
@@ -258,6 +307,7 @@ test("restores clipboard actions, history export and clearing, newest position a
       },
     }),
   );
+  await page.getByRole("tab", { name: "Transfer" }).click();
   await expect(page.locator(".transfer-status")).toHaveText("Sending…");
   await page.evaluate(() => window.__testPonlet.terminal("completed"));
   await expect(page.locator(".transfer-status")).toHaveText("Sent successfully");
@@ -269,10 +319,14 @@ test("restores clipboard actions, history export and clearing, newest position a
 test("explains that the displayed route is observed by this endpoint", async ({ page }) => {
   await installBackend(page, { connected: true });
   await page.goto("/");
-  await page.evaluate(() => window.__testPonlet.publish({ transport: "webrtc" }));
+  await page.evaluate(() =>
+    window.__testPonlet.publish({ transport: "webrtc", peerName: "Phone" }),
+  );
   const route = page.locator(".transport-path");
   await expect(route).toHaveText("Path observed on this device: WebRTC DataChannel");
   await expect(route).toHaveAttribute("title", /last path observed by this device/);
+  await page.getByRole("button", { name: "Connection details", exact: true }).click();
+  await expect(page.locator(".connection-info-panel")).toContainText("Phone");
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.getByRole("combobox", { name: "Language", exact: true }).selectOption("ja");
   await expect(route).toHaveText("この端末で確認した経路: WebRTC DataChannel");
