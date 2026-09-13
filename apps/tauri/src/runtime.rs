@@ -10,7 +10,7 @@ use tauri::AppHandle;
 
 use tailsend_core::{
     run_host_handshake, run_joiner_handshake, AppEvent, BackendService, BackendSession,
-    SessionState,
+    SessionState, TRANSFER_CANCELLED_BY_PEER, TRANSFER_CANCELLED_BY_USER,
 };
 use tailsend_native_transport::NativeTailcatTransport;
 use tailsend_platform_api::{FileSource, IncomingFileSink, ReceivedItem};
@@ -503,7 +503,9 @@ pub async fn receive_text(runtime: Arc<TauriState>, mut stream: Box<dyn DuplexSt
     if let Err(error) = result {
         let cancelled = runtime.backend.is_cancelled(transfer_id);
         let reason = if cancelled {
-            "Transfer cancelled by user".to_string()
+            TRANSFER_CANCELLED_BY_USER.to_string()
+        } else if error.is_peer_cancelled() {
+            TRANSFER_CANCELLED_BY_PEER.to_string()
         } else {
             error.to_string()
         };
@@ -573,7 +575,9 @@ pub async fn receive_file(runtime: Arc<TauriState>, mut stream: Box<dyn DuplexSt
         Err(error) => {
             let cancelled = runtime.backend.is_cancelled(transfer_id);
             let reason = if cancelled {
-                "Transfer cancelled by user".to_string()
+                TRANSFER_CANCELLED_BY_USER.to_string()
+            } else if error.is_peer_cancelled() {
+                TRANSFER_CANCELLED_BY_PEER.to_string()
             } else {
                 error.to_string()
             };
@@ -594,12 +598,18 @@ pub fn finish_outgoing(
     result: Result<(), TransferError>,
     cancel: Arc<AtomicBool>,
 ) -> Result<(), String> {
+    let locally_cancelled = cancel.load(Ordering::Acquire);
+    let remotely_cancelled = matches!(&result, Err(error) if error.is_peer_cancelled());
     let (event, failed) = match result {
         Ok(()) => (AppEvent::TransferCompleted { transfer_id }, false),
-        Err(_error) if cancel.load(Ordering::Acquire) => (
+        Err(_error) if locally_cancelled || remotely_cancelled => (
             AppEvent::TransferCancelled {
                 transfer_id,
-                reason: "Transfer cancelled by user".to_string(),
+                reason: if locally_cancelled {
+                    TRANSFER_CANCELLED_BY_USER.to_string()
+                } else {
+                    TRANSFER_CANCELLED_BY_PEER.to_string()
+                },
             },
             false,
         ),
@@ -909,6 +919,7 @@ pub async fn ponlet_send_text_impl(runtime: &TauriRuntime, text: String) -> Resu
     }
     scope.emit(AppEvent::TransportChanged(stream.transport_path()));
     let result = send_live_text_stream(&mut stream, &text, cancel.clone()).await;
+    let remotely_cancelled = matches!(&result, Err(error) if error.is_peer_cancelled());
     let _ = stream.close().await;
     finish_outgoing(
         runtime,
@@ -919,6 +930,9 @@ pub async fn ponlet_send_text_impl(runtime: &TauriRuntime, text: String) -> Resu
     )?;
     if cancel.load(Ordering::Acquire) {
         return Err("Transfer cancelled by user".into());
+    }
+    if remotely_cancelled {
+        return Ok(());
     }
     tailsend_telemetry::events::text_message_sent(tailsend_telemetry::length_bucket(
         text.chars().count(),
@@ -993,6 +1007,7 @@ pub async fn ponlet_send_files_impl(
             Some(&callback),
         )
         .await;
+        let remotely_cancelled = matches!(&result, Err(error) if error.is_peer_cancelled());
         source.close().await;
         let _ = stream.close().await;
         finish_outgoing(
@@ -1002,7 +1017,7 @@ pub async fn ponlet_send_files_impl(
             result.map(|_| ()),
             cancel.clone(),
         )?;
-        if cancel.load(Ordering::Acquire) || !scope.is_current() {
+        if cancel.load(Ordering::Acquire) || remotely_cancelled || !scope.is_current() {
             return Ok(());
         }
     }

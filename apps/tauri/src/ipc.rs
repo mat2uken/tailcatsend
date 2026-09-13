@@ -3,7 +3,7 @@
 
 use futures::StreamExt;
 use serde::de::DeserializeOwned;
-use tailsend_core::{AppEvent, BackendEvent};
+use tailsend_core::{transfer_status_for_reason, AppEvent, BackendEvent};
 use tailsend_ipc::{Frame, MessageKind, Opcode};
 
 use crate::{
@@ -412,11 +412,7 @@ fn map_event(runtime: &TauriRuntime, sequence: u64, event: AppEvent) -> UiEvent 
         } => UiEvent::Terminal {
             sequence,
             id: crate::id_string(transfer_id),
-            status: if reason == "Transfer cancelled by user" {
-                "cancelled"
-            } else {
-                "failed"
-            },
+            status: transfer_status_for_reason(&reason),
             message: Some(reason),
         },
         AppEvent::ErrorOccurred { code, message } => {
@@ -458,6 +454,8 @@ mod tests {
     use super::*;
     use std::collections::{HashMap, HashSet};
     use std::sync::{Arc, Mutex};
+    use tailsend_transfer::TransferError;
+    use tailsend_transport_api::TransportError;
 
     fn test_runtime() -> TauriRuntime {
         TauriRuntime {
@@ -514,6 +512,78 @@ mod tests {
         };
         assert_eq!(snapshot.state, "booting");
         assert!(snapshot.error.is_none());
+    }
+
+    #[test]
+    fn terminal_ipc_events_distinguish_local_and_peer_cancellation_from_failure() {
+        let runtime = test_runtime();
+        for (reason, expected_status) in [
+            ("Transfer cancelled by user", "cancelled"),
+            ("Transfer cancelled by peer", "cancelled"),
+            ("Operation cancelled", "cancelled"),
+            ("Connection closed", "failed"),
+        ] {
+            let UiEvent::Terminal {
+                status, message, ..
+            } = map_event(
+                &runtime,
+                1,
+                AppEvent::TransferCancelled {
+                    transfer_id: [9; 16],
+                    reason: reason.into(),
+                },
+            )
+            else {
+                panic!("expected terminal event");
+            };
+            assert_eq!(status, expected_status);
+            assert_eq!(message.as_deref(), Some(reason));
+        }
+    }
+
+    #[test]
+    fn outgoing_finish_distinguishes_peer_cancellation_from_transport_failure() {
+        for (error, locally_cancelled, expected_result, expected_status) in [
+            (TransferError::Cancelled, true, Ok(()), "cancelled"),
+            (
+                TransferError::Transport(TransportError::Cancelled),
+                false,
+                Ok(()),
+                "cancelled",
+            ),
+            (
+                TransferError::Transport(TransportError::Closed),
+                false,
+                Err("Transfer failed".to_string()),
+                "failed",
+            ),
+            (
+                TransferError::Transport(TransportError::Closed),
+                true,
+                Ok(()),
+                "cancelled",
+            ),
+        ] {
+            let runtime = test_runtime();
+            let scope = runtime.backend.begin_session();
+            let transfer_id = [10; 16];
+            scope.set_state(tailsend_core::SessionState::Transferring {
+                transfer_id,
+                is_incoming: false,
+                is_files: true,
+                bytes_done: 4,
+                bytes_total: 10,
+                current_item_name: "payload.bin".into(),
+            });
+            let cancel = runtime.register_transfer(&scope, transfer_id);
+            cancel.store(locally_cancelled, std::sync::atomic::Ordering::Release);
+            let actual = crate::finish_outgoing(&runtime, &scope, transfer_id, Err(error), cancel);
+            assert_eq!(actual, expected_result);
+            assert_eq!(
+                runtime.backend.snapshot().last_transfer.unwrap().status,
+                expected_status
+            );
+        }
     }
 
     #[test]

@@ -83,6 +83,46 @@ it("keeps an explicit terminal result after a connected snapshot clears progress
   vi.restoreAllMocks();
 });
 
+it("keeps peer cancellation separate from a failed terminal event", async () => {
+  const session = sessionWith();
+  await session.start();
+  const transfer = {
+    id: "peer-cancel",
+    name: "remote.bin",
+    done: 24,
+    total: 100,
+    incoming: false,
+    status: "sending",
+  };
+  session.applyEvent(snapshotEvent(2, { state: "transferring", transfer }));
+  session.applyEvent({
+    type: "terminal",
+    sequence: 3,
+    id: transfer.id,
+    status: "cancelled",
+    message: "Transfer cancelled by peer",
+  });
+  expect(session.view.lastTransfer).toMatchObject({
+    id: transfer.id,
+    status: "cancelled",
+    message: "Transfer cancelled by peer",
+  });
+  expect(session.view.snapshot.error).toBeNull();
+
+  const failed = sessionWith();
+  await failed.start();
+  failed.applyEvent(snapshotEvent(2, { state: "transferring", transfer }));
+  failed.applyEvent({
+    type: "terminal",
+    sequence: 3,
+    id: transfer.id,
+    status: "failed",
+    message: "Connection closed",
+  });
+  expect(failed.view.lastTransfer).toMatchObject({ status: "failed" });
+  expect(failed.view.snapshot.error).toBe("Connection closed");
+});
+
 it("records successful sends without requiring an outgoing backend event", async () => {
   const session = sessionWith();
   await session.start();

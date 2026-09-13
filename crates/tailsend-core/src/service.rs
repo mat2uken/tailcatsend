@@ -13,7 +13,9 @@ use web_time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use futures::channel::mpsc::{channel, Receiver, Sender};
 use serde::{Deserialize, Serialize};
 
-use crate::{AppEvent, AppSnapshot, SessionState};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::transfer_telemetry_reason;
+use crate::{transfer_status_for_reason, AppEvent, AppSnapshot, SessionState};
 use tailsend_transport_api::{CancellationCallback, TransportPath};
 
 const DEFAULT_EVENT_QUEUE: usize = 32;
@@ -510,15 +512,7 @@ fn observe_telemetry(
             }
             AppEvent::TransferCancelled { reason, .. } => Some((
                 "transfer_cancelled",
-                vec![(
-                    "reason",
-                    if reason == "Transfer cancelled by user" {
-                        "user"
-                    } else {
-                        "error"
-                    }
-                    .into(),
-                )],
+                vec![("reason", transfer_telemetry_reason(reason).into())],
             )),
             AppEvent::ErrorOccurred { .. } | AppEvent::StateChanged(SessionState::Error { .. }) => {
                 Some(("error", vec![("category", "transport".into())]))
@@ -564,14 +558,9 @@ fn emit_locked(inner: &mut ServiceState, queue_limit: usize, event: AppEvent) ->
         {
             if active_id == transfer_id {
                 let (status, message) = match &event {
-                    AppEvent::TransferCancelled { reason, .. } => (
-                        if reason == "Transfer cancelled by user" {
-                            "cancelled"
-                        } else {
-                            "failed"
-                        },
-                        Some(reason.clone()),
-                    ),
+                    AppEvent::TransferCancelled { reason, .. } => {
+                        (transfer_status_for_reason(reason), Some(reason.clone()))
+                    }
                     _ => ("completed", None),
                 };
                 inner.snapshot.last_transfer = Some(TransferOutcome {
@@ -862,6 +851,36 @@ mod tests {
         assert_eq!(outcome.done, 100);
         assert!(!outcome.incoming);
         assert_eq!(outcome.name, "example");
+    }
+
+    #[test]
+    fn terminal_outcomes_distinguish_local_and_peer_cancellation_from_failure() {
+        for (reason, expected_status) in [
+            ("Transfer cancelled by user", "cancelled"),
+            ("Transfer cancelled by peer", "cancelled"),
+            ("Operation cancelled", "cancelled"),
+            ("Connection closed", "failed"),
+        ] {
+            let service = BackendService::default();
+            let scope = service.begin_session();
+            scope.set_state(SessionState::Transferring {
+                transfer_id: [5; 16],
+                is_incoming: false,
+                is_files: false,
+                bytes_done: 7,
+                bytes_total: 10,
+                current_item_name: "message".into(),
+            });
+            scope.emit(AppEvent::TransferCancelled {
+                transfer_id: [5; 16],
+                reason: reason.into(),
+            });
+
+            assert_eq!(
+                service.snapshot().last_transfer.unwrap().status,
+                expected_status
+            );
+        }
     }
 
     #[test]

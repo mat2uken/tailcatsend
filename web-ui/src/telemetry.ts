@@ -143,7 +143,15 @@ export function telemetryObserver(): (event: BackendEvent) => void {
         event.status === "completed" ? "transfer_completed" : "transfer_cancelled",
         event.status === "completed"
           ? { duration_ms: Math.max(0, Math.round(performance.now() - transferStart)) }
-          : { reason: event.status === "cancelled" ? "user" : "error" },
+          : {
+              reason:
+                event.status !== "cancelled"
+                  ? "error"
+                  : event.message === "Transfer cancelled by peer" ||
+                      event.message === "Operation cancelled"
+                    ? "peer"
+                    : "user",
+            },
       );
     } else if (event.type === "text" && event.incoming) {
       const length = [...event.text].length;

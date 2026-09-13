@@ -22,8 +22,9 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
 use tailsend_core::{
-    run_host_handshake, run_joiner_handshake, AppEvent, BackendEvent, BackendService,
-    BackendSession, SessionState,
+    run_host_handshake, run_joiner_handshake, transfer_status_for_reason, AppEvent, BackendEvent,
+    BackendService, BackendSession, SessionState, TRANSFER_CANCELLED_BY_PEER,
+    TRANSFER_CANCELLED_BY_USER,
 };
 use tailsend_platform_api::{
     FileMetadata, FileSource, IncomingFileSink, ReceivedItem, StorageError,
@@ -842,11 +843,7 @@ impl WebBackend {
             } => self.notify(UiEvent::Terminal {
                 sequence: ordered.sequence,
                 id: id_string(transfer_id),
-                status: if reason == "Transfer cancelled by user" {
-                    "cancelled"
-                } else {
-                    "failed"
-                },
+                status: transfer_status_for_reason(&reason),
                 message: Some(reason),
             }),
             AppEvent::TransferProgress {
@@ -1122,10 +1119,14 @@ impl WebBackend {
             AppEvent::TransportChanged(stream.transport_path()),
         );
         let result = send_live_text_stream(&mut stream, &text, cancel.clone()).await;
+        let remotely_cancelled = matches!(&result, Err(error) if error.is_peer_cancelled());
         let _ = stream.close().await;
         self.finish(&session, id, result.map(|_| ()))?;
         if cancel.load(Ordering::Acquire) {
             return Err(JsValue::from_str("Transfer cancelled by user"));
+        }
+        if remotely_cancelled {
+            return Ok(());
         }
         Ok(())
     }
@@ -1205,10 +1206,11 @@ impl WebBackend {
                 Some(&callback),
             )
             .await;
+            let remotely_cancelled = matches!(&result, Err(error) if error.is_peer_cancelled());
             source.close().await;
             let _ = stream.close().await;
             self.finish(&session, id, result.map(|_| ()))?;
-            if cancel.load(Ordering::Acquire) || !session.scope.is_current() {
+            if cancel.load(Ordering::Acquire) || remotely_cancelled || !session.scope.is_current() {
                 return Ok(());
             }
         }
@@ -1221,15 +1223,19 @@ impl WebBackend {
         id: [u8; 16],
         result: Result<(), TransferError>,
     ) -> Result<(), JsValue> {
-        let cancelled = result.is_err() && session.scope.is_cancelled(id);
+        let locally_cancelled = result.is_err() && session.scope.is_cancelled(id);
+        let remotely_cancelled = matches!(&result, Err(error) if error.is_peer_cancelled());
+        let cancelled = locally_cancelled || remotely_cancelled;
         let failed = result.is_err() && !cancelled;
         if let Err(error) = result {
             self.event_for(
                 &session,
                 AppEvent::TransferCancelled {
                     transfer_id: id,
-                    reason: if cancelled {
-                        "Transfer cancelled by user".to_string()
+                    reason: if locally_cancelled {
+                        TRANSFER_CANCELLED_BY_USER.to_string()
+                    } else if remotely_cancelled {
+                        TRANSFER_CANCELLED_BY_PEER.to_string()
                     } else {
                         error.to_string()
                     },
@@ -1341,7 +1347,9 @@ async fn receive_text(
             AppEvent::TransferCancelled {
                 transfer_id: id,
                 reason: if cancelled {
-                    "Transfer cancelled by user".to_string()
+                    TRANSFER_CANCELLED_BY_USER.to_string()
+                } else if error.is_peer_cancelled() {
+                    TRANSFER_CANCELLED_BY_PEER.to_string()
                 } else {
                     error.to_string()
                 },
@@ -1416,7 +1424,9 @@ async fn receive_file(
             AppEvent::TransferCancelled {
                 transfer_id: id,
                 reason: if session.scope.is_cancelled(id) {
-                    "Transfer cancelled by user".to_string()
+                    TRANSFER_CANCELLED_BY_USER.to_string()
+                } else if error.is_peer_cancelled() {
+                    TRANSFER_CANCELLED_BY_PEER.to_string()
                 } else {
                     error.to_string()
                 },

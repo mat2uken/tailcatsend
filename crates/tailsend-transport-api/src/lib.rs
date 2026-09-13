@@ -50,6 +50,19 @@ pub enum TransportError {
     Internal(String),
 }
 
+impl TransportError {
+    /// Return whether the transport stopped because its cancellation status
+    /// was observed. Partial writes retain their byte count but carry the same
+    /// status in `message`, so they must be classified consistently too.
+    pub fn is_cancelled(&self) -> bool {
+        match self {
+            Self::Cancelled => true,
+            Self::PartialWrite { message, .. } => message == "Operation cancelled",
+            _ => false,
+        }
+    }
+}
+
 /// The path currently carrying a Tailcat stream at this endpoint.
 ///
 /// A peer can observe a different path for the same connection, so callers
@@ -157,7 +170,23 @@ pub trait TailcatTransport: TransportThreadSafety {
 
 #[cfg(test)]
 mod tests {
-    use super::TransportPath;
+    use super::{TransportError, TransportPath};
+
+    #[test]
+    fn cancellation_status_is_not_a_generic_transport_failure() {
+        assert!(TransportError::Cancelled.is_cancelled());
+        assert!(TransportError::PartialWrite {
+            written: 1,
+            message: "Operation cancelled".into(),
+        }
+        .is_cancelled());
+        assert!(!TransportError::Closed.is_cancelled());
+        assert!(!TransportError::PartialWrite {
+            written: 1,
+            message: "connection reset".into(),
+        }
+        .is_cancelled());
+    }
 
     #[test]
     fn transport_codes_are_stable() {

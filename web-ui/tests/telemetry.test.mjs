@@ -60,6 +60,14 @@ it("connects the setting to collection and sends only coarse event fields", asyn
   });
   expect(JSON.stringify(logEvent.mock.calls)).not.toMatch(/private|secret/);
   expect(logEvent).toHaveBeenCalledWith("text_message_received", { length_bucket: "xs" });
+  observer({
+    type: "terminal",
+    sequence: 4,
+    id: "remote-cancel",
+    status: "cancelled",
+    message: "Transfer cancelled by peer",
+  });
+  expect(logEvent).toHaveBeenCalledWith("transfer_cancelled", { reason: "peer" });
   const previous = logEvent.mock.calls.length;
   await telemetry.setTelemetryEnabled(false);
   telemetry.textSent("do not collect");

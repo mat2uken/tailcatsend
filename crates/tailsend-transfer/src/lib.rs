@@ -58,6 +58,27 @@ pub enum TransferError {
     SinkWriteOverrun { requested: usize, actual: usize },
 }
 
+impl TransferError {
+    /// Whether the transfer stopped because a cancellation was observed by
+    /// the transfer or transport layer, rather than because of a generic I/O
+    /// failure. A remote endpoint reports cancellation through the transport
+    /// cancellation status, while a local flag produces `TransferError::Cancelled`.
+    pub fn is_cancelled(&self) -> bool {
+        match self {
+            Self::Cancelled => true,
+            Self::Transport(error) => error.is_cancelled(),
+            _ => false,
+        }
+    }
+
+    /// Whether the transport reported that the peer cancelled this transfer.
+    /// `TransferError::Cancelled` is reserved for the local cancellation flag
+    /// and therefore is intentionally not included here.
+    pub fn is_peer_cancelled(&self) -> bool {
+        matches!(self, Self::Transport(error) if error.is_cancelled())
+    }
+}
+
 pub struct ProgressUpdate {
     pub transfer_id: [u8; 16],
     pub item_id: Option<u32>,
