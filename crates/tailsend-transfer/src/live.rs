@@ -454,3 +454,67 @@ where
     }
     Ok(())
 }
+
+/// Receive one text transfer as a single message while preserving its line
+/// breaks.  The current send path opens one stream per text submission and
+/// terminates it after writing one framing newline, so splitting the stream at
+/// every newline would turn a pasted multi-line message into several messages.
+///
+/// `receive_live_text_stream` remains available for the older persistent
+/// newline-delimited stream used by legacy adapters.  This variant is for the
+/// per-submission streams used by the Web and Tauri runtimes.
+pub async fn receive_live_text_message_stream<OnMessage>(
+    stream: &mut Box<dyn DuplexStream>,
+    cancel_flag: Arc<AtomicBool>,
+    mut on_message: OnMessage,
+) -> Result<(), TransferError>
+where
+    OnMessage: FnMut(String),
+{
+    let max_payload = MAX_TEXT_PAYLOAD_SIZE as usize;
+    // send_live_text_stream appends one framing newline.  Allow that byte in
+    // addition to the maximum message body, then remove only that final byte.
+    let max_frame = max_payload.saturating_add(1);
+    let mut payload = Vec::new();
+    let mut buffer = [0u8; CHUNK_SIZE_BYTES];
+    let mut received_any = false;
+
+    loop {
+        if cancel_flag.load(Ordering::Relaxed) {
+            return Err(TransferError::Cancelled);
+        }
+        let count = stream.read(&mut buffer).await?;
+        if count == 0 {
+            break;
+        }
+        if count > buffer.len() {
+            return Err(TransferError::ReadOverrun {
+                requested: buffer.len(),
+                actual: count,
+            });
+        }
+        received_any = true;
+        if payload.len().saturating_add(count) > max_frame {
+            payload.clear();
+            return Err(TransferError::TextTooLarge);
+        }
+        payload.extend_from_slice(&buffer[..count]);
+    }
+    check_cancelled(&cancel_flag)?;
+
+    // An empty stream contains no text transfer.  A stream containing only
+    // the framing newline is a valid empty message and must still be emitted.
+    if !received_any {
+        return Ok(());
+    }
+    if payload.last() == Some(&b'\n') {
+        payload.pop();
+        // Match TextMessageDecoder's CRLF normalization for the framing line.
+        if payload.last() == Some(&b'\r') {
+            payload.pop();
+        }
+    }
+    let text = String::from_utf8(payload).map_err(|_| TransferError::InvalidUtf8)?;
+    on_message(text);
+    Ok(())
+}

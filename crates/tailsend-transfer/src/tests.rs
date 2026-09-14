@@ -774,3 +774,48 @@ async fn live_text_is_delivered_before_the_connection_closes() {
     task.await.unwrap().unwrap();
     assert_eq!(rx.recv().await.unwrap(), "last");
 }
+
+#[tokio::test]
+async fn live_text_message_groups_pasted_lines_in_send_order() {
+    let (mut sender, mut receiver) = InMemDuplex::pair();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let task = tokio::spawn(async move {
+        receive_live_text_message_stream(
+            &mut receiver,
+            Arc::new(AtomicBool::new(false)),
+            |message| {
+                tx.send(message).unwrap();
+            },
+        )
+        .await
+    });
+
+    send_live_text_stream(
+        &mut sender,
+        "first line\nsecond line\nthird line",
+        Arc::new(AtomicBool::new(false)),
+    )
+    .await
+    .unwrap();
+
+    task.await.unwrap().unwrap();
+    assert_eq!(
+        rx.recv().await.unwrap(),
+        "first line\nsecond line\nthird line"
+    );
+    assert!(rx.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn live_text_message_keeps_empty_lines_when_grouping() {
+    let mut stream = scripted_stream(b"first\n\nthird\n", 2);
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    receive_live_text_message_stream(&mut stream, Arc::new(AtomicBool::new(false)), |message| {
+        tx.send(message).unwrap();
+    })
+    .await
+    .unwrap();
+
+    assert_eq!(rx.recv().await.unwrap(), "first\n\nthird");
+    assert!(rx.try_recv().is_err());
+}

@@ -170,6 +170,30 @@ test("keeps long received filenames and message controls inside a narrow screen"
   await expect(page.locator(".message-bubble.outgoing")).toContainText("narrow reply");
 });
 
+test("keeps a received pasted message together when copying it", async ({ page }) => {
+  await installBackend(page, { connected: true });
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Messages" }).click();
+
+  const pasted = "first line\nsecond line\nthird line";
+  await page.evaluate((value) => window.__testPonlet.text(value, true), pasted);
+  await expect(page.locator(".message-row.incoming")).toHaveCount(1);
+
+  await page.locator(".message-row.incoming .message-menu-button").click();
+  await page
+    .locator(".message-row.incoming .message-menu:not([hidden])")
+    .getByRole("button", { name: "Copy", exact: true })
+    .click();
+  expect(await page.evaluate(() => window.__testPonlet.calls)).toContainEqual(["copy", pasted]);
+
+  await page.getByRole("button", { name: "Chat actions", exact: true }).click();
+  await page.getByRole("button", { name: "Copy", exact: true }).click();
+  expect(await page.evaluate(() => window.__testPonlet.calls)).toContainEqual([
+    "copy",
+    `[Peer]: ${pasted}`,
+  ]);
+});
+
 test("restores invitation waiting, live language, expiry and hidden controls", async ({ page }) => {
   await installBackend(page);
   await page.goto("/");

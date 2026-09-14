@@ -18,8 +18,8 @@ use tailsend_protocol::control::{Capabilities, PeerInfo, PlatformKind};
 use tailsend_protocol::invitation::InvitationV1;
 use tailsend_protocol::limits::{FILE_PORT, TEXT_PORT};
 use tailsend_transfer::{
-    receive_live_text_stream, receive_named_file_stream_with_factory, send_live_text_stream,
-    send_named_file_stream, ProgressCallback, ProgressUpdate, TransferError,
+    receive_live_text_message_stream, receive_named_file_stream_with_factory,
+    send_live_text_stream, send_named_file_stream, ProgressCallback, ProgressUpdate, TransferError,
 };
 use tailsend_transport_api::{
     DuplexStream, ListenOptions, Listener, TailcatTransport, TransportPath,
@@ -494,7 +494,7 @@ pub async fn receive_text(runtime: Arc<TauriState>, mut stream: Box<dyn DuplexSt
             .backend
             .set_cancellation_callback(transfer_id, callback);
     }
-    let result = receive_live_text_stream(&mut stream, cancel_token, |text| {
+    let result = receive_live_text_message_stream(&mut stream, cancel_token, |text| {
         runtime.backend.emit(AppEvent::TextReceived { text });
     })
     .await;

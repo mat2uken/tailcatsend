@@ -35,8 +35,8 @@ use tailsend_protocol::invitation::InvitationV1;
 use tailsend_protocol::limits::{FILE_PORT, TEXT_PORT};
 use tailsend_qr::generate_qr_rgba;
 use tailsend_transfer::{
-    receive_live_text_stream, receive_named_file_stream_with_factory, send_live_text_stream,
-    send_named_file_stream, ProgressCallback, ProgressUpdate, TransferError,
+    receive_live_text_message_stream, receive_named_file_stream_with_factory,
+    send_live_text_stream, send_named_file_stream, ProgressCallback, ProgressUpdate, TransferError,
 };
 use tailsend_transport_api::{
     CancellationCallback, DuplexStream, IncomingStream, ListenOptions, Listener, TailcatTransport,
@@ -1332,7 +1332,7 @@ async fn receive_text(
     if let Some(callback) = stream.cancellation_callback() {
         session.scope.set_cancellation_callback(id, callback);
     }
-    let result = receive_live_text_stream(&mut stream, cancel, |text| {
+    let result = receive_live_text_message_stream(&mut stream, cancel, |text| {
         backend.event_for(&session, AppEvent::TextReceived { text })
     })
     .await;
