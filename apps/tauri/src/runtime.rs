@@ -9,14 +9,17 @@ use rand::RngCore;
 use tauri::AppHandle;
 
 use tailsend_core::{
-    run_host_handshake, run_joiner_handshake, AppEvent, BackendService, BackendSession,
+    read_framed_control, run_host_handshake, run_host_handshake_stream, run_joiner_handshake,
+    write_framed_control, AppEvent, BackendService, BackendSession, HostHandshakeError,
     SessionState, TRANSFER_CANCELLED_BY_PEER, TRANSFER_CANCELLED_BY_USER,
 };
 use tailsend_native_transport::NativeTailcatTransport;
 use tailsend_platform_api::{FileSource, IncomingFileSink, ReceivedItem};
-use tailsend_protocol::control::{Capabilities, PeerInfo, PlatformKind};
+use tailsend_protocol::control::{
+    Capabilities, ControlMessage, ErrorBody, MessageBody, MessageType, PeerInfo, PlatformKind,
+};
 use tailsend_protocol::invitation::InvitationV1;
-use tailsend_protocol::limits::{FILE_PORT, TEXT_PORT};
+use tailsend_protocol::limits::{CONTROL_PORT, FILE_PORT, TEXT_PORT};
 use tailsend_transfer::{
     receive_live_text_message_stream, receive_named_file_stream_with_factory,
     send_live_text_stream, send_named_file_stream, ProgressCallback, ProgressUpdate, TransferError,
@@ -36,6 +39,9 @@ use crate::storage::{
 pub struct PeerSession {
     pub scope: BackendSession,
     pub listener: Arc<Box<dyn Listener>>,
+    /// Retained by the host so a repeated join for the same invitation can be
+    /// verified and replace the previous peer instead of failing with an EOF.
+    pub invitation: Option<InvitationV1>,
     pub peer_address: Mutex<String>,
     pub cancel: Arc<AtomicBool>,
     pub transport_path: Mutex<TransportPath>,
@@ -469,10 +475,15 @@ pub async fn accept_loop(runtime: Arc<TauriState>, session: Arc<PeerSession>) {
         }
         runtime.set_transport_path(incoming.stream.transport_path());
         let runtime_for_stream = runtime.clone();
+        let session_for_stream = session.clone();
         tokio::spawn(async move {
             match incoming.port {
                 TEXT_PORT => receive_text(runtime_for_stream, incoming.stream).await,
                 FILE_PORT => receive_file(runtime_for_stream, incoming.stream).await,
+                CONTROL_PORT => {
+                    accept_repeated_join(runtime_for_stream, session_for_stream, incoming.stream)
+                        .await
+                }
                 _ => {
                     let mut stream = incoming.stream;
                     let _ = stream.close().await;
@@ -480,6 +491,94 @@ pub async fn accept_loop(runtime: Arc<TauriState>, session: Arc<PeerSession>) {
             }
         });
     }
+}
+
+/// Handle a control connection that arrives after this session is connected.
+///
+/// A phone browser can load the invitation twice (a background preview that
+/// the browser later restores or reloads) or reload while connected. Dropping
+/// that connection leaves the visible page stuck before the connection while
+/// the host still shows the previous peer. Instead, verify the retained
+/// invitation again and replace the peer with the new connection.
+async fn accept_repeated_join(
+    runtime: Arc<TauriState>,
+    session: Arc<PeerSession>,
+    mut stream: Box<dyn DuplexStream>,
+) {
+    if session.cancel.load(Ordering::Acquire) || !session.scope.is_current() {
+        let _ = stream.close().await;
+        return;
+    }
+    let Some(invitation) = session.invitation.clone() else {
+        let _ = stream.close().await;
+        return;
+    };
+    if invitation.validate(unix_seconds()).is_err() {
+        // Read the ClientHello first so the joiner can finish writing before
+        // the rejection closes the stream.
+        let _ = read_framed_control(&mut stream).await;
+        write_control_error(
+            &mut stream,
+            &invitation.session_id,
+            1004,
+            "The invitation has expired",
+        )
+        .await;
+        let _ = stream.close().await;
+        return;
+    }
+    match run_host_handshake_stream(
+        &mut stream,
+        session.listener.local_address(),
+        invitation.session_id,
+        invitation.invite_secret,
+        &local_peer_info(),
+        &Capabilities::default(),
+    )
+    .await
+    {
+        Ok(handshake) => {
+            if session.cancel.load(Ordering::Acquire) || !session.scope.is_current() {
+                return;
+            }
+            *session.peer_address.lock().expect("session mutex poisoned") =
+                handshake.peer_address.clone();
+            *session
+                .transport_path
+                .lock()
+                .expect("session mutex poisoned") = handshake.transport_path;
+            runtime.backend.set_state(SessionState::ConnectedIdle {
+                peer_info: handshake.peer_info,
+                peer_capabilities: handshake.peer_capabilities,
+                peer_address: handshake.peer_address,
+                transport_path: handshake.transport_path,
+            });
+        }
+        Err(HostHandshakeError::Rejected { code, detail }) => {
+            write_control_error(&mut stream, &invitation.session_id, code, &detail).await;
+        }
+        Err(HostHandshakeError::Failed(_)) => {}
+    }
+    let _ = stream.close().await;
+}
+
+async fn write_control_error(
+    stream: &mut Box<dyn DuplexStream>,
+    session_id: &[u8; 16],
+    code: u32,
+    detail: &str,
+) {
+    let message = ControlMessage::new(
+        MessageType::Error,
+        session_id,
+        1,
+        None,
+        Some(MessageBody::Error(ErrorBody {
+            error_code: code,
+            detail: Some(detail.to_string()),
+        })),
+    );
+    let _ = write_framed_control(stream, &message).await;
 }
 
 pub async fn receive_text(runtime: Arc<TauriState>, mut stream: Box<dyn DuplexStream>) {
@@ -732,6 +831,7 @@ pub async fn ponlet_create_invite_impl(runtime: &TauriRuntime) -> Result<(), Str
     let session = Arc::new(PeerSession {
         scope: scope.clone(),
         listener: listener.clone(),
+        invitation: Some(invitation.clone()),
         peer_address: Mutex::new(String::new()),
         cancel: Arc::new(AtomicBool::new(false)),
         transport_path: Mutex::new(TransportPath::Unknown),
@@ -823,6 +923,7 @@ pub async fn ponlet_join_impl(runtime: &TauriRuntime, invite: String) -> Result<
     let session = Arc::new(PeerSession {
         scope: scope.clone(),
         listener: listener.clone(),
+        invitation: None,
         peer_address: Mutex::new(invitation.host_address.clone()),
         cancel: Arc::new(AtomicBool::new(false)),
         transport_path: Mutex::new(TransportPath::Unknown),

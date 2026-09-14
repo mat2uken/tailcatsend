@@ -52,13 +52,48 @@ pub async fn write_framed_control(
     stream.write_all(&bytes).await.map_err(|e| e.to_string())
 }
 
+#[derive(Debug)]
 pub struct HandshakeResult {
-    pub control_stream: Box<dyn DuplexStream>,
     pub peer_address: String,
     pub peer_info: PeerInfo,
     pub peer_capabilities: Capabilities,
     pub transport_path: TransportPath,
 }
+
+/// Reasons a host handshake did not finish.
+///
+/// `Rejected` means nothing was written to the stream, so the caller can still
+/// send a control `Error` frame. `Failed` means a frame may already be on the
+/// wire and the connection must only be closed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HostHandshakeError {
+    Rejected { code: u32, detail: String },
+    Failed(String),
+}
+
+impl HostHandshakeError {
+    pub fn rejected(code: u32, detail: impl Into<String>) -> Self {
+        Self::Rejected {
+            code,
+            detail: detail.into(),
+        }
+    }
+
+    pub fn failed(error: impl std::fmt::Display) -> Self {
+        Self::Failed(error.to_string())
+    }
+}
+
+impl std::fmt::Display for HostHandshakeError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Rejected { detail, .. } => write!(formatter, "{detail}"),
+            Self::Failed(error) => write!(formatter, "{error}"),
+        }
+    }
+}
+
+impl std::error::Error for HostHandshakeError {}
 
 pub async fn run_host_handshake(
     listener: &dyn Listener,
@@ -76,23 +111,54 @@ pub async fn run_host_handshake(
     }
 
     let mut stream = incoming.stream;
+    run_host_handshake_stream(
+        &mut stream,
+        listener.local_address(),
+        session_id,
+        invite_secret,
+        host_info,
+        host_caps,
+    )
+    .await
+    .map_err(|error| error.to_string())
+}
+
+/// Run the host side of the handshake on an already accepted control stream.
+///
+/// The caller keeps ownership so it can answer a `Rejected` outcome with a
+/// control `Error` frame before closing, and can replace the peer of an
+/// existing session when the same invitation is used again.
+pub async fn run_host_handshake_stream(
+    stream: &mut Box<dyn DuplexStream>,
+    local_address: &str,
+    session_id: [u8; 16],
+    invite_secret: [u8; 32],
+    host_info: &PeerInfo,
+    host_caps: &Capabilities,
+) -> Result<HandshakeResult, HostHandshakeError> {
     let transport_path = stream.transport_path();
-    let client_hello_msg = read_framed_control(&mut stream).await?;
+    let client_hello_msg = read_framed_control(stream)
+        .await
+        .map_err(HostHandshakeError::failed)?;
 
     if client_hello_msg.message_type != MessageType::ClientHello as u32 {
-        return Err(format!(
+        return Err(HostHandshakeError::failed(format!(
             "Expected ClientHello, got {}",
             client_hello_msg.message_type
-        ));
+        )));
     }
 
     let body = match client_hello_msg.body {
         Some(MessageBody::Hello(b)) => b,
-        _ => return Err("Invalid ClientHello message body".to_string()),
+        _ => {
+            return Err(HostHandshakeError::failed(
+                "Invalid ClientHello message body",
+            ))
+        }
     };
 
     if body.nonce.len() != 32 {
-        return Err("Invalid client nonce length".to_string());
+        return Err(HostHandshakeError::failed("Invalid client nonce length"));
     }
     let mut joiner_nonce = [0u8; 32];
     joiner_nonce.copy_from_slice(&body.nonce);
@@ -106,7 +172,9 @@ pub async fn run_host_handshake(
         &body.capabilities,
         &body.proof,
     )
-    .map_err(|e| format!("Joiner proof verification failed: {}", e))?;
+    .map_err(|e| {
+        HostHandshakeError::rejected(1005, format!("Joiner proof verification failed: {}", e))
+    })?;
 
     let mut host_nonce = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut host_nonce);
@@ -116,16 +184,16 @@ pub async fn run_host_handshake(
         &session_id,
         &joiner_nonce,
         &host_nonce,
-        listener.local_address(),
+        local_address,
         &body.tailcat_address,
         host_info,
         host_caps,
     )
-    .map_err(|e| format!("Compute host proof failed: {}", e))?;
+    .map_err(|e| HostHandshakeError::failed(format!("Compute host proof failed: {}", e)))?;
 
     let server_hello = ServerHello {
         nonce: host_nonce.to_vec(),
-        tailcat_address: listener.local_address().to_string(),
+        tailcat_address: local_address.to_string(),
         peer_info: host_info.clone(),
         capabilities: host_caps.clone(),
         proof: host_proof.to_vec(),
@@ -138,14 +206,18 @@ pub async fn run_host_handshake(
         None,
         Some(MessageBody::Hello(server_hello)),
     );
-    write_framed_control(&mut stream, &server_hello_msg).await?;
+    write_framed_control(stream, &server_hello_msg)
+        .await
+        .map_err(HostHandshakeError::failed)?;
 
-    let ready_msg = read_framed_control(&mut stream).await?;
+    let ready_msg = read_framed_control(stream)
+        .await
+        .map_err(HostHandshakeError::failed)?;
     if ready_msg.message_type != MessageType::SessionReady as u32 {
-        return Err(format!(
+        return Err(HostHandshakeError::failed(format!(
             "Expected SessionReady, got {}",
             ready_msg.message_type
-        ));
+        )));
     }
 
     let ack_msg = ControlMessage::new(
@@ -155,10 +227,11 @@ pub async fn run_host_handshake(
         None,
         Some(MessageBody::SessionReady(SessionReady { note: None })),
     );
-    write_framed_control(&mut stream, &ack_msg).await?;
+    write_framed_control(stream, &ack_msg)
+        .await
+        .map_err(HostHandshakeError::failed)?;
 
     Ok(HandshakeResult {
-        control_stream: stream,
         peer_address: body.tailcat_address,
         peer_info: body.peer_info,
         peer_capabilities: body.capabilities,
@@ -221,6 +294,9 @@ pub async fn run_joiner_handshake(
     write_framed_control(&mut stream, &client_hello_msg).await?;
 
     let server_hello_msg = read_framed_control(&mut stream).await?;
+    if server_hello_msg.message_type == MessageType::Error as u32 {
+        return Err(host_rejection_detail(&server_hello_msg));
+    }
     if server_hello_msg.message_type != MessageType::ServerHello as u32 {
         return Err(format!(
             "Expected ServerHello, got {}",
@@ -270,10 +346,22 @@ pub async fn run_joiner_handshake(
     }
 
     Ok(HandshakeResult {
-        control_stream: stream,
         peer_address: invitation.host_address.clone(),
         peer_info: body.peer_info,
         peer_capabilities: body.capabilities,
         transport_path,
     })
+}
+
+/// Turn a host rejection into a message the UI can show. The host sends a
+/// control `Error` when it refuses a repeated join instead of silently closing
+/// the stream.
+fn host_rejection_detail(message: &ControlMessage) -> String {
+    match &message.body {
+        Some(MessageBody::Error(body)) => match body.detail.as_deref() {
+            Some(detail) if !detail.is_empty() => detail.to_string(),
+            _ => format!("Host rejected the connection ({})", body.error_code),
+        },
+        _ => "Host rejected the connection".to_string(),
+    }
 }

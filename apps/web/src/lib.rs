@@ -22,17 +22,21 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
 use tailsend_core::{
-    run_host_handshake, run_joiner_handshake, transfer_status_for_reason, AppEvent, BackendEvent,
-    BackendService, BackendSession, SessionState, TRANSFER_CANCELLED_BY_PEER,
+    read_framed_control, run_host_handshake, run_host_handshake_stream, run_joiner_handshake,
+    transfer_status_for_reason, write_framed_control, AppEvent, BackendEvent, BackendService,
+    BackendSession, HostHandshakeError, SessionState, TRANSFER_CANCELLED_BY_PEER,
     TRANSFER_CANCELLED_BY_USER,
 };
 use tailsend_platform_api::{
     FileMetadata, FileSource, IncomingFileSink, ReceivedItem, StorageError,
 };
-use tailsend_protocol::control::{BrowserFamily, Capabilities, PeerInfo, PlatformKind};
+use tailsend_protocol::control::{
+    BrowserFamily, Capabilities, ControlMessage, ErrorBody, MessageBody, MessageType, PeerInfo,
+    PlatformKind,
+};
 use tailsend_protocol::filename::sanitize_filename;
 use tailsend_protocol::invitation::InvitationV1;
-use tailsend_protocol::limits::{FILE_PORT, TEXT_PORT};
+use tailsend_protocol::limits::{CONTROL_PORT, FILE_PORT, TEXT_PORT};
 use tailsend_qr::generate_qr_rgba;
 use tailsend_transfer::{
     receive_live_text_message_stream, receive_named_file_stream_with_factory,
@@ -746,6 +750,9 @@ impl IncomingFileSink for WebFileSink {
 struct WebSession {
     scope: BackendSession,
     listener: Rc<Box<dyn Listener>>,
+    /// Retained by the host so a repeated join for the same invitation can be
+    /// verified and replace the previous peer instead of failing with an EOF.
+    invitation: RefCell<Option<InvitationV1>>,
     peer_address: RefCell<String>,
     peer_info: RefCell<Option<PeerInfo>>,
     peer_capabilities: RefCell<Option<Capabilities>>,
@@ -924,6 +931,7 @@ impl WebBackend {
         let session = Rc::new(WebSession {
             scope: scope.clone(),
             listener,
+            invitation: RefCell::new(Some(invitation.clone())),
             peer_address: RefCell::new(String::new()),
             peer_info: RefCell::new(None),
             peer_capabilities: RefCell::new(None),
@@ -1020,6 +1028,7 @@ impl WebBackend {
         let session = Rc::new(WebSession {
             scope: scope.clone(),
             listener,
+            invitation: RefCell::new(None),
             peer_address: RefCell::new(invitation.host_address.clone()),
             peer_info: RefCell::new(None),
             peer_capabilities: RefCell::new(None),
@@ -1309,6 +1318,10 @@ async fn accept_loop(backend: Rc<WebBackend>, session: Rc<WebSession>) {
                 FILE_PORT => {
                     receive_file(backend_for_stream, session_for_stream, incoming.stream).await
                 }
+                CONTROL_PORT => {
+                    accept_repeated_join(backend_for_stream, session_for_stream, incoming.stream)
+                        .await
+                }
                 _ => {
                     let mut stream = incoming.stream;
                     let _ = stream.close().await;
@@ -1316,6 +1329,99 @@ async fn accept_loop(backend: Rc<WebBackend>, session: Rc<WebSession>) {
             }
         });
     }
+}
+
+/// Handle a control connection that arrives after this session is connected.
+///
+/// A phone browser can load the invitation twice (a background preview that
+/// Chrome later restores or reloads) or reload while connected. Dropping that
+/// connection leaves the visible page stuck before the connection while the
+/// host still shows the previous peer. Instead, verify the retained invitation
+/// again and replace the peer with the new connection.
+async fn accept_repeated_join(
+    backend: Rc<WebBackend>,
+    session: Rc<WebSession>,
+    mut stream: Box<dyn DuplexStream>,
+) {
+    if !session.scope.is_current() {
+        let _ = stream.close().await;
+        return;
+    }
+    let Some(invitation) = session.invitation.borrow().clone() else {
+        let _ = stream.close().await;
+        return;
+    };
+    if invitation.validate(unix_seconds()).is_err() {
+        // Read the ClientHello first so the joiner can finish writing before
+        // the rejection closes the stream.
+        let _ = read_framed_control(&mut stream).await;
+        write_control_error(
+            &mut stream,
+            &invitation.session_id,
+            1004,
+            "The invitation has expired",
+        )
+        .await;
+        let _ = stream.close().await;
+        return;
+    }
+    match run_host_handshake_stream(
+        &mut stream,
+        session.listener.local_address(),
+        invitation.session_id,
+        invitation.invite_secret,
+        &local_peer_info(),
+        &Capabilities::default(),
+    )
+    .await
+    {
+        Ok(handshake) => {
+            if !session.scope.is_current() {
+                return;
+            }
+            *session.peer_address.borrow_mut() = handshake.peer_address.clone();
+            *session.peer_info.borrow_mut() = Some(handshake.peer_info.clone());
+            *session.peer_capabilities.borrow_mut() = Some(handshake.peer_capabilities.clone());
+            *session.transport_path.borrow_mut() = handshake.transport_path;
+            backend.state_for(
+                &session.scope,
+                SessionState::ConnectedIdle {
+                    peer_info: handshake.peer_info,
+                    peer_capabilities: handshake.peer_capabilities,
+                    peer_address: handshake.peer_address,
+                    transport_path: handshake.transport_path,
+                },
+            );
+            backend.event_for(
+                &session,
+                AppEvent::TransportChanged(handshake.transport_path),
+            );
+        }
+        Err(HostHandshakeError::Rejected { code, detail }) => {
+            write_control_error(&mut stream, &invitation.session_id, code, &detail).await;
+        }
+        Err(HostHandshakeError::Failed(_)) => {}
+    }
+    let _ = stream.close().await;
+}
+
+async fn write_control_error(
+    stream: &mut Box<dyn DuplexStream>,
+    session_id: &[u8; 16],
+    code: u32,
+    detail: &str,
+) {
+    let message = ControlMessage::new(
+        MessageType::Error,
+        session_id,
+        1,
+        None,
+        Some(MessageBody::Error(ErrorBody {
+            error_code: code,
+            detail: Some(detail.to_string()),
+        })),
+    );
+    let _ = write_framed_control(stream, &message).await;
 }
 
 async fn receive_text(

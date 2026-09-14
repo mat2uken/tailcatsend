@@ -277,7 +277,7 @@ pub enum MessageBody {
     TransferCancel(TransferCancel),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct ControlMessage {
     #[serde(rename = "1")]
     pub protocol_major: u32,
@@ -293,6 +293,65 @@ pub struct ControlMessage {
     pub correlation_id: Option<serde_bytes::ByteBuf>,
     #[serde(rename = "7", default, skip_serializing_if = "Option::is_none")]
     pub body: Option<MessageBody>,
+}
+
+#[derive(Deserialize)]
+struct RawControlMessage {
+    #[serde(rename = "1")]
+    protocol_major: u32,
+    #[serde(rename = "2")]
+    protocol_minor: u32,
+    #[serde(rename = "3")]
+    message_type: u32,
+    #[serde(rename = "4", with = "serde_bytes")]
+    session_id: Vec<u8>,
+    #[serde(rename = "5")]
+    sequence_number: u64,
+    #[serde(rename = "6", default)]
+    correlation_id: Option<serde_bytes::ByteBuf>,
+    #[serde(rename = "7", default)]
+    body: Option<ciborium::Value>,
+}
+
+impl<'de> Deserialize<'de> for ControlMessage {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = RawControlMessage::deserialize(deserializer)?;
+        let body = raw
+            .body
+            .map(|value| decode_message_body(raw.message_type, value))
+            .transpose()
+            .map_err(serde::de::Error::custom)?;
+        Ok(Self {
+            protocol_major: raw.protocol_major,
+            protocol_minor: raw.protocol_minor,
+            message_type: raw.message_type,
+            session_id: raw.session_id,
+            sequence_number: raw.sequence_number,
+            correlation_id: raw.correlation_id,
+            body,
+        })
+    }
+}
+
+/// Decode the body with the message type as the discriminator.
+///
+/// `MessageBody` is untagged, so bodies with overlapping numeric keys would
+/// otherwise be misclassified: an `Error` body is also a valid `PingPong`
+/// because both only require key `"1"` to be an integer. The frames this
+/// implementation exchanges are unambiguous once the type is known.
+fn decode_message_body(message_type: u32, value: ciborium::Value) -> Result<MessageBody, String> {
+    if message_type == MessageType::Error as u32 {
+        return value
+            .deserialized::<ErrorBody>()
+            .map(MessageBody::Error)
+            .map_err(|error| error.to_string());
+    }
+    value
+        .deserialized::<MessageBody>()
+        .map_err(|error| error.to_string())
 }
 
 impl ControlMessage {

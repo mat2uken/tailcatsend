@@ -422,6 +422,121 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_repeated_join_replaces_the_peer() {
+        let hub = Arc::new(MockNetworkHub::new());
+        let host_transport: Arc<dyn TailcatTransport> = hub.clone();
+        let opts = ListenOptions {
+            derp_map_url: "".to_string(),
+            verbose: false,
+        };
+        let host_listener = host_transport.listen(opts.clone()).await.unwrap();
+
+        let session_id = [11u8; 16];
+        let invite_secret = [12u8; 32];
+        let host_info =
+            PeerInfo::new_native("Host".to_string(), PlatformKind::Windows, "1.0".to_string());
+        let host_caps = Capabilities::default();
+
+        // A phone browser can reload the invitation while the host is already
+        // connected. The same invitation must complete the handshake again so
+        // the new page replaces the previous peer.
+        for name in ["First", "Second"] {
+            let joiner_transport: Arc<dyn TailcatTransport> = hub.clone();
+            let joiner_listener = joiner_transport.listen(opts.clone()).await.unwrap();
+            let invitation = InvitationV1::new(
+                host_listener.local_address().to_string(),
+                session_id,
+                invite_secret,
+                1756800000,
+                600,
+            );
+            let joiner_info =
+                PeerInfo::new_native(name.to_string(), PlatformKind::Android, "1.0".to_string());
+            let joiner_caps = Capabilities::default();
+            let host_future = run_host_handshake(
+                &*host_listener,
+                session_id,
+                invite_secret,
+                &host_info,
+                &host_caps,
+            );
+            let joiner_future = run_joiner_handshake(
+                &joiner_transport,
+                &*joiner_listener,
+                &invitation,
+                &joiner_info,
+                &joiner_caps,
+            );
+            let (host_result, joiner_result) = tokio::join!(host_future, joiner_future);
+            assert_eq!(
+                host_result.unwrap().peer_info.display_name,
+                name,
+                "host must adopt the newest joiner"
+            );
+            joiner_result.unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn test_joiner_reports_a_host_control_rejection() {
+        let hub = Arc::new(MockNetworkHub::new());
+        let host_transport: Arc<dyn TailcatTransport> = hub.clone();
+        let joiner_transport: Arc<dyn TailcatTransport> = hub.clone();
+        let opts = ListenOptions {
+            derp_map_url: "".to_string(),
+            verbose: false,
+        };
+        let host_listener = host_transport.listen(opts.clone()).await.unwrap();
+        let joiner_listener = joiner_transport.listen(opts.clone()).await.unwrap();
+
+        let session_id = [13u8; 16];
+        let invitation = InvitationV1::new(
+            host_listener.local_address().to_string(),
+            session_id,
+            [14u8; 32],
+            1756800000,
+            600,
+        );
+        let joiner_info = PeerInfo::new_native(
+            "Joiner".to_string(),
+            PlatformKind::Android,
+            "1.0".to_string(),
+        );
+        let joiner_caps = Capabilities::default();
+
+        let host_future = async {
+            let mut incoming = host_listener.accept().await.unwrap();
+            let _ = read_framed_control(&mut incoming.stream).await;
+            let message = ControlMessage::new(
+                MessageType::Error,
+                &session_id,
+                1,
+                None,
+                Some(MessageBody::Error(ErrorBody {
+                    error_code: 1004,
+                    detail: Some("The invitation has expired".to_string()),
+                })),
+            );
+            write_framed_control(&mut incoming.stream, &message)
+                .await
+                .unwrap();
+        };
+        let joiner_future = run_joiner_handshake(
+            &joiner_transport,
+            &*joiner_listener,
+            &invitation,
+            &joiner_info,
+            &joiner_caps,
+        );
+        let ((), joiner_result) = tokio::join!(host_future, joiner_future);
+        assert_eq!(
+            joiner_result.unwrap_err(),
+            "The invitation has expired",
+            "the joiner must surface the host rejection instead of an EOF"
+        );
+    }
+
+    #[tokio::test]
     async fn test_control_offer_rejection() {
         let (host_stream, joiner_stream) = crate::mock_transport::MockStream::pair();
         let mut host_box: Box<dyn tailsend_transport_api::DuplexStream> = Box::new(host_stream);

@@ -141,3 +141,7 @@ Worker化後も `npm run test:e2e:real` と `npm run test:e2e:real:derp` が同�
 最新の実機検証では Sony Xperia 1 V (`QV770139JG`) と Apple iPhone XS (`00008020-001459882250003A`) を接続し、WireGuard UDP による即時 P2P 接続、双方向テキスト、131,072 byte の実ファイル転送と実機サンドボックス抽出ハッシュの一致、4 MiB 転送の途中取消、同一接続での 65,536 byte 再転送と完全性確認を完了した。Windows／Linux 実機を含む全組み合わせは未完了である。
 
 上記はビルド成功やブラウザ2タブの WebRTC smoke だけでは完了扱いにしない。端末、commit、通信経路、入力ファイル、受信ハッシュ、保存物、所要時間を同じ記録へ残してから判定する。
+
+2026-09-14 に、Android Chrome で QR 招待を開いたあとページが再読み込み・復元されると、ホストは先に接続したページを peer として保持したまま2回目の join を無応答で閉じるため、表示中のページが「接続前」のまま残る問題を修正した。ホストはセッションで招待（session id と secret）を保持し、接続後の `CONTROL_PORT` 接続にはハンドシェイクを再実行して新しい peer に差し替える。招待が期限切れの場合と proof 検証に失敗した場合は control `Error` を返し、joiner はその理由を表示する。あわせて `ControlMessage` の body を `message_type` で判別し、`Error` body が `PingPong` として誤解釈されないようにした。
+
+ローカルビルドのブラウザ2タブで、同一招待への2回目の join が新しい peer へ切り替わることを `npm run test:e2e:real`（WebRTC）と `npm run test:e2e:real:derp`（DERP）で確認した。実通信試験は新UIに合わせて Messages タブの選択と `.message-bubble` の検証へ更新し、双方向テキスト、131,089／98,321 byte のファイル、SHA-256 一致、同名保存、取消、切断を同じ実行で確認している。Sony XQ-DQ44 (Android 15) の Chrome でローカルビルドを開き、接続後に `about:blank` を経由して同じ招待URLを再表示すると再接続して `connected` になり、ホストから送ったテキストが `receivedMessages` に届くことを確認した。これは実機 Android Chrome の再読み込み経路の確認であり、Windows 実機、Tauri アプリでの再参加、期限切れ時の control `Error` 表示は未確認である。

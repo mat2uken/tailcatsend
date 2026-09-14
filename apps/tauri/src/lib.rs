@@ -189,6 +189,7 @@ mod tests {
         let current = Arc::new(PeerSession {
             scope: runtime.backend.begin_session(),
             listener: Arc::new(listener),
+            invitation: None,
             peer_address: Mutex::new(String::new()),
             cancel: Arc::new(AtomicBool::new(false)),
             transport_path: Mutex::new(TransportPath::Unknown),
@@ -196,6 +197,7 @@ mod tests {
         let stale = Arc::new(PeerSession {
             scope: current.scope.clone(),
             listener: current.listener.clone(),
+            invitation: None,
             peer_address: Mutex::new(String::new()),
             cancel: Arc::new(AtomicBool::new(true)),
             transport_path: Mutex::new(TransportPath::Unknown),

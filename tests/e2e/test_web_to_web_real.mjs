@@ -107,6 +107,7 @@ function assertTransport(snapshotValue, label) {
 }
 
 async function downloadReceived(page, index = 0) {
+  await selectTab(page, /Transfer|転送/);
   const [download] = await Promise.all([
     page.waitForEvent("download", { timeout: 30_000 }),
     page.locator(".received-item").nth(index).getByRole("button", { name: /Open|開く/ }).click(),
@@ -114,6 +115,25 @@ async function downloadReceived(page, index = 0) {
   const path = await download.path();
   if (!path) throw new Error("received download path was not created");
   return readFileSync(path);
+}
+
+async function selectTab(page, name) {
+  await page.getByRole("tab", { name }).first().click();
+}
+
+async function sendMessage(page, text) {
+  await selectTab(page, /Messages|メッセージ/);
+  await page.locator("textarea").fill(text);
+  await page.getByRole("button", { name: /Send|送信/ }).click();
+}
+
+async function expectMessage(page, direction, text) {
+  await selectTab(page, /Messages|メッセージ/);
+  await page
+    .locator(`.message-bubble.${direction}`)
+    .filter({ hasText: text })
+    .first()
+    .waitFor({ state: "visible", timeout: 30_000 });
 }
 
 async function main() {
@@ -198,13 +218,30 @@ async function main() {
     await waitForSnapshot(host, (value) => value.state === "connected", "host connection");
     await waitForSnapshot(joiner, (value) => value.state === "connected", "joiner connection");
 
+    // A phone browser can restore or reload the invitation page after the
+    // first connection. The same invitation must complete the handshake again
+    // and replace the previous peer instead of leaving the visible page stuck
+    // before the connection.
+    const rejoiner = await context.newPage();
+    await rejoiner.goto(joinUrl, { waitUntil: "domcontentloaded" });
+    await waitForSnapshot(rejoiner, (value) => value.state === "connected", "rejoin connection");
+    await waitForSnapshot(host, (value) => value.state === "connected", "host after rejoin");
+    const rejoinText = "再接続の確認: 日本語 ✅";
+    await sendMessage(host, rejoinText);
+    await expectMessage(rejoiner, "incoming", rejoinText);
+    await rejoiner.close();
+    // Return the original page to the peer role for the remaining checks.
+    await joiner.goto("about:blank");
+    await joiner.goto(joinUrl, { waitUntil: "domcontentloaded" });
+    await waitForSnapshot(joiner, (value) => value.state === "connected", "joiner reconnected");
+
     const text = "Web UI 実通信の確認: 日本語と絵文字 ✅";
-    await host.locator("textarea").fill(text);
-    await host.getByRole("button", { name: /Send|送信/ }).click();
-    await joiner.getByText(`[Peer]: ${text}`).waitFor({ state: "visible", timeout: 30_000 });
+    await sendMessage(host, text);
+    await expectMessage(joiner, "incoming", text);
 
     const bytes = Buffer.from(Array.from({ length: 131_089 }, (_, index) => index % 251));
     const expectedHash = sha256(bytes);
+    await selectTab(host, /Transfer|転送/);
     await host.locator('input[type="file"]').setInputFiles({
       name: "実通信-日本語.bin",
       mimeType: "application/octet-stream",
@@ -222,16 +259,16 @@ async function main() {
       throw new Error(`received hash mismatch: ${actualHash} != ${expectedHash}`);
     }
 
-    await host.getByText(`[Me]: ${text}`).waitFor({ state: "visible", timeout: 30_000 });
+    await expectMessage(host, "outgoing", text);
     const reverseText = "Web UI 双方向確認: reply ↔ 日本語";
-    await joiner.locator("textarea").fill(reverseText);
-    await joiner.getByRole("button", { name: /Send|送信/ }).click();
-    await host.getByText(`[Peer]: ${reverseText}`).waitFor({ state: "visible", timeout: 30_000 });
+    await sendMessage(joiner, reverseText);
+    await expectMessage(host, "incoming", reverseText);
 
     const reverseBytes = Buffer.from(
       Array.from({ length: 98_321 }, (_, index) => (index * 7) % 251),
     );
     const reverseHash = sha256(reverseBytes);
+    await selectTab(joiner, /Transfer|転送/);
     await joiner.locator('input[type="file"]').setInputFiles({
       name: "reply-日本語.dat",
       mimeType: "application/octet-stream",
@@ -252,6 +289,7 @@ async function main() {
     // OPFS move replaces an existing destination by default. Receiving a
     // second file with the same name must preserve both downloaded contents.
     const duplicateBytes = Buffer.from("同じ名前でも前のファイルを保持する ✅");
+    await selectTab(host, /Transfer|転送/);
     await host.locator('input[type="file"]').setInputFiles({
       name: "実通信-日本語.bin",
       mimeType: "application/octet-stream",
@@ -277,6 +315,7 @@ async function main() {
     assertTransport(joinerFinal, "joiner");
     // Cancel a batch while its first file is active. The second file must
     // never be started, even though cancellation itself is not a send error.
+    await selectTab(host, /Transfer|転送/);
     await host.locator('input[type="file"]').setInputFiles([
       { name: "cancel-first.bin", mimeType: "application/octet-stream", buffer: Buffer.alloc(16 * 1024 * 1024, 7) },
       { name: "must-not-send-after-cancel.bin", mimeType: "application/octet-stream", buffer: Buffer.from("must not arrive") },
@@ -297,7 +336,7 @@ async function main() {
         {
           browser: browserName,
           persistent,
-          regressions: { invalidInvitationPreserved: true, repeatedInvitation: true, outgoingHistory: true, sameNameFilesPreserved: true, batchCancelled: true, waitingAfterDisconnect: true },
+          regressions: { invalidInvitationPreserved: true, repeatedInvitation: true, repeatedJoinReplacesPeer: true, outgoingHistory: true, sameNameFilesPreserved: true, batchCancelled: true, waitingAfterDisconnect: true },
           host: { state: hostFinal.state, transport: hostFinal.transport },
           joiner: { state: joinerFinal.state, transport: joinerFinal.transport },
           text,
