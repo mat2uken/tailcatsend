@@ -128,6 +128,12 @@ class PonletPlatformPlugin: Plugin, UIDocumentInteractionControllerDelegate, UID
         let inbox = container.appendingPathComponent(ponletShareInboxDirectory, isDirectory: true)
         if create {
             try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+        } else {
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: inbox.path, isDirectory: &isDirectory),
+                  isDirectory.boolValue else {
+                return nil
+            }
         }
         return inbox
     }
