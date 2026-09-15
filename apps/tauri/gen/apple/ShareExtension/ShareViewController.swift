@@ -160,16 +160,20 @@ final class ShareViewController: UIViewController {
             guard let type = UTType(identifier) else {
                 return identifier == UTType.text.identifier || identifier == UTType.plainText.identifier
             }
-            return type.conforms(to: .text) || type.conforms(to: .url)
+            return type.conforms(to: .text)
+                || (type.conforms(to: .url) && !type.conforms(to: .fileURL))
         }
     }
 
     private func fileType(for provider: NSItemProvider) -> String? {
         provider.registeredTypeIdentifiers.first { identifier in
             guard let type = UTType(identifier) else { return true }
+            if type.conforms(to: .fileURL) {
+                return true
+            }
             return !type.conforms(to: .text)
                 && !type.conforms(to: .url)
-                && (type.conforms(to: .fileURL) || type.conforms(to: .data) || type.conforms(to: .item))
+                && (type.conforms(to: .data) || type.conforms(to: .item))
         }
     }
 
