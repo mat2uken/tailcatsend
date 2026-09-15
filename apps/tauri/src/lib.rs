@@ -51,6 +51,7 @@ pub fn run() {
             commands::ponlet_send_text,
             commands::ponlet_send_files,
             commands::ponlet_pick_and_send_files,
+            commands::ponlet_import_shared,
             commands::ponlet_save_text,
             commands::ponlet_qr_code,
             commands::ponlet_cancel_transfer,
@@ -185,6 +186,8 @@ mod tests {
             subscriptions: Mutex::new(HashMap::new()),
             subscription_cancellers: Mutex::new(HashMap::new()),
             closed_subscriptions: Mutex::new(HashSet::new()),
+            #[cfg(target_os = "ios")]
+            pending_shares: Mutex::new(Default::default()),
         };
         let current = Arc::new(PeerSession {
             scope: runtime.backend.begin_session(),

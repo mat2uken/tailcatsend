@@ -17,6 +17,12 @@ export interface ReceivedItem {
   size: number;
 }
 
+export interface SharedImportSummary {
+  imported: number;
+  queued: number;
+  sent: number;
+}
+
 export interface QrBitmap {
   height: number;
   rgbaPixels: Uint8Array;
@@ -69,6 +75,8 @@ export interface PonletBackend {
   disconnect(): Promise<void>;
   dispose(): Promise<void>;
   getTelemetryEnabled?: () => Promise<boolean>;
+  /** Import items staged by the iOS Share Extension. */
+  importShared?: () => Promise<SharedImportSummary>;
   join(invite: string): Promise<void>;
   /** Desktop receive folder and public information links. */
   openDownloads?: () => Promise<void>;

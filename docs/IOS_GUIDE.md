@@ -23,3 +23,11 @@ iOS 版は `apps/tauri/gen/apple` の Tauri mobile shell と共通 WebView UI �
 ## 実機検証
 
 招待、QR、テキスト、ファイル選択、受信保存、取消、再接続を iOS 17 端末で確認します。ファイル本文は WebView の invoke payload に入れず、Rust 側の file handle を使います。端末ロック、Developer Mode、署名期限などで起動できなかった場合は、ビルド成功と実機起動成功を分けて記録します。
+
+## Share Extension
+
+Share Extension は `group.jp.yasagure.ponlet` の App Group に項目を一時保存し、Ponlet 本体が起動・復帰したときに読み取ります。接続していない状態で共有した項目も最大 32 件まで保持し、接続後にテキストまたはファイルとして順番に送信してから削除します。テキストの上限は通信側と同じ 1 MiB です。
+
+Apple Developer で本体の App ID と `jp.yasagure.ponlet.share` の Extension App ID に同じ App Group を追加し、実機用の署名プロファイルにも両方を含めてください。`./scripts/build_tauri_mobile.sh ios release` は本体の `PROVISIONING_PROFILE_SPECIFIER` を使うため、配布時は Extension を含むプロファイルを指定します。
+
+確認手順は、別アプリからテキストとファイルを Ponlet に共有し、共有元へ戻ったあとに未接続なら項目が残ること、接続すると順番に送信されて App Group から消えることです。アプリを終了してから共有した場合も、次回起動後に同じ項目が送信待ちになることを確認します。

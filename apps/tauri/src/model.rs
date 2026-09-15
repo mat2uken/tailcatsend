@@ -5,6 +5,8 @@ pub const DERP_MAP_URL: &str = "https://tailcat.dev/derpmap.json";
 pub const INVITE_BASE_URL: &str = "https://ponlet.mat2uken.app";
 pub const INVITE_LIFETIME_SECS: u64 = 600;
 pub const QUEUE_LIMIT: usize = 32;
+pub const SHARED_QUEUE_LIMIT: usize = QUEUE_LIMIT;
+pub const SHARED_TEXT_MAX_BYTES: u64 = tailsend_protocol::limits::MAX_TEXT_PAYLOAD_SIZE;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -89,6 +91,14 @@ pub struct FileRequest {
     pub size: u64,
     pub mime: Option<String>,
     pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedImportSummary {
+    pub imported: usize,
+    pub queued: usize,
+    pub sent: usize,
 }
 
 pub fn new_id() -> [u8; 16] {

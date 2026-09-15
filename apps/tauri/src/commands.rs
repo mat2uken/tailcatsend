@@ -2,7 +2,7 @@ use tauri::{AppHandle, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_opener::OpenerExt;
 
-use crate::model::{FileRequest, UiQrBitmap, UiSnapshot};
+use crate::model::{FileRequest, SharedImportSummary, UiQrBitmap, UiSnapshot};
 use crate::runtime::TauriRuntime;
 
 pub use crate::runtime::ponlet_qr_code_impl;
@@ -67,6 +67,14 @@ pub async fn ponlet_pick_and_send_files(
     runtime: State<'_, TauriRuntime>,
 ) -> Result<(), String> {
     crate::runtime::ponlet_pick_and_send_files_impl(app, &runtime).await
+}
+
+#[tauri::command]
+pub async fn ponlet_import_shared(
+    app: AppHandle,
+    runtime: State<'_, TauriRuntime>,
+) -> Result<SharedImportSummary, String> {
+    crate::runtime::ponlet_import_shared_impl(app, &runtime).await
 }
 
 #[tauri::command]
