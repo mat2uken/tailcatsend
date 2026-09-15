@@ -72,8 +72,7 @@ updateViewportMetrics();
 
 function createSession(): Session {
   return new Session(getBackend(), (view) => {
-    const previouslyConnected =
-      snapshot.val.state === "connected" || snapshot.val.state === "transferring";
+    const previouslyIdle = snapshot.val.state === "connected";
     now.val = Date.now();
     const nextUrl = view.snapshot.inviteUrl ?? "";
     const remaining = Math.max(0, view.snapshot.inviteExpiresInSecs);
@@ -89,8 +88,7 @@ function createSession(): Session {
     lastReceivedText.val = view.lastReceivedText;
     lastTransfer.val = view.lastTransfer;
     transferRate.val = view.transferBytesPerSecond;
-    const connected = view.snapshot.state === "connected" || view.snapshot.state === "transferring";
-    if (!previouslyConnected && connected) {
+    if (view.snapshot.state === "connected" && !previouslyIdle) {
       importSharedItems();
     }
   });
