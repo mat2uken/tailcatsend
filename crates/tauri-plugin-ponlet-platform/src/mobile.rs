@@ -40,6 +40,18 @@ pub struct TelemetrySettings {
     pub os_version: String,
 }
 
+#[cfg(target_os = "ios")]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SharedItem {
+    pub id: String,
+    pub kind: String,
+    pub name: String,
+    pub size: u64,
+    pub mime: Option<String>,
+    pub path: String,
+}
+
 impl<R: Runtime> PonletPlatform<R> {
     pub fn open_received(&self, path: &str) -> Result<(), String> {
         self.0
@@ -49,6 +61,18 @@ impl<R: Runtime> PonletPlatform<R> {
     pub fn share_text(&self, text: &str) -> Result<(), String> {
         self.0
             .run_mobile_plugin("shareText", serde_json::json!({"text": text}))
+            .map_err(|error| error.to_string())
+    }
+    #[cfg(target_os = "ios")]
+    pub fn read_shared_items(&self) -> Result<Vec<SharedItem>, String> {
+        self.0
+            .run_mobile_plugin("readSharedItems", serde_json::json!({}))
+            .map_err(|error| error.to_string())
+    }
+    #[cfg(target_os = "ios")]
+    pub fn acknowledge_shared_item(&self, id: &str) -> Result<(), String> {
+        self.0
+            .run_mobile_plugin("acknowledgeSharedItem", serde_json::json!({"id": id}))
             .map_err(|error| error.to_string())
     }
     #[cfg(target_os = "ios")]

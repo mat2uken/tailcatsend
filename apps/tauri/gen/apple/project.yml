@@ -46,6 +46,10 @@ targets:
         FIREBASE_ANALYTICS_COLLECTION_ENABLED: false
         FirebaseCrashlyticsCollectionEnabled: false
         UILaunchStoryboardName: LaunchScreen
+        CFBundleURLTypes:
+          - CFBundleTypeRole: Editor
+            CFBundleURLName: jp.yasagure.ponlet.share
+            CFBundleURLSchemes: [ponlet]
         UIRequiredDeviceCapabilities: [arm64, metal]
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
@@ -60,6 +64,9 @@ targets:
         CFBundleVersion: "1.0.14"
     entitlements:
       path: tailsend-tauri_iOS/tailsend-tauri_iOS.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.jp.yasagure.ponlet
     scheme:
       environmentVariables:
         RUST_BACKTRACE: full
@@ -87,6 +94,8 @@ targets:
       - sdk: Security.framework
       - sdk: UIKit.framework
       - sdk: WebKit.framework
+      - target: PonletShareExtension
+        embed: true
     preBuildScripts:
       - script: cargo tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths "${FRAMEWORK_SEARCH_PATHS:?}" --header-search-paths "${HEADER_SEARCH_PATHS:?}" --gcc-preprocessor-definitions "${GCC_PREPROCESSOR_DEFINITIONS:-}" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}
         name: Build Rust Code
@@ -98,3 +107,41 @@ targets:
       - script: bash "${PROJECT_DIR}/../../../../scripts/copy_ios_swift_bundles.sh"
         name: Copy Swift Package Bundles
         basedOnDependencyAnalysis: false
+
+  PonletShareExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: ShareExtension
+    info:
+      path: ShareExtension/Info.plist
+      properties:
+        CFBundleDisplayName: Ponlet
+        CFBundlePackageType: XPC!
+        CFBundleShortVersionString: 1.0.14
+        CFBundleVersion: "1.0.14"
+        NSExtension:
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsFileWithMaxCount: 20
+              NSExtensionActivationSupportsImageWithMaxCount: 20
+              NSExtensionActivationSupportsMovieWithMaxCount: 20
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 20
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+    entitlements:
+      path: ShareExtension/PonletShareExtension.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.jp.yasagure.ponlet
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: jp.yasagure.ponlet.share
+        PRODUCT_NAME: PonletShareExtension
+        SWIFT_VERSION: 5.0
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SKIP_INSTALL: YES
+        ARCHS: [arm64]
+        VALID_ARCHS: arm64
+        TARGETED_DEVICE_FAMILY: "1,2"

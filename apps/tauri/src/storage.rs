@@ -52,6 +52,43 @@ impl NativeFileSource {
             next_offset: 0,
         })
     }
+
+    /// Open a file staged by the iOS Share Extension in the application group.
+    /// The native plugin has already checked that this path belongs to the
+    /// inbox, so it must bypass the WebView FS scope.
+    pub async fn open_local(
+        path: PathBuf,
+        name: String,
+        size: u64,
+        mime: Option<String>,
+    ) -> Result<Self, String> {
+        let metadata = tokio::fs::symlink_metadata(&path)
+            .await
+            .map_err(|error| error.to_string())?;
+        if !metadata.file_type().is_file() {
+            return Err("shared file is not a regular file".to_string());
+        }
+        if metadata.len() != size {
+            return Err(format!(
+                "shared file size changed: {} != {}",
+                metadata.len(),
+                size
+            ));
+        }
+        let file = tokio::fs::File::open(&path)
+            .await
+            .map_err(|error| error.to_string())?;
+        Ok(Self {
+            file,
+            metadata: FileMetadata {
+                name,
+                size,
+                mime,
+                modified_unix_ms: None,
+            },
+            next_offset: 0,
+        })
+    }
 }
 
 #[async_trait]

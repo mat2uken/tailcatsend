@@ -50,6 +50,7 @@ const chatMenuOpen = van.state(false);
 const operationBusy = van.state(false);
 let session: Session | undefined;
 let starting: Promise<void> | undefined;
+let sharedImportInFlight: Promise<void> | undefined;
 let wasConnected = false;
 let viewedMessageCount = 0;
 const viewportWidth = van.state(window.innerWidth);
@@ -71,6 +72,8 @@ updateViewportMetrics();
 
 function createSession(): Session {
   return new Session(getBackend(), (view) => {
+    const previouslyConnected =
+      snapshot.val.state === "connected" || snapshot.val.state === "transferring";
     now.val = Date.now();
     const nextUrl = view.snapshot.inviteUrl ?? "";
     const remaining = Math.max(0, view.snapshot.inviteExpiresInSecs);
@@ -86,6 +89,32 @@ function createSession(): Session {
     lastReceivedText.val = view.lastReceivedText;
     lastTransfer.val = view.lastTransfer;
     transferRate.val = view.transferBytesPerSecond;
+    const connected =
+      view.snapshot.state === "connected" || view.snapshot.state === "transferring";
+    if (!previouslyConnected && connected) {
+      importSharedItems();
+    }
+  });
+}
+
+function importSharedItems(): void {
+  const current = backend;
+  if (!current?.importShared || sharedImportInFlight) {
+    return;
+  }
+  const task = current
+    .importShared()
+    .then(() => undefined)
+    .catch((error) => {
+      if (current === backend) {
+        session?.reportError(error);
+      }
+    });
+  sharedImportInFlight = task;
+  void task.finally(() => {
+    if (sharedImportInFlight === task) {
+      sharedImportInFlight = undefined;
+    }
   });
 }
 async function run(action: () => Promise<void>): Promise<void> {
@@ -133,6 +162,12 @@ window.addEventListener("pagehide", (event) => {
     if (session) {
       void run(() => session!.dispose());
     }
+  }
+});
+window.addEventListener("focus", () => importSharedItems());
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    importSharedItems();
   }
 });
 
@@ -1019,6 +1054,7 @@ async function startApplication(joinFromLocation = true): Promise<void> {
       backend = createBackend();
       session = createSession();
       await session.start();
+      importSharedItems();
       void settings.refreshSettings();
       if (snapshot.val.state === "error" || snapshot.val.error) {
         return;

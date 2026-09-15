@@ -5,6 +5,7 @@ import type {
   PonletBackend,
   QrBitmap,
   ReceivedItem,
+  SharedImportSummary,
 } from "../api/application-api";
 import { validateSnapshot } from "../api/validation";
 import {
@@ -217,6 +218,7 @@ function createJsonFallback(listeners: Set<(event: BackendEvent) => void>): {
       sendText: (text) => invoke("ponlet_send_text", { text }),
       sendFiles: (files) => invoke("ponlet_send_files", { files: files.map(toFileRequest) }),
       pickAndSendFiles: () => invoke("ponlet_pick_and_send_files"),
+      importShared: () => invoke<SharedImportSummary>("ponlet_import_shared"),
       qrCode: async (url) => normalizeQr(await invoke<QrBitmap>("ponlet_qr_code", { url })),
       cancelTransfer: (id) => invoke("ponlet_cancel_transfer", { id }),
       disconnect: () => invoke("ponlet_disconnect"),
@@ -309,6 +311,7 @@ export function createBackend(): PonletBackend {
         () => fastCall(Opcode.PickAndSendFiles),
         () => fallback.backend.pickAndSendFiles!(),
       ),
+    importShared: () => fallback.backend.importShared!(),
     qrCode: (url) =>
       jsonOrFast(
         async () => normalizeQr(await fastCall<QrBitmap>(Opcode.QrCode, url)),

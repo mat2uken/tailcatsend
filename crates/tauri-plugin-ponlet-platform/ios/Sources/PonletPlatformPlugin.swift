@@ -14,6 +14,26 @@ private struct TelemetryInitArgs: Decodable { let optOut: Bool }
 private struct EventArgs: Decodable { let name: String; let params: [String: String] }
 private struct PropertyArgs: Decodable { let name: String; let value: String }
 private struct KeyArgs: Decodable { let key: String }
+private struct SharedItemArgs: Decodable { let id: String }
+private struct SharedManifest: Decodable {
+    let id: String
+    let kind: String
+    let name: String
+    let size: UInt64
+    let mime: String?
+    let payload: String
+}
+private struct SharedItemReply: Encodable {
+    let id: String
+    let kind: String
+    let name: String
+    let size: UInt64
+    let mime: String?
+    let path: String
+}
+
+private let ponletShareGroupIdentifier = "group.jp.yasagure.ponlet"
+private let ponletShareInboxDirectory = "PonletShareInbox"
 
 class PonletPlatformPlugin: Plugin, UIDocumentInteractionControllerDelegate, UIDocumentPickerDelegate {
     private var document: UIDocumentInteractionController?
@@ -98,6 +118,112 @@ class PonletPlatformPlugin: Plugin, UIDocumentInteractionControllerDelegate, UID
     }
     public func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) { finishExport() }
     public func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { finishExport() }
+
+    private func sharedInboxURL(create: Bool) throws -> URL? {
+        guard let container = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: ponletShareGroupIdentifier
+        ) else {
+            return nil
+        }
+        let inbox = container.appendingPathComponent(ponletShareInboxDirectory, isDirectory: true)
+        if create {
+            try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+        }
+        return inbox
+    }
+
+    private func validSharedItemIdentifier(_ id: String) -> Bool {
+        guard !id.isEmpty, id.count <= 128 else { return false }
+        return id.unicodeScalars.allSatisfy { scalar in
+            let value = scalar.value
+            return (value >= 48 && value <= 57)
+                || (value >= 65 && value <= 90)
+                || (value >= 97 && value <= 122)
+                || value == 45
+                || value == 95
+        }
+    }
+
+    @objc public func readSharedItems(_ invoke: Invoke) throws {
+        guard let inbox = try sharedInboxURL(create: false) else {
+            invoke.resolve([SharedItemReply]())
+            return
+        }
+        let inboxResolved = inbox.standardizedFileURL.resolvingSymlinksInPath()
+        let directories = try FileManager.default.contentsOfDirectory(
+            at: inbox,
+            includingPropertiesForKeys: [.isDirectoryKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ).sorted { left, right in
+            let leftDate = (try? left.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            let rightDate = (try? right.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            return leftDate < rightDate
+        }
+
+        var items: [SharedItemReply] = []
+        for directory in directories {
+            guard let directoryValues = try? directory.resourceValues(forKeys: [.isDirectoryKey]),
+                  directoryValues.isDirectory == true else {
+                continue
+            }
+            let resolvedDirectory = directory.standardizedFileURL.resolvingSymlinksInPath()
+            guard resolvedDirectory.path.hasPrefix(inboxResolved.path + "/") else { continue }
+            let manifestURL = directory.appendingPathComponent("manifest.json", isDirectory: false)
+            guard let manifestData = try? Data(contentsOf: manifestURL),
+                  let manifest = try? JSONDecoder().decode(SharedManifest.self, from: manifestData),
+                  validSharedItemIdentifier(manifest.id),
+                  manifest.id == directory.lastPathComponent,
+                  manifest.kind == "text" || manifest.kind == "file",
+                  !manifest.name.isEmpty,
+                  manifest.payload == "payload" else {
+                continue
+            }
+            let payloadURL = directory
+                .appendingPathComponent(manifest.payload, isDirectory: false)
+                .standardizedFileURL
+                .resolvingSymlinksInPath()
+            guard payloadURL.path.hasPrefix(resolvedDirectory.path + "/"),
+                  let payloadValues = try? payloadURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+                  payloadValues.isRegularFile == true,
+                  let fileSize = payloadValues.fileSize,
+                  fileSize >= 0,
+                  UInt64(fileSize) == manifest.size else {
+                continue
+            }
+            items.append(SharedItemReply(
+                id: manifest.id,
+                kind: manifest.kind,
+                name: manifest.name,
+                size: manifest.size,
+                mime: manifest.mime,
+                path: payloadURL.path
+            ))
+        }
+        invoke.resolve(items)
+    }
+
+    @objc public func acknowledgeSharedItem(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(SharedItemArgs.self)
+        guard validSharedItemIdentifier(args.id) else {
+            invoke.reject("Shared item identifier is invalid")
+            return
+        }
+        guard let inbox = try sharedInboxURL(create: false) else {
+            invoke.resolve()
+            return
+        }
+        let inboxResolved = inbox.standardizedFileURL.resolvingSymlinksInPath()
+        let directory = inbox.appendingPathComponent(args.id, isDirectory: true)
+        let resolvedDirectory = directory.standardizedFileURL.resolvingSymlinksInPath()
+        guard resolvedDirectory.path.hasPrefix(inboxResolved.path + "/") else {
+            invoke.reject("Shared item path is invalid")
+            return
+        }
+        if FileManager.default.fileExists(atPath: directory.path) {
+            try FileManager.default.removeItem(at: directory)
+        }
+        invoke.resolve()
+    }
 
     @objc public func telemetryInit(_ invoke: Invoke) throws {
         if try invoke.parseArgs(TelemetryInitArgs.self).optOut {

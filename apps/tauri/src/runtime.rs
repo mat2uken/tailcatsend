@@ -1,3 +1,5 @@
+#[cfg(target_os = "ios")]
+use std::collections::VecDeque;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -29,9 +31,11 @@ use tailsend_transport_api::{
 };
 
 use crate::model::{
-    id_string, new_id, parse_id, FileRequest, UiQrBitmap, UiReceivedItem, UiSnapshot, UiTransfer,
-    DERP_MAP_URL, INVITE_BASE_URL, INVITE_LIFETIME_SECS, QUEUE_LIMIT,
+    id_string, new_id, parse_id, FileRequest, SharedImportSummary, UiQrBitmap, UiReceivedItem,
+    UiSnapshot, UiTransfer, DERP_MAP_URL, INVITE_BASE_URL, INVITE_LIFETIME_SECS, QUEUE_LIMIT,
 };
+#[cfg(target_os = "ios")]
+use crate::model::{SHARED_QUEUE_LIMIT, SHARED_TEXT_MAX_BYTES};
 use crate::storage::{
     app_storage_dir, default_downloads_dir, pick_file_requests, NativeFileSink, NativeFileSource,
 };
@@ -57,6 +61,80 @@ pub struct Subscription {
     pub cancelled: oneshot::Receiver<()>,
 }
 
+#[cfg(target_os = "ios")]
+enum PendingShare {
+    Text { id: String, text: String },
+    File { id: String, request: FileRequest },
+}
+
+#[cfg(target_os = "ios")]
+impl PendingShare {
+    fn id(&self) -> &str {
+        match self {
+            Self::Text { id, .. } | Self::File { id, .. } => id,
+        }
+    }
+}
+
+#[cfg(target_os = "ios")]
+#[derive(Default)]
+struct PendingShareQueue {
+    items: VecDeque<PendingShare>,
+    ids: HashSet<String>,
+    acknowledgement_pending: HashSet<String>,
+    draining: bool,
+}
+
+#[cfg(target_os = "ios")]
+impl PendingShareQueue {
+    fn enqueue(&mut self, item: PendingShare) -> Result<bool, String> {
+        let id = item.id().to_owned();
+        if self.ids.contains(&id) || self.acknowledgement_pending.contains(&id) {
+            return Ok(false);
+        }
+        if self.items.len() >= SHARED_QUEUE_LIMIT {
+            return Err(format!(
+                "Too many shared items are waiting (limit: {SHARED_QUEUE_LIMIT})"
+            ));
+        }
+        self.ids.insert(id);
+        self.items.push_back(item);
+        Ok(true)
+    }
+
+    fn take(&mut self) -> Option<PendingShare> {
+        self.items.pop_front()
+    }
+
+    fn requeue_front(&mut self, item: PendingShare) {
+        self.items.push_front(item);
+    }
+
+    fn complete(&mut self, id: &str) {
+        self.ids.remove(id);
+    }
+
+    fn mark_acknowledgement_pending(&mut self, id: String) {
+        self.acknowledgement_pending.insert(id);
+    }
+
+    fn clear_acknowledgement(&mut self, id: &str) {
+        self.acknowledgement_pending.remove(id);
+    }
+
+    fn contains(&self, id: &str) -> bool {
+        self.ids.contains(id) || self.acknowledgement_pending.contains(id)
+    }
+
+    fn acknowledgement_ids(&self) -> Vec<String> {
+        self.acknowledgement_pending.iter().cloned().collect()
+    }
+
+    fn len(&self) -> usize {
+        self.items.len()
+    }
+}
+
 pub struct TauriRuntime {
     pub backend: BackendService,
     pub transport: Arc<NativeTailcatTransport>,
@@ -66,6 +144,8 @@ pub struct TauriRuntime {
     pub subscriptions: Mutex<HashMap<String, Subscription>>,
     pub subscription_cancellers: Mutex<HashMap<String, oneshot::Sender<()>>>,
     pub closed_subscriptions: Mutex<HashSet<String>>,
+    #[cfg(target_os = "ios")]
+    pending_shares: Mutex<PendingShareQueue>,
 }
 
 impl TauriRuntime {
@@ -83,6 +163,8 @@ impl TauriRuntime {
             subscriptions: Mutex::new(HashMap::new()),
             subscription_cancellers: Mutex::new(HashMap::new()),
             closed_subscriptions: Mutex::new(HashSet::new()),
+            #[cfg(target_os = "ios")]
+            pending_shares: Mutex::new(PendingShareQueue::default()),
         })
     }
 
@@ -411,6 +493,99 @@ impl TauriRuntime {
 
     pub fn received(&self) -> &Arc<Mutex<Vec<UiReceivedItem>>> {
         &self.received
+    }
+
+    #[cfg(target_os = "ios")]
+    fn enqueue_pending_share(&self, item: PendingShare) -> Result<bool, String> {
+        self.pending_shares
+            .lock()
+            .expect("pending share mutex poisoned")
+            .enqueue(item)
+    }
+
+    #[cfg(target_os = "ios")]
+    fn begin_pending_share_drain(&self) -> bool {
+        let mut queue = self
+            .pending_shares
+            .lock()
+            .expect("pending share mutex poisoned");
+        if queue.draining || queue.items.is_empty() {
+            return false;
+        }
+        queue.draining = true;
+        true
+    }
+
+    #[cfg(target_os = "ios")]
+    fn take_pending_share(&self) -> Option<PendingShare> {
+        self.pending_shares
+            .lock()
+            .expect("pending share mutex poisoned")
+            .take()
+    }
+
+    #[cfg(target_os = "ios")]
+    fn requeue_pending_share(&self, item: PendingShare) {
+        self.pending_shares
+            .lock()
+            .expect("pending share mutex poisoned")
+            .requeue_front(item);
+    }
+
+    #[cfg(target_os = "ios")]
+    fn complete_pending_share(&self, id: &str) {
+        self.pending_shares
+            .lock()
+            .expect("pending share mutex poisoned")
+            .complete(id);
+    }
+
+    #[cfg(target_os = "ios")]
+    fn mark_pending_share_acknowledgement(&self, id: String) {
+        self.pending_shares
+            .lock()
+            .expect("pending share mutex poisoned")
+            .mark_acknowledgement_pending(id);
+    }
+
+    #[cfg(target_os = "ios")]
+    fn clear_pending_share_acknowledgement(&self, id: &str) {
+        self.pending_shares
+            .lock()
+            .expect("pending share mutex poisoned")
+            .clear_acknowledgement(id);
+    }
+
+    #[cfg(target_os = "ios")]
+    fn pending_share_contains(&self, id: &str) -> bool {
+        self.pending_shares
+            .lock()
+            .expect("pending share mutex poisoned")
+            .contains(id)
+    }
+
+    #[cfg(target_os = "ios")]
+    fn pending_share_len(&self) -> usize {
+        self.pending_shares
+            .lock()
+            .expect("pending share mutex poisoned")
+            .len()
+    }
+
+    #[cfg(target_os = "ios")]
+    fn pending_share_acknowledgements(&self) -> Vec<String> {
+        self.pending_shares
+            .lock()
+            .expect("pending share mutex poisoned")
+            .acknowledgement_ids()
+    }
+
+    #[cfg(target_os = "ios")]
+    fn finish_pending_share_drain(&self) {
+        self.pending_shares
+            .lock()
+            .expect("pending share mutex poisoned")
+            .draining = false;
     }
 }
 
@@ -1057,70 +1232,89 @@ pub async fn ponlet_send_files_impl(
         }
         let source = NativeFileSource::open(&app, request).await?;
         if !scope.is_current() {
+            let mut source = source;
+            source.close().await;
             return Ok(());
         }
-        let transfer_id = new_id();
-        let cancel = runtime.register_transfer(scope, transfer_id);
-        let metadata = source.metadata();
-        scope.set_state(SessionState::Transferring {
-            transfer_id,
-            is_incoming: false,
-            is_files: true,
-            bytes_done: 0,
-            bytes_total: metadata.size,
-            current_item_name: metadata.name.clone(),
-        });
-        let mut source: Box<dyn FileSource> = Box::new(source);
-        let peer_address = session
-            .peer_address
-            .lock()
-            .expect("session mutex poisoned")
-            .clone();
-        let mut stream = match runtime
-            .transport
-            .dial_cancellable(&peer_address, FILE_PORT, listen_options(), cancel.clone())
-            .await
-        {
-            Ok(stream) => stream,
-            Err(error) => {
-                return finish_outgoing(
-                    runtime,
-                    scope,
-                    transfer_id,
-                    Err(TransferError::Transport(error)),
-                    cancel,
-                );
-            }
-        };
-        if let Some(callback) = stream.cancellation_callback() {
-            scope.set_cancellation_callback(transfer_id, callback);
+        send_file_source_impl(runtime, session.clone(), Box::new(source)).await?;
+        if !scope.is_current() {
+            return Ok(());
         }
-        scope.emit(AppEvent::TransportChanged(stream.transport_path()));
-        let backend_for_progress = runtime.clone_state(scope.clone());
-        let callback: ProgressCallback = Box::new(move |update| {
-            backend_for_progress.publish_progress(update);
-        });
-        let result = send_named_file_stream(
-            &mut stream,
-            &mut source,
-            transfer_id,
-            cancel.clone(),
-            Some(&callback),
-        )
-        .await;
-        let remotely_cancelled = matches!(&result, Err(error) if error.is_peer_cancelled());
+    }
+    Ok(())
+}
+
+async fn send_file_source_impl(
+    runtime: &TauriRuntime,
+    session: Arc<PeerSession>,
+    mut source: Box<dyn FileSource>,
+) -> Result<(), String> {
+    let scope = &session.scope;
+    if !scope.is_current() {
         source.close().await;
-        let _ = stream.close().await;
-        finish_outgoing(
-            runtime,
-            scope,
-            transfer_id,
-            result.map(|_| ()),
-            cancel.clone(),
-        )?;
-        if cancel.load(Ordering::Acquire) || remotely_cancelled || !scope.is_current() {
-            return Ok(());
+        return Ok(());
+    }
+    let transfer_id = new_id();
+    let cancel = runtime.register_transfer(scope, transfer_id);
+    let metadata = source.metadata();
+    scope.set_state(SessionState::Transferring {
+        transfer_id,
+        is_incoming: false,
+        is_files: true,
+        bytes_done: 0,
+        bytes_total: metadata.size,
+        current_item_name: metadata.name.clone(),
+    });
+    let peer_address = session
+        .peer_address
+        .lock()
+        .expect("session mutex poisoned")
+        .clone();
+    let mut stream = match runtime
+        .transport
+        .dial_cancellable(&peer_address, FILE_PORT, listen_options(), cancel.clone())
+        .await
+    {
+        Ok(stream) => stream,
+        Err(error) => {
+            source.close().await;
+            return finish_outgoing(
+                runtime,
+                scope,
+                transfer_id,
+                Err(TransferError::Transport(error)),
+                cancel,
+            );
         }
+    };
+    if let Some(callback) = stream.cancellation_callback() {
+        scope.set_cancellation_callback(transfer_id, callback);
+    }
+    scope.emit(AppEvent::TransportChanged(stream.transport_path()));
+    let backend_for_progress = runtime.clone_state(scope.clone());
+    let callback: ProgressCallback = Box::new(move |update| {
+        backend_for_progress.publish_progress(update);
+    });
+    let result = send_named_file_stream(
+        &mut stream,
+        &mut source,
+        transfer_id,
+        cancel.clone(),
+        Some(&callback),
+    )
+    .await;
+    let remotely_cancelled = matches!(&result, Err(error) if error.is_peer_cancelled());
+    source.close().await;
+    let _ = stream.close().await;
+    finish_outgoing(
+        runtime,
+        scope,
+        transfer_id,
+        result.map(|_| ()),
+        cancel.clone(),
+    )?;
+    if cancel.load(Ordering::Acquire) || remotely_cancelled || !scope.is_current() {
+        return Ok(());
     }
     Ok(())
 }
@@ -1134,6 +1328,197 @@ pub async fn ponlet_pick_and_send_files_impl(
         return Ok(());
     }
     ponlet_send_files_impl(app, runtime, files).await
+}
+
+#[cfg(target_os = "ios")]
+async fn pending_share_from_item(
+    item: tauri_plugin_ponlet_platform::SharedItem,
+) -> Result<PendingShare, String> {
+    if item.id.is_empty()
+        || item.id.len() > 128
+        || !item
+            .id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+    {
+        return Err("Shared item identifier is invalid".to_string());
+    }
+    let path = PathBuf::from(&item.path);
+    let metadata = tokio::fs::symlink_metadata(&path)
+        .await
+        .map_err(|error| format!("cannot inspect shared item: {error}"))?;
+    if !metadata.file_type().is_file() {
+        return Err("Shared item payload is not a regular file".to_string());
+    }
+    if metadata.len() != item.size {
+        return Err(format!(
+            "shared item size changed: {} != {}",
+            metadata.len(),
+            item.size
+        ));
+    }
+    match item.kind.as_str() {
+        "text" => {
+            if item.size > SHARED_TEXT_MAX_BYTES {
+                return Err(format!(
+                    "Shared text exceeds the {SHARED_TEXT_MAX_BYTES}-byte limit"
+                ));
+            }
+            let bytes = tokio::fs::read(&path)
+                .await
+                .map_err(|error| format!("cannot read shared text: {error}"))?;
+            let text = String::from_utf8(bytes)
+                .map_err(|_| "Shared text is not valid UTF-8".to_string())?;
+            Ok(PendingShare::Text { id: item.id, text })
+        }
+        "file" => {
+            let name = tailsend_protocol::filename::sanitize_filename(&item.name)
+                .map_err(|error| format!("invalid shared filename: {error}"))?;
+            Ok(PendingShare::File {
+                id: item.id,
+                request: FileRequest {
+                    name,
+                    size: item.size,
+                    mime: item.mime,
+                    path: item.path,
+                },
+            })
+        }
+        _ => Err("Shared item type is unsupported".to_string()),
+    }
+}
+
+#[cfg(target_os = "ios")]
+async fn drain_pending_shares(app: &AppHandle, runtime: &TauriRuntime) -> usize {
+    use tauri_plugin_ponlet_platform::PonletPlatformExt;
+
+    if !runtime.begin_pending_share_drain() {
+        return 0;
+    }
+    let mut sent = 0;
+    loop {
+        if !runtime.backend.snapshot().app.can_send {
+            break;
+        }
+        let Some(item) = runtime.take_pending_share() else {
+            break;
+        };
+        let id = item.id().to_string();
+        let result = match &item {
+            PendingShare::Text { text, .. } => ponlet_send_text_impl(runtime, text.clone()).await,
+            PendingShare::File { request, .. } => {
+                let request = request.clone();
+                let source = match NativeFileSource::open_local(
+                    PathBuf::from(&request.path),
+                    request.name.clone(),
+                    request.size,
+                    request.mime.clone(),
+                )
+                .await
+                {
+                    Ok(source) => source,
+                    Err(error) => {
+                        runtime.requeue_pending_share(item);
+                        log::warn!("cannot open shared file {id}: {error}");
+                        break;
+                    }
+                };
+                let session = match runtime.session() {
+                    Ok(session) => session,
+                    Err(error) => {
+                        let mut source = source;
+                        source.close().await;
+                        runtime.requeue_pending_share(item);
+                        log::debug!("shared file waits for a peer: {error}");
+                        break;
+                    }
+                };
+                send_file_source_impl(runtime, session, Box::new(source)).await
+            }
+        };
+        match result {
+            Ok(()) => {
+                if let Err(error) = app.ponlet_platform().acknowledge_shared_item(&id) {
+                    runtime.mark_pending_share_acknowledgement(id.clone());
+                    log::warn!("shared item sent but acknowledgement failed: {error}");
+                }
+                runtime.complete_pending_share(&id);
+                sent += 1;
+            }
+            Err(error) => {
+                runtime.requeue_pending_share(item);
+                log::debug!("shared item waits for a later connection: {error}");
+                break;
+            }
+        }
+    }
+    runtime.finish_pending_share_drain();
+    sent
+}
+
+pub async fn ponlet_import_shared_impl(
+    app: AppHandle,
+    runtime: &TauriRuntime,
+) -> Result<SharedImportSummary, String> {
+    #[cfg(target_os = "ios")]
+    {
+        use tauri_plugin_ponlet_platform::PonletPlatformExt;
+
+        for id in runtime.pending_share_acknowledgements() {
+            if app.ponlet_platform().acknowledge_shared_item(&id).is_ok() {
+                runtime.clear_pending_share_acknowledgement(&id);
+            }
+        }
+        let mut imported = 0;
+        let mut sent = 0;
+        loop {
+            let items = app.ponlet_platform().read_shared_items()?;
+            let mut queue_full = false;
+            for item in items {
+                if runtime.pending_share_contains(&item.id) {
+                    continue;
+                }
+                let id = item.id.clone();
+                let pending = match pending_share_from_item(item).await {
+                    Ok(pending) => pending,
+                    Err(error) => {
+                        // Keep malformed entries in the inbox for diagnosis,
+                        // but do not prevent valid entries from being sent.
+                        log::warn!("ignoring shared item {id}: {error}");
+                        continue;
+                    }
+                };
+                match runtime.enqueue_pending_share(pending) {
+                    Ok(true) => imported += 1,
+                    Ok(false) => {}
+                    Err(error) => {
+                        queue_full = true;
+                        log::debug!("shared item waits in the inbox: {error}");
+                        break;
+                    }
+                }
+            }
+            let batch_sent = drain_pending_shares(&app, runtime).await;
+            sent += batch_sent;
+            if !queue_full || batch_sent == 0 {
+                break;
+            }
+        }
+        return Ok(SharedImportSummary {
+            imported,
+            queued: runtime.pending_share_len(),
+            sent,
+        });
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = (app, runtime);
+        Ok(SharedImportSummary {
+            imported: 0,
+            queued: 0,
+            sent: 0,
+        })
+    }
 }
 
 pub async fn ponlet_cancel_transfer_impl(runtime: &TauriRuntime, id: String) -> Result<(), String> {
