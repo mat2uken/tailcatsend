@@ -48,6 +48,7 @@ pub struct SharedItem {
     pub kind: String,
     pub name: String,
     pub size: u64,
+    #[serde(default)]
     pub mime: Option<String>,
     pub path: String,
 }
