@@ -124,6 +124,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with: { targets: aarch64-linux-android }
       - uses: android-actions/setup-android@v3
+        with:
+          # The runner image no longer provides the deprecated "tools" package
+          # and sdkmanager exits with an error when it is requested.
+          packages: platform-tools
       - uses: nttld/setup-ndk@v1
         with: { ndk-version: r28b }
       - name: Install Android signing material

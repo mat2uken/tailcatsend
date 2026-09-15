@@ -49,6 +49,10 @@ jobs:
 
       - name: Setup Android SDK and NDK
         uses: android-actions/setup-android@v3
+        with:
+          # The runner image no longer provides the deprecated "tools" package
+          # and sdkmanager exits with an error when it is requested.
+          packages: platform-tools
       - uses: nttld/setup-ndk@v1
         with:
           ndk-version: r28b
