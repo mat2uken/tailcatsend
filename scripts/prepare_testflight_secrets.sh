@@ -80,8 +80,29 @@ else
 fi
 
 echo ""
+echo "2b. Share Extension 用 Provisioning Profile (.mobileprovision)"
+echo "--------------------------------------------------------"
+echo "Apple Developer ポータルからダウンロードした"
+echo "Extension App ID (jp.yasagure.ponlet.share) 用の App Store 配布プロファイルのパスを入力してください："
+read -r -p "Share Extension profile path: " SHARE_PROF_PATH
+
+if [ -f "$SHARE_PROF_PATH" ]; then
+    SHARE_PROF_B64=$(base64 < "$SHARE_PROF_PATH" | tr -d '\n')
+    echo ""
+    echo "==================== [GitHub Secret 4] ===================="
+    echo "Name: BUILD_PROVISION_PROFILE_SHARE_BASE64"
+    echo "Value (先頭80文字): ${SHARE_PROF_B64:0:80}..."
+    echo "(全文字列は build/certs/share_profile_base64.txt に保存しました)"
+    echo "$SHARE_PROF_B64" > build/certs/share_profile_base64.txt
+    echo "==========================================================="
+else
+    echo "⚠️ Share Extension 用プロファイルが見つかりません。"
+    echo "   Extension App ID と App Group を有効にしたプロファイルを作成してください。"
+fi
+
+echo ""
 echo "========================================================"
-echo " 🔑 App Store Connect API Key (GitHub Secrets 4, 5, 6)  "
+echo " 🔑 App Store Connect API Key (GitHub Secrets 5, 6, 7)  "
 echo "========================================================"
 echo "App Store Connect (ユーザーとアクセス > 統合 > APIキー) から取得したキー情報を設定してください："
 echo "- APP_STORE_CONNECT_KEY_ID:     Key ID (例: D383X7XXXX)"

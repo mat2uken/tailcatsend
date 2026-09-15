@@ -190,19 +190,21 @@ else
       signing_style="${CODE_SIGN_STYLE:-Manual}"
       signing_identity="${CODE_SIGN_IDENTITY:-Apple Distribution}"
     fi
+    share_profile="${PROVISIONING_PROFILE_SPECIFIER_SHARE:-}"
     signed_project_spec="$(mktemp "${apple_project_dir}/project-signing.XXXXXX.yml")"
     trap 'rm -f -- "${signed_project_spec}"' EXIT
     python3 - "${apple_project_spec}" "${signed_project_spec}" \
       "${development_team}" "${signing_style}" \
-      "${signing_identity}" "${PROVISIONING_PROFILE_SPECIFIER:-}" <<'PY'
+      "${signing_identity}" "${PROVISIONING_PROFILE_SPECIFIER:-}" \
+      "${share_profile}" <<'PY'
 from pathlib import Path
 import json
 import sys
 
-source, target, team, style, identity, profile = sys.argv[1:]
+source, target, team, style, identity, profile, share_profile = sys.argv[1:]
 text = Path(source).read_text()
-needle = "      PRODUCT_BUNDLE_IDENTIFIER: jp.yasagure.ponlet\n"
-if needle not in text:
+app_needle = "      PRODUCT_BUNDLE_IDENTIFIER: jp.yasagure.ponlet\n"
+if app_needle not in text:
     raise SystemExit("iOS project spec is missing the Ponlet bundle identifier")
 settings = {
     "DEVELOPMENT_TEAM": team,
@@ -212,7 +214,20 @@ settings = {
 if profile:
     settings["PROVISIONING_PROFILE_SPECIFIER"] = profile
 overlay = "".join(f"      {key}: {json.dumps(value)}\n" for key, value in settings.items())
-Path(target).write_text(text.replace(needle, needle + overlay, 1))
+text = text.replace(app_needle, app_needle + overlay, 1)
+
+share_needle = "        PRODUCT_BUNDLE_IDENTIFIER: jp.yasagure.ponlet.share\n"
+if share_needle not in text:
+    raise SystemExit("iOS project spec is missing the Ponlet Share Extension bundle identifier")
+share_settings = {
+    "DEVELOPMENT_TEAM": team,
+    "CODE_SIGN_STYLE": style,
+    "CODE_SIGN_IDENTITY": identity,
+}
+if share_profile:
+    share_settings["PROVISIONING_PROFILE_SPECIFIER"] = share_profile
+share_overlay = "".join(f"        {key}: {json.dumps(value)}\n" for key, value in share_settings.items())
+Path(target).write_text(text.replace(share_needle, share_needle + share_overlay, 1))
 PY
     apple_project_spec="${signed_project_spec}"
 
@@ -229,12 +244,16 @@ PY
       }
       trap restore_ios_signing_files EXIT
       python3 - "${export_options_path}" "${development_team}" \
-        "${CODE_SIGN_IDENTITY:-Apple Distribution}" "${PROVISIONING_PROFILE_SPECIFIER}" <<'PY'
+        "${CODE_SIGN_IDENTITY:-Apple Distribution}" "${PROVISIONING_PROFILE_SPECIFIER}" \
+        "${share_profile}" <<'PY'
 from pathlib import Path
 import plistlib
 import sys
 
-path, team, identity, profile = sys.argv[1:]
+path, team, identity, profile, share_profile = sys.argv[1:]
+provisioning_profiles = {"jp.yasagure.ponlet": profile}
+if share_profile:
+    provisioning_profiles["jp.yasagure.ponlet.share"] = share_profile
 options = {
     "method": "app-store",
     "teamID": team,
@@ -242,7 +261,7 @@ options = {
     "compileBitcode": False,
     "signingStyle": "manual",
     "signingCertificate": identity,
-    "provisioningProfiles": {"jp.yasagure.ponlet": profile},
+    "provisioningProfiles": provisioning_profiles,
 }
 with Path(path).open("wb") as output:
     plistlib.dump(options, output, sort_keys=False)

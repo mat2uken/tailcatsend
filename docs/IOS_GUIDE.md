@@ -28,6 +28,6 @@ iOS 版は `apps/tauri/gen/apple` の Tauri mobile shell と共通 WebView UI �
 
 Share Extension は `group.jp.yasagure.ponlet` の App Group に項目を一時保存し、Ponlet 本体が起動・復帰したときに読み取ります。接続していない状態で共有した項目も最大 32 件まで保持し、接続後にテキストまたはファイルとして順番に送信してから削除します。テキストの上限は通信側と同じ 1 MiB です。
 
-Apple Developer で本体の App ID と `jp.yasagure.ponlet.share` の Extension App ID に同じ App Group を追加し、実機用の署名プロファイルにも両方を含めてください。`./scripts/build_tauri_mobile.sh ios release` は本体の `PROVISIONING_PROFILE_SPECIFIER` を使うため、配布時は Extension を含むプロファイルを指定します。
+Apple Developer で本体の App ID と `jp.yasagure.ponlet.share` の Extension App ID に同じ App Group を追加し、それぞれの実機用署名プロファイルを作成します。CI では本体を `BUILD_PROVISION_PROFILE_BASE64`、Extension を `BUILD_PROVISION_PROFILE_SHARE_BASE64` に登録します。ローカルの配布ビルドでは `PROVISIONING_PROFILE_SPECIFIER` と `PROVISIONING_PROFILE_SPECIFIER_SHARE` を指定してください。
 
 確認手順は、別アプリからテキストとファイルを Ponlet に共有し、共有元へ戻ったあとに未接続なら項目が残ること、接続すると順番に送信されて App Group から消えることです。アプリを終了してから共有した場合も、次回起動後に同じ項目が送信待ちになることを確認します。
