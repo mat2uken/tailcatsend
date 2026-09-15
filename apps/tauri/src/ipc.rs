@@ -470,6 +470,8 @@ mod tests {
             subscriptions: Mutex::new(HashMap::new()),
             subscription_cancellers: Mutex::new(HashMap::new()),
             closed_subscriptions: Mutex::new(HashSet::new()),
+            #[cfg(target_os = "ios")]
+            pending_shares: Mutex::new(Default::default()),
         }
     }
 

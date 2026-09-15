@@ -62,7 +62,7 @@ pub struct Subscription {
 }
 
 #[cfg(target_os = "ios")]
-enum PendingShare {
+pub(crate) enum PendingShare {
     Text { id: String, text: String },
     File { id: String, request: FileRequest },
 }
@@ -78,7 +78,7 @@ impl PendingShare {
 
 #[cfg(target_os = "ios")]
 #[derive(Default)]
-struct PendingShareQueue {
+pub(crate) struct PendingShareQueue {
     items: VecDeque<PendingShare>,
     ids: HashSet<String>,
     acknowledgement_pending: HashSet<String>,
@@ -145,7 +145,7 @@ pub struct TauriRuntime {
     pub subscription_cancellers: Mutex<HashMap<String, oneshot::Sender<()>>>,
     pub closed_subscriptions: Mutex<HashSet<String>>,
     #[cfg(target_os = "ios")]
-    pending_shares: Mutex<PendingShareQueue>,
+    pub(crate) pending_shares: Mutex<PendingShareQueue>,
 }
 
 impl TauriRuntime {
