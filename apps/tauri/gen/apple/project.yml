@@ -48,7 +48,7 @@ targets:
         UILaunchStoryboardName: LaunchScreen
         CFBundleURLTypes:
           - CFBundleTypeRole: Editor
-            CFBundleURLName: jp.yasagure.ponlet.share
+            CFBundleURLName: jp.yasagure.ponlet.share.k7vnga9k78
             CFBundleURLSchemes: [ponlet]
         UIRequiredDeviceCapabilities: [arm64, metal]
         UISupportedInterfaceOrientations:
@@ -66,7 +66,7 @@ targets:
       path: tailsend-tauri_iOS/tailsend-tauri_iOS.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.jp.yasagure.ponlet
+          - group.jp.yasagure.ponlet.k7vnga9k78
     scheme:
       environmentVariables:
         RUST_BACKTRACE: full
@@ -117,6 +117,7 @@ targets:
       path: ShareExtension/Info.plist
       properties:
         CFBundleDisplayName: Ponlet
+        NSLocalNetworkUsageDescription: Ponlet connects to your other device to send the shared items.
         CFBundlePackageType: XPC!
         CFBundleShortVersionString: 1.0.14
         CFBundleVersion: "1.0.14"
@@ -134,14 +135,21 @@ targets:
       path: ShareExtension/PonletShareExtension.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.jp.yasagure.ponlet
+          - group.jp.yasagure.ponlet.k7vnga9k78
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: jp.yasagure.ponlet.share
+        PRODUCT_BUNDLE_IDENTIFIER: jp.yasagure.ponlet.share.k7vnga9k78
         PRODUCT_NAME: PonletShareExtension
         SWIFT_VERSION: 5.0
         APPLICATION_EXTENSION_API_ONLY: YES
+        SWIFT_OBJC_BRIDGING_HEADER: ShareExtension/ShareSession.h
+        LIBRARY_SEARCH_PATHS: $(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION)
+        OTHER_LDFLAGS: [$(inherited), -lponlet_share_session, -ltailcat, -lresolv]
         SKIP_INSTALL: YES
         ARCHS: [arm64]
         VALID_ARCHS: arm64
         TARGETED_DEVICE_FAMILY: "1,2"
+    dependencies:
+      - sdk: Security.framework
+      - sdk: CoreFoundation.framework
+      - sdk: SystemConfiguration.framework

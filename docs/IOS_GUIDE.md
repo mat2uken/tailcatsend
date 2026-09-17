@@ -26,8 +26,19 @@ iOS 版は `apps/tauri/gen/apple` の Tauri mobile shell と共通 WebView UI �
 
 ## Share Extension
 
-Share Extension は `group.jp.yasagure.ponlet` の App Group に項目を一時保存し、Ponlet 本体が起動・復帰したときに読み取ります。接続していない状態で共有した項目も最大 32 件まで保持し、接続後にテキストまたはファイルとして順番に送信してから削除します。テキストの上限は通信側と同じ 1 MiB です。
+Share Extension は共有シート内にファイル名・サイズ、テキストの冒頭、接続用QRコードを表示します。相手がQRコードまたはコピーした招待URLを開くか、シートに相手の招待URLを貼り付けて接続すると、そのまま順番に送信します。Ponlet 本体を開く必要はありません。送信状況と完了を同じシートに表示し、「完了」で共有元へ戻ります。テキストの上限は通信側と同じ 1 MiB です。
 
-Apple Developer で本体の App ID と `jp.yasagure.ponlet.share` の Extension App ID に同じ App Group を追加し、それぞれの実機用署名プロファイルを作成します。CI では本体を `BUILD_PROVISION_PROFILE_BASE64`、Extension を `BUILD_PROVISION_PROFILE_SHARE_BASE64` に登録します。ローカルの配布ビルドでは `PROVISIONING_PROFILE_SPECIFIER` と `PROVISIONING_PROFILE_SPECIFIER_SHARE` を指定してください。
+Extension は `ponlet-share-session` の Rust ライブラリと既存の Go 通信処理を使用します。ファイルは Extension の一時ディレクトリにコピーし、本文をまとめてメモリに読み込まずに送信します。本体の送信待ちキューには新規追加しません。旧版が `group.jp.yasagure.ponlet.k7vnga9k78` に残した項目は、引き続き本体で読み取って送信します。
 
-確認手順は、別アプリからテキストとファイルを Ponlet に共有し、共有元へ戻ったあとに未接続なら項目が残ること、接続すると順番に送信されて App Group から消えることです。アプリを終了してから共有した場合も、次回起動後に同じ項目が送信待ちになることを確認します。
+送信が終わるまでは共有シートを開いたままにしてください。共有元がバックグラウンドに移った場合は中断し、復帰後に再接続します。接続・送信エラー時は、送信済みと判定していない項目を再送できます。「共有を終了」で終了した項目は自動再送されませんが、元のファイルは残ります。現行の転送方式には受信先の保存完了応答がないため、切断直前に届いた項目を再送すると重複する場合があります。
+
+Apple Developer で本体の App ID と `jp.yasagure.ponlet.share.k7vnga9k78` の Extension App ID に同じ App Group を追加し、それぞれの実機用署名プロファイルを作成します。CI では本体を `BUILD_PROVISION_PROFILE_BASE64`、Extension を `BUILD_PROVISION_PROFILE_SHARE_BASE64` に登録します。ローカルの配布ビルドでは `PROVISIONING_PROFILE_SPECIFIER` と `PROVISIONING_PROFILE_SPECIFIER_SHARE` を指定してください。
+
+確認手順は、Files からファイル、別アプリからテキストを Ponlet に共有し、シートが閉じずに内容とQRコードを表示すること、接続後に進捗・完了を表示すること、相手側の受信内容が一致することです。QRコード側と招待URL貼り付け側の両方、送信中の終了、バックグラウンド移行、接続失敗後の再試行も確認します。ビルド成功、端末へのインストール、シート表示、受信側の内容確認は別々に記録します。
+
+macOS 用の Go archive `target/native/tailcat/libtailcat.a` がある環境では、次のテストで C API から既存の受信処理へファイル・テキストを送信し、受信内容と接続前キャンセルを確認できます。実ネットワークを使用するため、通常のユニットテストとは分けています。これは iPhone 上の UI やメモリ使用量の検証を代替しません。
+
+```bash
+RUSTFLAGS='-L native=target/native/tailcat' cargo test -p ponlet-share-session \
+  --features native-interop-tests --test native_interop
+```

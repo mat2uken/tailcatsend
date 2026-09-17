@@ -1,0 +1,31 @@
+[package]
+name = "ponlet-share-session"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[features]
+native-interop-tests = []
+
+[[test]]
+name = "native_interop"
+required-features = ["native-interop-tests"]
+
+[dependencies]
+async-trait = { workspace = true }
+bytes = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tailsend-core = { workspace = true }
+tailsend-native-transport = { workspace = true }
+tailsend-platform-api = { workspace = true }
+tailsend-protocol = { workspace = true }
+tailsend-transfer = { workspace = true }
+tailsend-transport-api = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

@@ -18,7 +18,8 @@ case "${mode}" in
       echo "usage: $0 device-install <DEVICE_UUID>" >&2
       exit 2
     fi
-    "${repo_dir}/scripts/build_tauri_mobile.sh" ios debug
+    PONLET_IOS_EXPORT_METHOD="${PONLET_IOS_EXPORT_METHOD:-ad-hoc}" \
+      "${repo_dir}/scripts/build_tauri_mobile.sh" ios debug
     xcrun devicectl device install app --device "${device_id}" \
       "${repo_dir}/apps/tauri/gen/apple/build/arm64/Ponlet.ipa"
     xcrun devicectl device process launch --device "${device_id}" \

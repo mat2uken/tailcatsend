@@ -66,6 +66,15 @@ if [[ "${platform}" == "ios" || "${platform}" == "ios-sim" ]]; then
   mkdir -p "${externals_dir}/arm64/${configuration}"
   cp "${archive_dir}/libtailcat.a" \
     "${externals_dir}/arm64/${configuration}/libtailcat.a"
+  # The share sheet runs its own small native sender without the Tauri shell.
+  share_target="aarch64-apple-ios"
+  if [[ "${platform}" == "ios-sim" ]]; then
+    share_target="aarch64-apple-ios-sim"
+  fi
+  # Use optimized code even for a debug host; extensions have tighter memory limits.
+  (cd "${repo_dir}" && cargo build -p ponlet-share-session --target "${share_target}" --release)
+  cp "${repo_dir}/target/${share_target}/release/libponlet_share_session.a" \
+    "${externals_dir}/arm64/${configuration}/libponlet_share_session.a"
 else
   android_properties="${repo_dir}/apps/tauri/gen/android/app/tauri.properties"
   app_version="$(python3 - "${repo_dir}/apps/tauri/tauri.conf.json" <<'PY'
@@ -216,7 +225,7 @@ if profile:
 overlay = "".join(f"      {key}: {json.dumps(value)}\n" for key, value in settings.items())
 text = text.replace(app_needle, app_needle + overlay, 1)
 
-share_needle = "        PRODUCT_BUNDLE_IDENTIFIER: jp.yasagure.ponlet.share\n"
+share_needle = "        PRODUCT_BUNDLE_IDENTIFIER: jp.yasagure.ponlet.share.k7vnga9k78\n"
 if share_needle not in text:
     raise SystemExit("iOS project spec is missing the Ponlet Share Extension bundle identifier")
 share_settings = {
@@ -235,6 +244,15 @@ PY
       # Tauri's export option discovery does not reliably derive the profile
       # map from an XcodeGen-generated pbxproj. Supply the distribution profile
       # explicitly, then restore the checked-in development spec on exit.
+      ios_export_method="${PONLET_IOS_EXPORT_METHOD:-app-store}"
+      case "${ios_export_method}" in
+        app-store|ad-hoc|release-testing|development|debugging)
+          ;;
+        *)
+          echo "PONLET_IOS_EXPORT_METHOD must be app-store, ad-hoc, release-testing, development, or debugging" >&2
+          exit 2
+          ;;
+      esac
       export_options_path="${apple_project_dir}/ExportOptions.plist"
       export_options_backup="$(mktemp "${apple_project_dir}/ExportOptions.backup.XXXXXX.plist")"
       cp "${export_options_path}" "${export_options_backup}"
@@ -245,17 +263,17 @@ PY
       trap restore_ios_signing_files EXIT
       python3 - "${export_options_path}" "${development_team}" \
         "${CODE_SIGN_IDENTITY:-Apple Distribution}" "${PROVISIONING_PROFILE_SPECIFIER}" \
-        "${share_profile}" <<'PY'
+        "${share_profile}" "${ios_export_method}" <<'PY'
 from pathlib import Path
 import plistlib
 import sys
 
-path, team, identity, profile, share_profile = sys.argv[1:]
+path, team, identity, profile, share_profile, method = sys.argv[1:]
 provisioning_profiles = {"jp.yasagure.ponlet": profile}
 if share_profile:
-    provisioning_profiles["jp.yasagure.ponlet.share"] = share_profile
+    provisioning_profiles["jp.yasagure.ponlet.share.k7vnga9k78"] = share_profile
 options = {
-    "method": "app-store",
+    "method": method,
     "teamID": team,
     "uploadSymbols": True,
     "compileBitcode": False,

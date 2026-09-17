@@ -43,5 +43,7 @@
 		<key>NSExtensionPrincipalClass</key>
 		<string>$(PRODUCT_MODULE_NAME).ShareViewController</string>
 	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Ponlet connects to your other device to send the shared items.</string>
 </dict>
 </plist>

@@ -3159,6 +3159,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "ponlet-share-session"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "rand 0.8.8",
+ "serde",
+ "serde_json",
+ "tailsend-core",
+ "tailsend-native-transport",
+ "tailsend-platform-api",
+ "tailsend-protocol",
+ "tailsend-transfer",
+ "tailsend-transport-api",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "portable-atomic"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

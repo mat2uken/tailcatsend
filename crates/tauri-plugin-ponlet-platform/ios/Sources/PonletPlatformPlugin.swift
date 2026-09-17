@@ -32,7 +32,7 @@ private struct SharedItemReply: Encodable {
     let path: String
 }
 
-private let ponletShareGroupIdentifier = "group.jp.yasagure.ponlet"
+private let ponletShareGroupIdentifier = "group.jp.yasagure.ponlet.k7vnga9k78"
 private let ponletShareInboxDirectory = "PonletShareInbox"
 
 class PonletPlatformPlugin: Plugin, UIDocumentInteractionControllerDelegate, UIDocumentPickerDelegate {

@@ -12,6 +12,7 @@ members = [
     "crates/tailsend-native-bridge",
     "crates/tailsend-native-transport",
     "crates/tailsend-ipc",
+    "crates/ponlet-share-session",
     "crates/tauri-plugin-ponlet-platform",
     "apps/desktop",
     "apps/web",
