@@ -929,6 +929,104 @@ body {
   justify-self: end;
   padding: 0.35rem 0.75rem;
 }
+.pending-shares-card {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-md);
+  background: rgba(245, 158, 11, 0.08);
+}
+.pending-shares-card[hidden] {
+  display: none !important;
+}
+.pending-shares-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+.pending-shares-heading h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+.pending-shares-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.6rem;
+  min-height: 1.6rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 9999px;
+  background: rgba(245, 158, 11, 0.18);
+  color: #fcd34d;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+.pending-shares-hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+.pending-shares-list {
+  display: grid;
+  gap: 0.45rem;
+  max-height: 12rem;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.pending-share-item {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-inset);
+}
+.pending-share-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+.pending-share-item-kind {
+  flex: 0 0 auto;
+  color: #fcd34d;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.pending-share-item-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 0.86rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pending-share-item-size {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--text-secondary);
+  font-size: 0.76rem;
+}
+.pending-share-item-preview {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
 .invite-area {
   display: grid;
   gap: 0.6rem;

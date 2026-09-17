@@ -95,8 +95,18 @@ pub struct FileRequest {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SharedPendingItem {
+    pub kind: String,
+    pub name: String,
+    pub size: u64,
+    pub preview: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SharedImportSummary {
     pub imported: usize,
+    pub pending_items: Vec<SharedPendingItem>,
     pub queued: usize,
     pub sent: usize,
 }

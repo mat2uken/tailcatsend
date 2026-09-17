@@ -35,7 +35,7 @@ use crate::model::{
     UiSnapshot, UiTransfer, DERP_MAP_URL, INVITE_BASE_URL, INVITE_LIFETIME_SECS, QUEUE_LIMIT,
 };
 #[cfg(target_os = "ios")]
-use crate::model::{SHARED_QUEUE_LIMIT, SHARED_TEXT_MAX_BYTES};
+use crate::model::{SharedPendingItem, SHARED_QUEUE_LIMIT, SHARED_TEXT_MAX_BYTES};
 use crate::storage::{
     app_storage_dir, default_downloads_dir, pick_file_requests, NativeFileSink, NativeFileSource,
 };
@@ -72,6 +72,34 @@ impl PendingShare {
     fn id(&self) -> &str {
         match self {
             Self::Text { id, .. } | Self::File { id, .. } => id,
+        }
+    }
+
+    fn ui_item(&self) -> SharedPendingItem {
+        match self {
+            Self::Text { text, .. } => {
+                let mut chars = text.chars();
+                let preview: String = chars.by_ref().take(120).collect();
+                let preview = if preview.is_empty() {
+                    None
+                } else if chars.next().is_some() {
+                    Some(format!("{preview}…"))
+                } else {
+                    Some(preview)
+                };
+                SharedPendingItem {
+                    kind: "text".to_string(),
+                    name: "shared-text.txt".to_string(),
+                    size: text.len() as u64,
+                    preview,
+                }
+            }
+            Self::File { request, .. } => SharedPendingItem {
+                kind: "file".to_string(),
+                name: request.name.clone(),
+                size: request.size,
+                preview: None,
+            },
         }
     }
 }
@@ -132,6 +160,10 @@ impl PendingShareQueue {
 
     fn len(&self) -> usize {
         self.items.len()
+    }
+
+    fn ui_items(&self) -> Vec<SharedPendingItem> {
+        self.items.iter().map(PendingShare::ui_item).collect()
     }
 }
 
@@ -570,6 +602,14 @@ impl TauriRuntime {
             .lock()
             .expect("pending share mutex poisoned")
             .len()
+    }
+
+    #[cfg(target_os = "ios")]
+    fn pending_share_items(&self) -> Vec<SharedPendingItem> {
+        self.pending_shares
+            .lock()
+            .expect("pending share mutex poisoned")
+            .ui_items()
     }
 
     #[cfg(target_os = "ios")]
@@ -1506,6 +1546,7 @@ pub async fn ponlet_import_shared_impl(
         }
         return Ok(SharedImportSummary {
             imported,
+            pending_items: runtime.pending_share_items(),
             queued: runtime.pending_share_len(),
             sent,
         });
@@ -1515,6 +1556,7 @@ pub async fn ponlet_import_shared_impl(
         let _ = (app, runtime);
         Ok(SharedImportSummary {
             imported: 0,
+            pending_items: Vec::new(),
             queued: 0,
             sent: 0,
         })

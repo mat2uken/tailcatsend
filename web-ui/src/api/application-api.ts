@@ -19,8 +19,16 @@ export interface ReceivedItem {
 
 export interface SharedImportSummary {
   imported: number;
+  pendingItems: Array<SharedPendingItem>;
   queued: number;
   sent: number;
+}
+
+export interface SharedPendingItem {
+  kind: "file" | "text";
+  name: string;
+  preview: string | null;
+  size: number;
 }
 
 export interface QrBitmap {

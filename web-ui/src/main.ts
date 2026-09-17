@@ -1,6 +1,6 @@
 import van from "vanjs-core";
 import { createBackend, initializeBrowserBackend } from "@backend";
-import { initialSnapshot, type PonletBackend } from "./api/application-api";
+import { initialSnapshot, type PonletBackend, type SharedPendingItem } from "./api/application-api";
 import { Session, type Message, type TransferResult } from "./session";
 import { showToast } from "./lib/toast";
 import { checkForUpdate } from "./update/client";
@@ -55,6 +55,7 @@ let wasConnected = false;
 let viewedMessageCount = 0;
 const viewportWidth = van.state(window.innerWidth);
 const now = van.state(Date.now());
+const pendingShares = van.state<Array<SharedPendingItem>>([]);
 let inviteUrl = "";
 let inviteDeadline = 0;
 const clock = window.setInterval(() => {
@@ -101,7 +102,11 @@ function importSharedItems(): void {
   }
   const task = current
     .importShared()
-    .then(() => undefined)
+    .then((summary) => {
+      if (current === backend) {
+        pendingShares.val = summary.pendingItems;
+      }
+    })
     .catch((error) => {
       if (current === backend) {
         session?.reportError(error);
@@ -373,6 +378,18 @@ const inviteArea = div(
   connectionModeSwitch,
   div({ class: "invite-mode-panes" }, qrPane, joinPane),
 );
+const pendingSharesCount = span({ class: "pending-shares-count" });
+const pendingSharesList = ul({ class: "pending-shares-list" });
+const pendingSharesCard = section(
+  { class: "pending-shares-card", hidden: true, "aria-live": "polite" },
+  div(
+    { class: "pending-shares-heading" },
+    h2(() => uiText.pendingShares),
+    pendingSharesCount,
+  ),
+  p({ class: "pending-shares-hint" }, () => uiText.pendingSharesHint),
+  pendingSharesList,
+);
 const transferBadge = span({ class: "tab-badge", hidden: true });
 const messagesBadge = span({ class: "tab-badge", hidden: true });
 const transferTabButton = button(
@@ -412,6 +429,7 @@ const connectionCard = section(
   connectionHeader,
   connectionInfoPanel,
   inviteArea,
+  pendingSharesCard,
 );
 const transferCard = section(
   {
@@ -511,6 +529,8 @@ van.derive(() => {
   workspace.hidden = !connected;
   connectionCard.classList.toggle("is-connected", connected);
   inviteArea.hidden = connected;
+  pendingSharesCard.hidden = connected || pendingShares.val.length === 0;
+  pendingSharesCount.textContent = String(pendingShares.val.length);
   if (!connected) {
     connectionInfoPanel.hidden = true;
   }
@@ -628,6 +648,23 @@ van.derive(() => {
 });
 van.derive(() => {
   void qrView.renderInviteQr(snapshot.val.inviteUrl);
+});
+function renderPendingShare(item: SharedPendingItem): HTMLElement {
+  const kind = item.kind === "text" ? uiText.pendingText : uiText.pendingFile;
+  const preview = item.preview ? p({ class: "pending-share-item-preview" }, item.preview) : null;
+  return li(
+    { class: "pending-share-item" },
+    div(
+      { class: "pending-share-item-meta", title: item.name },
+      span({ class: "pending-share-item-kind" }, kind),
+      span({ class: "pending-share-item-name" }, item.name),
+      span({ class: "pending-share-item-size" }, formatBytes(item.size)),
+    ),
+    ...(preview ? [preview] : []),
+  );
+}
+van.derive(() => {
+  pendingSharesList.replaceChildren(...pendingShares.val.map(renderPendingShare));
 });
 van.derive(() => {
   const items = snapshot.val.received;
