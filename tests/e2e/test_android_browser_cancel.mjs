@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { createServer } from "node:http";
-import { createReadStream, existsSync } from "node:fs";
-import { resolve, sep } from "node:path";
+import { serveStatic } from "./static-server.mjs";
+import { existsSync } from "node:fs";
+import { resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import playwright from "../../web-ui/node_modules/playwright/index.js";
 
@@ -13,49 +13,6 @@ const serial = process.env.PONLET_ANDROID_SERIAL ?? "";
 const cdpPort = Number(process.env.PONLET_ANDROID_CDP_PORT ?? "9223");
 const androidPackage = process.env.PONLET_ANDROID_PACKAGE ?? "jp.yasagure.ponlet";
 
-const contentTypes = {
-  ".css": "text/css; charset=utf-8",
-  ".html": "text/html; charset=utf-8",
-  ".js": "application/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".wasm": "application/wasm",
-};
-
-function serveStatic() {
-  const server = createServer((request, response) => {
-    try {
-      const requestPath = decodeURIComponent((request.url ?? "/").split("?", 1)[0]);
-      const relative = requestPath === "/" ? "/index.html" : requestPath;
-      const uiFile = resolve(uiDist, `.${relative}`);
-      const distFile = resolve(dist, `.${relative}`);
-      const file = existsSync(uiFile) ? uiFile : distFile;
-      if (!(file.startsWith(`${dist}${sep}`) || file.startsWith(`${uiDist}${sep}`))) {
-        response.writeHead(400).end("invalid path");
-        return;
-      }
-      if (!existsSync(file)) {
-        response.writeHead(404).end("not found");
-        return;
-      }
-      response.writeHead(200, {
-        "Cache-Control": "no-store",
-        "Content-Type":
-          contentTypes[file.slice(file.lastIndexOf(".")).toLowerCase()] ??
-          "application/octet-stream",
-      });
-      createReadStream(file).pipe(response);
-    } catch (error) {
-      response.writeHead(400).end(String(error));
-    }
-  });
-  return new Promise((resolveServer, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      server.removeListener("error", reject);
-      resolveServer({ server, port: server.address().port });
-    });
-  });
-}
 
 function adb(...args) {
   return execFileSync("adb", ["-s", serial, ...args], { encoding: "utf8" }).trim();
@@ -106,7 +63,7 @@ for (const file of [
   }
 }
 
-const { server, port } = await serveStatic();
+const { server, port } = await serveStatic({ dist, uiDist });
 const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext();
 const host = await context.newPage();

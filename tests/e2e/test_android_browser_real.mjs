@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { createServer } from "node:http";
-import { createReadStream, existsSync, readFileSync } from "node:fs";
-import { resolve, sep } from "node:path";
+import { serveStatic } from "./static-server.mjs";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import playwright from "../../web-ui/node_modules/playwright/index.js";
 
@@ -19,55 +19,10 @@ if (transportOverride && transportOverride !== "derp") {
   throw new Error(`unsupported PONLET_TEST_TRANSPORT: ${transportOverride}`);
 }
 
-const contentTypes = {
-  ".css": "text/css; charset=utf-8",
-  ".html": "text/html; charset=utf-8",
-  ".js": "application/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".png": "image/png",
-  ".wasm": "application/wasm",
-};
-
 function requiredFile(path) {
   if (!existsSync(path)) {
     throw new Error(`missing generated artifact: ${path}`);
   }
-}
-
-function serveStatic() {
-  const server = createServer((request, response) => {
-    try {
-      const requestPath = decodeURIComponent((request.url ?? "/").split("?", 1)[0]);
-      const relative = requestPath === "/" ? "/index.html" : requestPath;
-      const uiFile = resolve(uiDist, `.${relative}`);
-      const distFile = resolve(dist, `.${relative}`);
-      const file = existsSync(uiFile) ? uiFile : distFile;
-      if (!(file.startsWith(`${dist}${sep}`) || file.startsWith(`${uiDist}${sep}`))) {
-        response.writeHead(400).end("invalid path");
-        return;
-      }
-      if (!existsSync(file)) {
-        response.writeHead(404).end("not found");
-        return;
-      }
-      const extension = file.slice(file.lastIndexOf(".")).toLowerCase();
-      response.writeHead(200, {
-        "Access-Control-Allow-Origin": "*",
-        "Cache-Control": "no-store",
-        "Content-Type": contentTypes[extension] ?? "application/octet-stream",
-      });
-      createReadStream(file).pipe(response);
-    } catch (error) {
-      response.writeHead(400).end(String(error));
-    }
-  });
-  return new Promise((resolveServer, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      server.removeListener("error", reject);
-      resolveServer({ server, port: server.address().port });
-    });
-  });
 }
 
 function adb(...args) {
@@ -181,7 +136,7 @@ async function main() {
   }
   adb("forward", `tcp:${cdpPort}`, `localabstract:webview_devtools_remote_${pid}`);
 
-  const { server, port } = await serveStatic();
+  const { server, port } = await serveStatic({ dist, uiDist });
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ acceptDownloads: true });
   if (transportOverride === "derp") {
