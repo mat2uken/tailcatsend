@@ -415,3 +415,51 @@ test("starts waiting while telemetry preference is still loading", async ({ page
   await expect(page.getByRole("img", { name: "Invitation QR code" })).toBeVisible();
   expect(await page.evaluate(() => window.__testPonlet.calls)).toContain("invite");
 });
+
+test("keeps message actions focused when their menu opens and closes", async ({ page }) => {
+  await installBackend(page, { connected: true });
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Messages" }).click();
+  await page.evaluate(() => window.__testPonlet.text("menu focus", true));
+  const action = page.locator(".message-menu-button");
+  const menu = page.locator(".message-menu");
+  await action.click();
+  await expect(menu).toBeVisible();
+  await expect(action).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(menu).toBeHidden();
+  await expect(action).toBeFocused();
+});
+
+test("keeps received file actions focused across unchanged snapshots and updates changed items", async ({
+  page,
+}) => {
+  await installBackend(page, { connected: true, receivedSharing: true });
+  await page.goto("/");
+  const item = { name: "first.bin", size: 7, localPathOrHandle: "/received/file" };
+  await page.evaluate((received) => window.__testPonlet.publish({ received: [received] }), item);
+  const open = page.locator(".received-item").getByRole("button", { name: "Open", exact: true });
+  await open.focus();
+  await page.evaluate(
+    (received) =>
+      window.__testPonlet.publish({ received: [{ ...received }], peerName: "updated peer" }),
+    item,
+  );
+  await expect(page.locator(".peer-name")).toHaveText("updated peer");
+  await expect(open).toBeFocused();
+  const updated = { ...item, name: "renamed.bin", size: 17 };
+  await page.evaluate((received) => window.__testPonlet.publish({ received: [received] }), updated);
+  await expect(page.locator(".received-item-meta")).toContainText("renamed.bin");
+  await open.click();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        window.__testPonlet.calls.filter(
+          (call) => Array.isArray(call) && call[0] === "openReceived",
+        ),
+      ),
+    )
+    .toEqual([["openReceived", updated]]);
+  await page.evaluate(() => window.__testPonlet.publish({ received: [] }));
+  await expect(page.locator(".received-item")).toHaveCount(0);
+});

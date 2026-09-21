@@ -101,12 +101,22 @@ function log(name: string, params: Record<string, string | number> = {}): void {
   }
 }
 
+function textLengthBucket(text: string): string {
+  if (text.length <= 20) {
+    return "xs";
+  }
+  let length = 0;
+  // Count Unicode code points only as far as the largest reported bucket.
+  for (const _character of text) {
+    if (++length > 2000) {
+      return "xl";
+    }
+  }
+  return length <= 20 ? "xs" : length <= 100 ? "s" : length <= 500 ? "m" : "l";
+}
+
 export function textSent(text: string): void {
-  const length = [...text].length;
-  log("text_message_sent", {
-    length_bucket:
-      length <= 20 ? "xs" : length <= 100 ? "s" : length <= 500 ? "m" : length <= 2000 ? "l" : "xl",
-  });
+  log("text_message_sent", { length_bucket: textLengthBucket(text) });
 }
 
 /** Only enum values and coarse counts leave this observer. Never pass text,
@@ -154,19 +164,7 @@ export function telemetryObserver(): (event: BackendEvent) => void {
             },
       );
     } else if (event.type === "text" && event.incoming) {
-      const length = [...event.text].length;
-      log("text_message_received", {
-        length_bucket:
-          length <= 20
-            ? "xs"
-            : length <= 100
-              ? "s"
-              : length <= 500
-                ? "m"
-                : length <= 2000
-                  ? "l"
-                  : "xl",
-      });
+      log("text_message_received", { length_bucket: textLengthBucket(event.text) });
     }
   };
 }

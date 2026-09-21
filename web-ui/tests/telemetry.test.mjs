@@ -75,3 +75,29 @@ it("connects the setting to collection and sends only coarse event fields", asyn
   expect(setEnabled).toHaveBeenLastCalledWith(false);
   expect(localStorage.getItem("telemetry_enabled")).toBe("0");
 });
+
+for (const [length, bucket] of [
+  [0, "xs"],
+  [20, "xs"],
+  [21, "s"],
+  [100, "s"],
+  [101, "m"],
+  [500, "m"],
+  [501, "l"],
+  [2000, "l"],
+  [2001, "xl"],
+  [100_000, "xl"],
+]) {
+  it(`uses the same code point bucket for ${length} sent and received characters`, async () => {
+    const logEvent = vi.fn();
+    window.__tailcatTelemetry = { isEnabled: () => true, setEnabled: vi.fn(), logEvent };
+    const telemetry = await import("../src/telemetry");
+    const text = "😀".repeat(length);
+    telemetry.textSent(text);
+    telemetry.telemetryObserver()({ type: "text", sequence: 1, text, incoming: true });
+    expect(logEvent.mock.calls).toEqual([
+      ["text_message_sent", { length_bucket: bucket }],
+      ["text_message_received", { length_bucket: bucket }],
+    ]);
+  });
+}

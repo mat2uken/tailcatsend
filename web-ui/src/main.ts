@@ -1,6 +1,11 @@
 import van from "vanjs-core";
 import { createBackend, initializeBrowserBackend } from "@backend";
-import { initialSnapshot, type PonletBackend, type SharedPendingItem } from "./api/application-api";
+import {
+  initialSnapshot,
+  type PonletBackend,
+  type ReceivedItem,
+  type SharedPendingItem,
+} from "./api/application-api";
 import { Session, type Message, type TransferResult } from "./session";
 import { showToast } from "./lib/toast";
 import { checkForUpdate } from "./update/client";
@@ -620,7 +625,10 @@ van.derive(() => {
   retryButton.hidden = !value.error;
   retryButton.disabled = busy;
   downloadsButton.hidden = !backend?.openDownloads;
-  copyTextButton.disabled = shareTextButton.disabled = saveTextButton.disabled = !exportText();
+  copyTextButton.disabled =
+    shareTextButton.disabled =
+    saveTextButton.disabled =
+      messages.val.length === 0;
   const result = active ?? lastTransfer.val;
   transferDetails.hidden = !result;
   cancelButton.hidden = !active;
@@ -666,8 +674,29 @@ function renderPendingShare(item: SharedPendingItem): HTMLElement {
 van.derive(() => {
   pendingSharesList.replaceChildren(...pendingShares.val.map(renderPendingShare));
 });
+let renderedReceived: Array<ReceivedItem> | undefined;
+let receivedSharing = false;
 van.derive(() => {
   const items = snapshot.val.received;
+  const canShare = Boolean(backend?.shareReceivedItem);
+  if (
+    renderedReceived &&
+    receivedSharing === canShare &&
+    items.length === renderedReceived.length &&
+    items.every((item, index) => {
+      const previous = renderedReceived![index];
+      return (
+        item.name === previous.name &&
+        item.size === previous.size &&
+        item.localPathOrHandle === previous.localPathOrHandle
+      );
+    })
+  ) {
+    return;
+  }
+  // Preserve focused actions across progress/transport snapshots with unchanged files.
+  renderedReceived = items.map((item) => ({ ...item }));
+  receivedSharing = canShare;
   if (!items.length) {
     receivedList.replaceChildren(
       li(
@@ -682,7 +711,7 @@ van.derive(() => {
     ...items.map((item) => {
       const pathButton = button({ class: "secondary", type: "button" }, () => uiText.copyPath);
       const openButton = button({ class: "secondary", type: "button" }, () => uiText.openFile);
-      const shareButton = backend?.shareReceivedItem
+      const shareButton = canShare
         ? button({ class: "secondary", type: "button" }, () => uiText.share)
         : undefined;
       pathButton.addEventListener(
@@ -749,7 +778,7 @@ van.derive(() => {
             () => uiText.save,
           );
           const actionMenu = div(
-            { class: "message-menu", hidden: messageMenuOpen.val !== key },
+            { class: "message-menu", hidden: () => messageMenuOpen.val !== key },
             copyMessageButton,
             shareMessageButton,
             saveMessageButton,
