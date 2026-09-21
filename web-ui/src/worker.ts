@@ -9,12 +9,7 @@ import {
   qrPayload,
   type IpcFrame,
 } from "./ipc";
-import {
-  commitReceivedFile,
-  createReceivedWriter,
-  disposeReceivedFiles,
-  prepareReceivedFile,
-} from "./worker-storage";
+import { disposeReceivedFiles, prepareReceivedFile } from "./worker-storage";
 
 /**
  * The worker keeps Rust state and OPFS in one execution context. Go stays in
@@ -23,36 +18,6 @@ import {
  * ArrayBuffers through the small protocol below.
  */
 
-export type TransferWorkerCommand =
-  | { type: "init"; sessionId: string; credits: number }
-  | {
-      type: "chunk";
-      transferId: string;
-      slot: number;
-      buffer: ArrayBuffer;
-      byteOffset: number;
-      byteLength: number;
-    }
-  | { type: "cancel"; transferId: string };
-
-export type TransferWorkerEvent =
-  | { type: "need-chunk"; transferId: string; slot: number; maxLength: number }
-  | {
-      type: "chunk-written";
-      transferId: string;
-      slot: number;
-      buffer: ArrayBuffer;
-      byteOffset: number;
-      byteLength: number;
-    }
-  | {
-      type: "terminal";
-      transferId: string;
-      status: "completed" | "cancelled" | "failed";
-      message?: string;
-    };
-
-export const MAX_IN_FLIGHT_CHUNKS = 2;
 export const CHUNK_SIZE = 64 * 1024;
 
 export interface WorkerInitMessage {
@@ -184,13 +149,9 @@ interface RustBackend {
 
 const scope = globalThis as typeof globalThis & {
   __ponletBackend?: RustBackend;
-  __ponletCommitReceivedFile?: typeof commitReceivedFile;
-  __ponletCreateReceivedWriter?: typeof createReceivedWriter;
   __ponletPrepareReceivedFile?: typeof prepareReceivedFile;
   tailSendTailcat?: GoTransportProxy;
 };
-scope.__ponletCommitReceivedFile = commitReceivedFile;
-scope.__ponletCreateReceivedWriter = createReceivedWriter;
 scope.__ponletPrepareReceivedFile = prepareReceivedFile;
 
 let goPort: MessagePort | undefined;
@@ -260,17 +221,6 @@ function queueRpcEvent(event: BackendEvent): void {
     eventFlushScheduled = true;
     queueMicrotask(flushRpcEvents);
   }
-}
-
-function normalizeQr(value: QrBitmap): QrBitmap {
-  return {
-    width: value.width,
-    height: value.height,
-    rgbaPixels:
-      Object.prototype.toString.call(value.rgbaPixels) === "[object Uint8Array]"
-        ? value.rgbaPixels
-        : Uint8Array.from(value.rgbaPixels),
-  };
 }
 
 function errorText(error: unknown): string {
@@ -597,7 +547,7 @@ async function handleRpcFrame(frame: IpcFrame, attachments: Array<unknown>): Pro
       await backend.sendFiles((attachments.length > 0 ? attachments : value) as Array<File>);
       return responseFrame(frame, 0, new Uint8Array());
     case Opcode.QrCode:
-      return responseFrame(frame, 0, qrPayload(normalizeQr(await backend.qrCode(value as string))));
+      return responseFrame(frame, 0, qrPayload(await backend.qrCode(value as string)));
     case Opcode.CancelTransfer:
       await backend.cancelTransfer(value as string);
       return responseFrame(frame, 0, new Uint8Array());
@@ -634,10 +584,3 @@ async function handleRpcFrame(frame: IpcFrame, attachments: Array<unknown>): Pro
     workerPost({ type: "ready", ok: false, error: errorText(error) });
   });
 };
-
-export function postChunk(
-  port: MessagePort,
-  command: Extract<TransferWorkerCommand, { type: "chunk" }>,
-): void {
-  port.postMessage(command, [command.buffer]);
-}

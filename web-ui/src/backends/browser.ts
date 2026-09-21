@@ -101,14 +101,12 @@ async function loadTailcatBridge(): Promise<void> {
   const { instance } = await WebAssembly.instantiate(bytes, go.importObject);
   void go.run(instance);
   await new Promise<void>((resolve, reject) => {
-    const deadline = window.setTimeout(
-      () => reject(new Error("Tailcat WebAssembly startup timed out")),
-      30_000,
-    );
+    const deadline = Date.now() + 30_000;
     const check = (): void => {
       if ((globalThis as { tailSendTailcat?: unknown }).tailSendTailcat) {
-        window.clearTimeout(deadline);
         resolve();
+      } else if (Date.now() >= deadline) {
+        reject(new Error("Tailcat WebAssembly startup timed out"));
       } else {
         window.setTimeout(check, 10);
       }
@@ -139,7 +137,6 @@ interface GoReadIntoValue {
 async function handleGoMessage(
   event: MessageEvent<GoCommand>,
   bridge: GoBridge,
-  listeners: Map<string, (connection: GoConnection) => void>,
   connections: Map<string, GoConnection>,
   nativeListeners: Map<string, GoListener>,
   post: (message: GoMessage, transfer?: Array<Transferable>) => void,
@@ -216,7 +213,6 @@ async function handleGoMessage(
     try {
       const listener = nativeListeners.get(message.listenerId);
       nativeListeners.delete(message.listenerId);
-      listeners.delete(message.listenerId);
       await Promise.resolve(listener?.close());
       post({ type: "response", requestId: message.requestId, ok: true, value: undefined });
     } catch (error) {
@@ -360,15 +356,12 @@ function startWorkerBackend(wasmUrl: string): Promise<NativeBridge> {
   };
   const goConnections = new Map<string, GoConnection>();
   const goListeners = new Map<string, GoListener>();
-  const workerListeners = new Map<string, (connection: GoConnection) => void>();
   let connectionSequence = 0;
-  // The worker sends listener callbacks through the Go port. Keep the callback
-  // map in the window side and let the common handler route each connection.
+  // The worker routes incoming connections by listener ID through the Go port.
   goChannel.port1.onmessage = (event: MessageEvent<GoCommand>): void => {
     void handleGoMessage(
       event,
       bridge,
-      workerListeners,
       goConnections,
       goListeners,
       goPost,

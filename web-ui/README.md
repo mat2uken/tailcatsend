@@ -1,8 +1,8 @@
 # Ponlet WebView UI
 
-VanJSとTypeScriptで実装した共通UI。`web` modeは`dist/web`、`tauri` modeは`dist/native`へ出力する。同じUIから`@backend`でadapterの入口を選ぶ。Vite 8、esbuild、Oxlint、Oxfmt、Vitestはvanjslitetemplateの構成に合わせ、実行時依存は`vanjs-core`とTauri APIだけに絞っている。
+VanJSとTypeScriptで実装した共通UI。`web` modeは`dist/web`、`tauri` modeは`dist/native`へ出力する。同じUIから`@backend`でadapterの入口を選ぶ。Vite 8、esbuild、Oxlint、Oxfmt、Vitestはvanjslitetemplateの構成に合わせ、実行時依存は`vanjs-core`、Tauri API、`@nkzw/core`とQR読取り用の`jsqr`。
 
-ブラウザmodeは起動時にGo Tailcat WASMをWindowへ読み込み、Rust WASMサービスをDedicated Worker内で初期化する。Rust側が招待、handshake、NAME形式の転送、進捗、取消、OPFS保存を担当し、WorkerとWindowの間はMessagePortとTransferableなArrayBufferで接続する。Dedicated Workerを利用できない環境ではbrowser backendを起動せず、native WebViewのJSON＋Tauri invoke fallbackへ切り替える。必要なWASMがない場合は送受信成功を作らず、画面にエラーを表示する。Tauri modeはbinary custom schemeまたはAndroid ArrayBuffer portを優先し、対応しない端末だけJSON＋Tauri invoke adapterを使用する。公開先のURLは`document.baseURI`から解決するため、Pagesのパス配下でも同じbundleを利用できる。
+ブラウザmodeは起動時にGo Tailcat WASMをWindowへ読み込み、Rust WASMサービスをDedicated Worker内で初期化する。Rust側が招待、handshake、NAME形式の転送、進捗、取消、OPFS保存を担当し、WorkerとWindowの間はMessagePortとTransferableなArrayBufferで接続する。Dedicated Workerを利用できないブラウザではエラーを表示する。JSON＋Tauri invoke fallbackはTauri modeでのみ利用する。必要なWASMがない場合は送受信成功を作らず、画面にエラーを表示する。Tauri modeはbinary custom schemeまたはAndroid ArrayBuffer portを優先し、対応しない端末だけJSON＋Tauri invoke adapterを使用する。公開先のURLは`document.baseURI`から解決するため、Pagesのパス配下でも同じbundleを利用できる。
 
 - `src/api/`: UIが利用する型とAPI版の検査。
 - `src/backend.ts`: 注入されたadapterの確認とブラウザ操作の補助。
@@ -10,7 +10,8 @@ VanJSとTypeScriptで実装した共通UI。`web` modeは`dist/web`、`tauri` mo
 - `src/backends/tauri.ts`: binary transportの選択とJSON＋Tauri invoke fallback。
 - `src/session.ts`: snapshotとイベントの順序、重複除外、表示状態、終了。
 - `src/main.ts`: DOMとユーザー操作。
-- `src/opfs.ts`: WorkerとWindowで共有するファイル単位の途中保存・確定・取消。
+- `src/opfs.ts`: Workerで受信したOPFSファイル・Blob URLのダウンロード。
+- `src/worker-storage.ts`: Worker内の受信ファイルの書き込み・確定・取消と互換用Blob保存。
 - `src/worker.ts`: Rust service、Go bridge proxy、Transferable bufferの上限を扱うDedicated Worker entry。
 - `src/update/`: P-256署名、manifest、ファイルサイズ／SHA-256の検査と、検証済み版を次回起動用へ保存する処理。
 - `web-public/ponlet-sw.js`: 保留版を次回のナビゲーションで有効化する最小Service Worker。実運用では`window.__PONLET_UPDATE_CONFIG__`へPagesのmanifest URL、署名URL、公開鍵、revisionを注入する。
