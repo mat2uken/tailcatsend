@@ -25,6 +25,9 @@ pymobiledevice3 webinspector cdp \
   --udid "$PONLET_IOS_UDID" --host 127.0.0.1 --port "$PONLET_IOS_CDP_PORT"
 ```
 
+macOSでネットワーク接続のペアリング済み端末を使用し、USBmuxで端末が見つからない場合は、同じコマンドに `--native` を追加してCoreDevice経由で接続する。
+端末のUDID、専用ポート、実ページによる識別は同じ条件で確認する。
+
 テストはこの専用プロセスのUDID/ポートと、実ページの `tauri://localhost`、iPhone/iPadのplatform・UAを確認する。
 `/json/version` の一般的なSafari情報や、ポート番号だけで端末を判定しない。
 
@@ -42,6 +45,7 @@ PONLET_TEST_TRANSPORT=derp node tests/e2e/test_ios_browser_real.mjs
 ```
 
 各回でQR再生成を2回行い、招待URLが変わること、双方向テキスト、双方向131071バイトのファイルを検査する。
+テキスト送受信時は両端のメッセージタブ、ファイル送受信時は転送タブを選択する。
 実機側の保存内容は `devicectl device copy from` でPonletの保存領域から取得し、Web側はダウンロードした内容のSHA-256を照合する。
 同名のテキストを2回送り、両方の保存後に再読込して、内容・名前・保存先がそれぞれ維持されることを検査する。
 DERP指定時はWeb側のWebRTCを無効にし、両端がDERPと報告することも検査する。

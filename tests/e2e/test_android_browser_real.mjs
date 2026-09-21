@@ -241,14 +241,19 @@ async function main() {
     );
 
     const text = `Browser→Android 実通信: 日本語 ✅ ${runId}`;
+    await host.getByRole("tab", { name: /Messages|メッセージ/ }).click();
+    await tapAndroidButton(android, android.getByRole("tab", { name: /Messages|メッセージ/ }));
     await host.locator("textarea").fill(text);
     await host.getByRole("button", { name: /Send|送信/ }).click();
-    await android.getByText(`[Peer]: ${text}`).first().waitFor({ state: "visible" });
+    await android.locator(".message-bubble.incoming").filter({ hasText: text }).first().waitFor({ state: "visible" });
 
     const reverseText = `Android→Browser 実通信: reply ↔ 日本語 ${runId}`;
     await android.locator("textarea").fill(reverseText);
     await tapAndroidButton(android, android.getByRole("button", { name: /Send|送信/ }));
-    await host.getByText(`[Peer]: ${reverseText}`).first().waitFor({ state: "visible" });
+    await host.locator(".message-bubble.incoming").filter({ hasText: reverseText }).first().waitFor({ state: "visible" });
+
+    await host.getByRole("tab", { name: /Transfer|転送/ }).click();
+    await tapAndroidButton(android, android.getByRole("tab", { name: /Transfer|転送/ }));
 
     const bytes = Buffer.from(Array.from({ length: 131_071 }, (_, index) => (index * 13) % 251));
     const expectedHash = sha256(bytes);

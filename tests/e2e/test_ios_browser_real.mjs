@@ -221,14 +221,19 @@ async function main() {
     );
 
     const text = `Browser→iOS 実通信: 日本語 ✅ ${runId}`;
+    await host.getByRole("tab", { name: /Messages|メッセージ/ }).click();
+    await tapIosButton(ios, ios.getByRole("tab", { name: /Messages|メッセージ/ }));
     await host.locator("textarea").fill(text);
     await host.getByRole("button", { name: /Send|送信/ }).click();
-    await ios.getByText(`[Peer]: ${text}`).first().waitFor({ state: "visible" });
+    await ios.locator(".message-bubble.incoming").filter({ hasText: text }).first().waitFor({ state: "visible" });
 
     const reverseText = `iOS→Browser 実通信: reply ↔ 日本語 ${runId}`;
     await ios.locator("textarea").fill(reverseText);
     await tapIosButton(ios, ios.getByRole("button", { name: /Send|送信/ }));
-    await host.getByText(`[Peer]: ${reverseText}`).first().waitFor({ state: "visible" });
+    await host.locator(".message-bubble.incoming").filter({ hasText: reverseText }).first().waitFor({ state: "visible" });
+
+    await host.getByRole("tab", { name: /Transfer|転送/ }).click();
+    await tapIosButton(ios, ios.getByRole("tab", { name: /Transfer|転送/ }));
 
     const bytes = Buffer.from(Array.from({ length: 131_071 }, (_, index) => (index * 13) % 251));
     const expectedHash = sha256(bytes);
