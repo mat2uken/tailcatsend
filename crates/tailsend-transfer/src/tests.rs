@@ -76,6 +76,26 @@ struct InMemSource {
     name: String,
 }
 
+#[test]
+fn named_file_sender_future_fits_mobile_thread_stack() {
+    let (mut stream, _peer) = InMemDuplex::pair();
+    let mut source: Box<dyn FileSource> = Box::new(InMemSource {
+        data: b"mobile picker".to_vec(),
+        name: "picker.txt".into(),
+    });
+    let sender = send_named_file_stream(
+        &mut stream,
+        &mut source,
+        [0; 16],
+        Arc::new(AtomicBool::new(false)),
+        None,
+    );
+    // This future is nested in the Android JNI picker/IPC call chain. A
+    // 64 KiB inline buffer exhausted the Java worker stack in debug builds.
+    let bytes = std::mem::size_of_val(&sender);
+    assert!(bytes < 8 * 1024, "file sender future uses {bytes} bytes");
+}
+
 #[async_trait]
 impl FileSource for InMemSource {
     fn metadata(&self) -> FileMetadata {

@@ -266,7 +266,8 @@ pub async fn send_named_file_stream(
     write_fully(stream, &header, &cancel_flag).await?;
 
     let mut offset = 0u64;
-    let mut buffer = [0u8; CHUNK_SIZE_BYTES];
+    // Keep the nested sender future small enough for Android JNI workers.
+    let mut buffer = vec![0u8; CHUNK_SIZE_BYTES];
     while offset < metadata.size {
         if cancel_flag.load(Ordering::Relaxed) {
             return Err(TransferError::Cancelled);
