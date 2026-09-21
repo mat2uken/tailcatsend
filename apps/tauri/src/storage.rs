@@ -479,23 +479,50 @@ pub fn received_path_allowed(items: &[UiReceivedItem], path: &str) -> bool {
     items.iter().any(|item| item.local_path_or_handle == path)
 }
 
+fn validate_received_file(
+    received_items: &[UiReceivedItem],
+    local_path_or_handle: &str,
+) -> Result<(), String> {
+    if !received_path_allowed(received_items, local_path_or_handle) {
+        return Err("Received file is not registered by this session".to_string());
+    }
+    if !Path::new(local_path_or_handle).is_file() {
+        return Err("Received file is no longer available".to_string());
+    }
+    Ok(())
+}
+
 pub fn ponlet_open_received_impl(
     app: &AppHandle,
     received_items: &[UiReceivedItem],
     local_path_or_handle: &str,
 ) -> Result<(), String> {
-    let allowed = received_path_allowed(received_items, local_path_or_handle);
-    if !allowed {
-        return Err("Received file is not registered by this session".to_string());
-    }
-    let path = PathBuf::from(local_path_or_handle);
-    if !path.is_file() {
-        return Err("Received file is no longer available".to_string());
-    }
+    validate_received_file(received_items, local_path_or_handle)?;
     #[cfg(mobile)]
     {
         use tauri_plugin_ponlet_platform::PonletPlatformExt;
         app.ponlet_platform().open_received(local_path_or_handle)
+    }
+    #[cfg(desktop)]
+    app.opener()
+        .open_path(local_path_or_handle, None::<String>)
+        .map_err(|error| error.to_string())
+}
+
+pub fn ponlet_share_received_impl(
+    app: &AppHandle,
+    received_items: &[UiReceivedItem],
+    local_path_or_handle: &str,
+) -> Result<(), String> {
+    validate_received_file(received_items, local_path_or_handle)?;
+    #[cfg(target_os = "ios")]
+    {
+        use tauri_plugin_ponlet_platform::PonletPlatformExt;
+        return app.ponlet_platform().share_received(local_path_or_handle);
+    }
+    #[cfg(target_os = "android")]
+    {
+        return Err("Received file sharing is not available on Android".to_string());
     }
     #[cfg(desktop)]
     app.opener()

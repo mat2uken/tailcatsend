@@ -57,6 +57,7 @@ pub fn run() {
             commands::ponlet_cancel_transfer,
             commands::ponlet_disconnect,
             commands::ponlet_open_received,
+            commands::ponlet_share_received,
             commands::ponlet_initialize_platform,
             commands::ponlet_copy_text,
             commands::ponlet_read_clipboard,

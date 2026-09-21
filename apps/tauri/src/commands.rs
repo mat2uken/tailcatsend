@@ -114,6 +114,19 @@ pub async fn ponlet_open_received(
 }
 
 #[tauri::command]
+pub async fn ponlet_share_received(
+    app: AppHandle,
+    runtime: State<'_, TauriRuntime>,
+    local_path_or_handle: String,
+) -> Result<(), String> {
+    let received = runtime
+        .received()
+        .lock()
+        .expect("received item mutex poisoned");
+    crate::storage::ponlet_share_received_impl(&app, &received, &local_path_or_handle)
+}
+
+#[tauri::command]
 pub async fn ponlet_initialize_platform(
     app: AppHandle,
     opt_out: Option<bool>,

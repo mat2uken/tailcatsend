@@ -103,6 +103,8 @@ export interface PonletBackend {
   sendFiles(files: Array<File>): Promise<void>;
   sendText(text: string): Promise<void>;
   setTelemetryEnabled?: (enabled: boolean) => Promise<void>;
+  /** Share a received file through the native OS share sheet. */
+  shareReceivedItem?: (item: ReceivedItem) => Promise<void>;
   shareText(text: string): Promise<void>;
   snapshot(): Promise<BackendSnapshot>;
   subscribe(listener: (event: BackendEvent) => void): () => void;

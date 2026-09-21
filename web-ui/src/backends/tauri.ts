@@ -224,6 +224,8 @@ function createJsonFallback(listeners: Set<(event: BackendEvent) => void>): {
       disconnect: () => invoke("ponlet_disconnect"),
       openReceivedItem: (item: ReceivedItem) =>
         invoke("ponlet_open_received", { localPathOrHandle: item.localPathOrHandle }),
+      shareReceivedItem: (item: ReceivedItem) =>
+        invoke("ponlet_share_received", { localPathOrHandle: item.localPathOrHandle }),
       copyText,
       shareText,
       saveText: (text) => invoke("ponlet_save_text", { text }),
@@ -332,7 +334,18 @@ export function createBackend(): PonletBackend {
     shareText,
     readClipboard: () => invoke<string>("ponlet_read_clipboard"),
     ...(mobile
-      ? { scanQr, cancelScan }
+      ? {
+          scanQr,
+          cancelScan,
+          ...(nativePlatform === "ios"
+            ? {
+                shareReceivedItem: (item: ReceivedItem) =>
+                  invoke("ponlet_share_received", {
+                    localPathOrHandle: item.localPathOrHandle,
+                  }),
+              }
+            : {}),
+        }
       : { openDownloads: () => invoke<void>("ponlet_open_downloads") }),
     openExternal: (url) => invoke("ponlet_open_external", { url }),
     getTelemetryEnabled: () => invoke<boolean>("ponlet_get_telemetry_enabled"),

@@ -168,6 +168,19 @@ it("opens received items through the adapter without exposing file bytes", async
   expect(opened).toEqual([item]);
 });
 
+it("shares received items through the native adapter without exposing file bytes", async () => {
+  const shared = [];
+  const item = { name: "report.txt", size: 12, localPathOrHandle: "/tmp/report.txt" };
+  const backend = createBackend(
+    bridge({
+      shareReceivedItem: async (received) => shared.push(received),
+    }),
+  );
+  expect(typeof backend.shareReceivedItem).toBe("function");
+  await backend.shareReceivedItem(item);
+  expect(shared).toEqual([item]);
+});
+
 it("unsupported API version and unavailable clipboard reject", async () => {
   const backend = createBackend(
     bridge({ snapshot: async () => ({ ...initialSnapshot(), apiVersion: 1 }) }),

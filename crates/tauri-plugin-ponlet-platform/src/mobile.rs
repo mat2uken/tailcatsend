@@ -59,6 +59,12 @@ impl<R: Runtime> PonletPlatform<R> {
             .run_mobile_plugin("openReceived", serde_json::json!({"path": path}))
             .map_err(|error| error.to_string())
     }
+    #[cfg(target_os = "ios")]
+    pub fn share_received(&self, path: &str) -> Result<(), String> {
+        self.0
+            .run_mobile_plugin("shareReceived", serde_json::json!({"path": path}))
+            .map_err(|error| error.to_string())
+    }
     pub fn share_text(&self, text: &str) -> Result<(), String> {
         self.0
             .run_mobile_plugin("shareText", serde_json::json!({"text": text}))

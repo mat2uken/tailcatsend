@@ -60,11 +60,18 @@ class PonletPlatformPlugin: Plugin, UIDocumentInteractionControllerDelegate, UID
         controller.present(sheet, animated: true) { invoke.resolve() }
     }
 
-    @objc public func openReceived(_ invoke: Invoke) throws {
-        let args = try invoke.parseArgs(FileArgs.self)
-        let url = URL(fileURLWithPath: args.path).standardizedFileURL.resolvingSymlinksInPath()
+    private func validatedFileURL(_ path: String) -> URL? {
+        let url = URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath()
         let home = URL(fileURLWithPath: NSHomeDirectory()).standardizedFileURL.resolvingSymlinksInPath()
         guard url.path.hasPrefix(home.path + "/"), FileManager.default.fileExists(atPath: url.path) else {
+            return nil
+        }
+        return url
+    }
+
+    @objc public func openReceived(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(FileArgs.self)
+        guard let url = validatedFileURL(args.path) else {
             invoke.reject("Received file is unavailable")
             return
         }
@@ -78,6 +85,15 @@ class PonletPlatformPlugin: Plugin, UIDocumentInteractionControllerDelegate, UID
                 self.share([url], invoke: invoke)
             }
         }
+    }
+
+    @objc public func shareReceived(_ invoke: Invoke) throws {
+        let args = try invoke.parseArgs(FileArgs.self)
+        guard let url = validatedFileURL(args.path) else {
+            invoke.reject("Received file is unavailable")
+            return
+        }
+        DispatchQueue.main.async { self.share([url], invoke: invoke) }
     }
 
     public func documentInteractionControllerViewControllerForPreview(_ controller: UIDocumentInteractionController) -> UIViewController {

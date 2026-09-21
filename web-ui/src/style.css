@@ -459,7 +459,9 @@ progress::-moz-progress-bar {
 }
 .received-item-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.45rem;
+  justify-content: flex-end;
   flex-shrink: 0;
 }
 .received-item-actions button {

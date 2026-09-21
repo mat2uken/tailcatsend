@@ -138,6 +138,9 @@ export function createBackend(
       native.setTelemetryEnabled
         ? native.setTelemetryEnabled(enabled)
         : setTelemetryEnabled(enabled),
+    ...(native.shareReceivedItem
+      ? { shareReceivedItem: (item: ReceivedItem) => native.shareReceivedItem!(item) }
+      : {}),
     openExternal: async (url) => {
       if (native.openExternal) {
         await native.openExternal(url);

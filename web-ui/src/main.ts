@@ -682,6 +682,9 @@ van.derive(() => {
     ...items.map((item) => {
       const pathButton = button({ class: "secondary", type: "button" }, () => uiText.copyPath);
       const openButton = button({ class: "secondary", type: "button" }, () => uiText.openFile);
+      const shareButton = backend?.shareReceivedItem
+        ? button({ class: "secondary", type: "button" }, () => uiText.share)
+        : undefined;
       pathButton.addEventListener(
         "click",
         () =>
@@ -694,6 +697,10 @@ van.derive(() => {
         "click",
         () => void run(() => getBackend().openReceivedItem(item)),
       );
+      shareButton?.addEventListener(
+        "click",
+        () => void run(() => getBackend().shareReceivedItem!(item)),
+      );
       return li(
         { class: "received-item" },
         div(
@@ -701,7 +708,12 @@ van.derive(() => {
           item.name,
           span({ class: "received-item-size" }, formatBytes(item.size)),
         ),
-        div({ class: "received-item-actions" }, openButton, pathButton),
+        div(
+          { class: "received-item-actions" },
+          openButton,
+          ...(shareButton ? [shareButton] : []),
+          pathButton,
+        ),
       );
     }),
   );
