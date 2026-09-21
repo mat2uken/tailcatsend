@@ -1,6 +1,6 @@
 mod io;
 mod live;
-use io::{check_cancelled, read_checked, write_fully, write_sink_fully};
+use io::{check_cancelled, read_checked, read_fully, write_fully, write_sink_fully};
 pub use live::*;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -129,17 +129,7 @@ pub async fn receive_text_stream(
     cancel_flag: Arc<AtomicBool>,
 ) -> Result<String, TransferError> {
     let mut header_buf = [0u8; TEXT_HEADER_LEN];
-    let mut read_header = 0;
-    while read_header < TEXT_HEADER_LEN {
-        if cancel_flag.load(Ordering::Relaxed) {
-            return Err(TransferError::Cancelled);
-        }
-        let n = read_checked(stream, &mut header_buf[read_header..]).await?;
-        if n == 0 {
-            return Err(TransferError::UnexpectedEof);
-        }
-        read_header += n;
-    }
+    read_fully(stream, &mut header_buf, &cancel_flag).await?;
 
     let header = TextDataHeader::decode(&header_buf)?;
     if header.session_id != expected_session_id {
@@ -149,29 +139,8 @@ pub async fn receive_text_stream(
         return Err(TransferError::TransferMismatch);
     }
 
-    let mut payload = Vec::with_capacity(header.byte_length as usize);
-    let mut buf = [0u8; CHUNK_SIZE_BYTES];
-    let mut total_read = 0;
-
-    while total_read < header.byte_length {
-        if cancel_flag.load(Ordering::Relaxed) {
-            return Err(TransferError::Cancelled);
-        }
-        let needed = (header.byte_length - total_read).min(CHUNK_SIZE_BYTES as u64) as usize;
-        let n = read_checked(stream, &mut buf[..needed]).await?;
-        if n == 0 {
-            return Err(TransferError::UnexpectedEof);
-        }
-        payload.extend_from_slice(&buf[..n]);
-        total_read += n as u64;
-    }
-
-    if total_read != header.byte_length {
-        return Err(TransferError::SizeMismatch {
-            expected: header.byte_length,
-            actual: total_read,
-        });
-    }
+    let mut payload = vec![0u8; header.byte_length as usize];
+    read_fully(stream, &mut payload, &cancel_flag).await?;
 
     String::from_utf8(payload).map_err(|_| TransferError::InvalidUtf8)
 }
@@ -237,17 +206,7 @@ pub async fn receive_file_item_stream(
     on_progress: Option<&ProgressCallback>,
 ) -> Result<u64, TransferError> {
     let mut header_buf = [0u8; FILE_HEADER_LEN];
-    let mut read_header = 0;
-    while read_header < FILE_HEADER_LEN {
-        if cancel_flag.load(Ordering::Relaxed) {
-            return Err(TransferError::Cancelled);
-        }
-        let n = read_checked(stream, &mut header_buf[read_header..]).await?;
-        if n == 0 {
-            return Err(TransferError::UnexpectedEof);
-        }
-        read_header += n;
-    }
+    read_fully(stream, &mut header_buf, &cancel_flag).await?;
 
     let header = FileDataHeader::decode(&header_buf)?;
     if header.session_id != expected_session_id {
@@ -270,7 +229,7 @@ pub async fn receive_file_item_stream(
     }
 
     let mut total_read = 0;
-    let mut buf = [0u8; CHUNK_SIZE_BYTES];
+    let mut buf = vec![0u8; CHUNK_SIZE_BYTES];
 
     while total_read < expected_size {
         if cancel_flag.load(Ordering::Relaxed) {

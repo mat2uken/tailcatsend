@@ -129,10 +129,12 @@ impl TextMessageDecoder {
         if self.pending.len() > MAX_TEXT_PAYLOAD_SIZE as usize {
             return Err(TransferError::TextTooLarge);
         }
-        let line = std::mem::take(&mut self.pending);
-        let line = line.strip_suffix(b"\r").unwrap_or(&line);
+        let mut line = std::mem::take(&mut self.pending);
+        if line.last() == Some(&b'\r') {
+            line.pop();
+        }
         Ok(vec![
-            String::from_utf8(line.to_vec()).map_err(|_| TransferError::InvalidUtf8)?
+            String::from_utf8(line).map_err(|_| TransferError::InvalidUtf8)?
         ])
     }
 }
@@ -180,7 +182,7 @@ impl<'a> BufferedStream<'a> {
         cancel_flag: &AtomicBool,
     ) -> Result<NamedFileHeader, TransferError> {
         let mut header = Vec::with_capacity(128);
-        let mut buffer = [0u8; CHUNK_SIZE_BYTES];
+        let mut buffer = vec![0u8; CHUNK_SIZE_BYTES];
         loop {
             if cancel_flag.load(Ordering::Relaxed) {
                 return Err(TransferError::Cancelled);
@@ -217,7 +219,7 @@ async fn receive_named_body(
     on_progress: Option<&ProgressCallback>,
 ) -> Result<u64, TransferError> {
     let mut total = 0u64;
-    let mut buffer = [0u8; CHUNK_SIZE_BYTES];
+    let mut buffer = vec![0u8; CHUNK_SIZE_BYTES];
     while total < header.size {
         if cancel_flag.load(Ordering::Relaxed) {
             return Err(TransferError::Cancelled);
@@ -430,20 +432,14 @@ where
     OnMessage: FnMut(String),
 {
     let mut decoder = TextMessageDecoder::new();
-    let mut buffer = [0u8; CHUNK_SIZE_BYTES];
+    let mut buffer = vec![0u8; CHUNK_SIZE_BYTES];
     loop {
         if cancel_flag.load(Ordering::Relaxed) {
             return Err(TransferError::Cancelled);
         }
-        let count = stream.read(&mut buffer).await?;
+        let count = read_checked(stream, &mut buffer).await?;
         if count == 0 {
             break;
-        }
-        if count > buffer.len() {
-            return Err(TransferError::ReadOverrun {
-                requested: buffer.len(),
-                actual: count,
-            });
         }
         for message in decoder.push(&buffer[..count])? {
             on_message(message);
@@ -477,22 +473,16 @@ where
     // addition to the maximum message body, then remove only that final byte.
     let max_frame = max_payload.saturating_add(1);
     let mut payload = Vec::new();
-    let mut buffer = [0u8; CHUNK_SIZE_BYTES];
+    let mut buffer = vec![0u8; CHUNK_SIZE_BYTES];
     let mut received_any = false;
 
     loop {
         if cancel_flag.load(Ordering::Relaxed) {
             return Err(TransferError::Cancelled);
         }
-        let count = stream.read(&mut buffer).await?;
+        let count = read_checked(stream, &mut buffer).await?;
         if count == 0 {
             break;
-        }
-        if count > buffer.len() {
-            return Err(TransferError::ReadOverrun {
-                requested: buffer.len(),
-                actual: count,
-            });
         }
         received_any = true;
         if payload.len().saturating_add(count) > max_frame {

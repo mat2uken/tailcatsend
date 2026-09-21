@@ -25,6 +25,25 @@ pub(crate) async fn read_checked(
     Ok(count)
 }
 
+/// Read one fixed-length header or payload, preserving bounded adapter reads.
+pub(crate) async fn read_fully(
+    stream: &mut Box<dyn DuplexStream>,
+    buffer: &mut [u8],
+    cancel: &AtomicBool,
+) -> Result<(), TransferError> {
+    let mut offset = 0;
+    while offset < buffer.len() {
+        check_cancelled(cancel)?;
+        let end = (offset + tailsend_protocol::limits::CHUNK_SIZE_BYTES).min(buffer.len());
+        let count = read_checked(stream, &mut buffer[offset..end]).await?;
+        if count == 0 {
+            return Err(TransferError::UnexpectedEof);
+        }
+        offset += count;
+    }
+    Ok(())
+}
+
 pub(crate) async fn write_fully(
     stream: &mut Box<dyn DuplexStream>,
     bytes: &[u8],

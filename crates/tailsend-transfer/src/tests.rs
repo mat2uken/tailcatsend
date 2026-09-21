@@ -96,6 +96,50 @@ fn named_file_sender_future_fits_mobile_thread_stack() {
     assert!(bytes < 8 * 1024, "file sender future uses {bytes} bytes");
 }
 
+#[test]
+fn receiver_futures_fit_mobile_thread_stack() {
+    let (mut stream, _peer) = InMemDuplex::pair();
+    let cancel = Arc::new(AtomicBool::new(false));
+    let mut sizes = Vec::new();
+    {
+        let receiver = receive_named_file_stream_with_factory(
+            &mut stream,
+            |_| std::future::ready(Err(StorageError::Cancelled)),
+            [0; 16],
+            None,
+            cancel.clone(),
+            None,
+        );
+        sizes.push(("named_file", std::mem::size_of_val(&receiver)));
+    }
+    {
+        let receiver = receive_live_text_stream(&mut stream, cancel.clone(), |_| {});
+        sizes.push(("live_text", std::mem::size_of_val(&receiver)));
+    }
+    {
+        let receiver = receive_live_text_message_stream(&mut stream, cancel.clone(), |_| {});
+        sizes.push(("live_text_message", std::mem::size_of_val(&receiver)));
+    }
+    {
+        let receiver = receive_text_stream(&mut stream, [0; 16], [0; 16], cancel.clone());
+        sizes.push(("framed_text", std::mem::size_of_val(&receiver)));
+    }
+    {
+        let mut sink: Box<dyn IncomingFileSink> = Box::new(InMemSink {
+            data: Arc::default(),
+            committed: Arc::default(),
+            name: "file".into(),
+        });
+        let receiver =
+            receive_file_item_stream(&mut stream, [0; 16], [0; 16], 0, 0, &mut sink, cancel, None);
+        sizes.push(("framed_file", std::mem::size_of_val(&receiver)));
+    }
+    eprintln!("receiver future sizes: {sizes:?}");
+    // Like the sender, these futures can be nested in mobile adapters. Keep
+    // chunk storage out of their inline state so callers can move them safely.
+    assert!(sizes.iter().all(|(_, bytes)| *bytes < 8 * 1024));
+}
+
 #[async_trait]
 impl FileSource for InMemSource {
     fn metadata(&self) -> FileMetadata {
