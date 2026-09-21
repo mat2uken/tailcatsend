@@ -176,6 +176,15 @@ jobs:
           else
             echo "::notice::Firebase client configuration is absent; telemetry will stay inactive."
           fi
+      - name: Set date-based Android version code
+        run: |
+          today_ymd=$(TZ='Asia/Tokyo' date +%Y%m%d)
+          run_slot=$((GITHUB_RUN_NUMBER % 100))
+          if [ "$run_slot" -eq 0 ]; then
+            run_slot=1
+          fi
+          printf 'PONLET_ANDROID_VERSION_CODE=%s%02d\n' "$today_ymd" "$run_slot" >> "$GITHUB_ENV"
+          echo "Using Android version code ${today_ymd}$(printf '%02d' "$run_slot")"
       - run: ./scripts/build_tauri_mobile.sh android release
         env:
           CARGO_PROFILE_RELEASE_STRIP: none
