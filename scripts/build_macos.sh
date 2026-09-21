@@ -33,11 +33,6 @@ if [ ! -f "$ROOT_DIR/tailcat/pkg/tailcat/go.mod" ]; then
     git -C "$ROOT_DIR" submodule update --init --recursive --quiet
 fi
 
-# Submodule working trees may already contain the local patches. The helper
-# distinguishes that case from a real apply failure and covers all three
-# patched checkouts used by the Go bridge.
-"$ROOT_DIR/scripts/apply_tailcat_patches.sh"
-
 # 2. Build the Go C archive, VanJS UI, and Tauri shell
 echo ""
 echo "[1/1] Building Tauri desktop application..."

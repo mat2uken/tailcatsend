@@ -72,8 +72,8 @@ jobs:
             .
 
       - name: Install wasm-bindgen-cli
-        # Cargo.lock is not committed, so resolve the CLI version from the
-        # dependency graph to keep the binary and crate schema in sync.
+        # Resolve the CLI version from the locked dependency graph to keep
+        # the binary and crate schema in sync.
         run: |
           VERSION=$(cargo metadata --format-version 1 | jq -r '.packages[] | select(.name == "wasm-bindgen") | .version' | sort -u | head -n 1)
           echo "Installing wasm-bindgen-cli $VERSION"
@@ -86,10 +86,8 @@ jobs:
 
       - name: Build Go Tailcat WASM Bridge
         run: |
-          # Build tags are extracted from scripts/update_tailcat.sh
-          # (WasmTags from tailcat/pkg/tailcat/internal/buildtags.WasmTags())
-          # so CI and local builds always stay in sync.
-          WASM_TAGS=$(sed -n 's/^WASM_TAGS="\(.*\)"$/\1/p' scripts/update_tailcat.sh)
+          # Shared with the local Bash and PowerShell builds.
+          WASM_TAGS=$(tr -d '\r\n' < tailcat/wasm-build-tags.txt)
           echo "Using WASM_TAGS: $WASM_TAGS"
           mkdir -p dist/assets
           (cd tailcat && GOOS=js GOARCH=wasm go build -trimpath -tags "$WASM_TAGS" -ldflags "-s -w" -o ../dist/assets/tailcat.wasm ./bridge/web/main.go)
