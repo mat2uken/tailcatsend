@@ -244,3 +244,56 @@ it("accepts a complete snapshot across a gap without discarding recovered messag
   unsubscribe();
   client.close();
 });
+
+it("releases an onmessage-only port and rejects calls after close", async () => {
+  const port = { postMessage() {}, onmessage: null };
+  const transport = new PortBinaryTransport(port);
+  expect(typeof port.onmessage).toBe("function");
+  transport.close();
+  expect(port.onmessage).toBeNull();
+  await expect(transport.send(new Uint8Array())).rejects.toThrow("closed");
+});
+
+it("does not restart an old notification wait after resubscribing", async () => {
+  const waits = [];
+  const transport = {
+    supportsPushEvents: false,
+    close() {},
+    subscribe: () => () => {},
+    send(bytes) {
+      const request = decodeFrame(bytes);
+      if (request.opcode === Opcode.WaitEvent) {
+        return new Promise((resolve) => waits.push({ request, resolve }));
+      }
+      return Promise.resolve(
+        encodeFrame({
+          ...request,
+          kind: MessageKind.Response,
+          payload:
+            request.opcode === Opcode.Subscribe ? jsonBytes(snapshotFixture(0)) : new Uint8Array(),
+        }),
+      );
+    },
+  };
+  const client = new BinaryRpcClient(transport);
+  const first = client.subscribe(() => {});
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(waits).toHaveLength(1);
+  first();
+  const events = [];
+  const second = client.subscribe((event) => events.push(event));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(waits).toHaveLength(2);
+  waits[0].resolve(
+    encodeFrame({
+      ...waits[0].request,
+      kind: MessageKind.Event,
+      payload: jsonBytes({ type: "text", sequence: 1, incoming: true, text: "old subscription" }),
+    }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(events.filter((event) => event.type === "text")).toEqual([]);
+  expect(waits).toHaveLength(2);
+  second();
+  client.close();
+});

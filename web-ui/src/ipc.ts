@@ -158,6 +158,7 @@ function asFrameBytes(value: unknown): Uint8Array | undefined {
 export class PortBinaryTransport implements RawBinaryTransport {
   readonly supportsPushEvents: boolean;
   private readonly pending = new Map<bigint, PendingResponse>();
+  private closed = false;
   private readonly listeners = new Set<(frame: Uint8Array) => void>();
   private readonly onMessage: (event: MessageEvent<unknown>) => void;
 
@@ -167,6 +168,9 @@ export class PortBinaryTransport implements RawBinaryTransport {
   ) {
     this.supportsPushEvents = supportsPushEvents;
     this.onMessage = (event) => {
+      if (this.closed) {
+        return;
+      }
       const bytes = asFrameBytes(event.data);
       if (!bytes) {
         return;
@@ -198,6 +202,9 @@ export class PortBinaryTransport implements RawBinaryTransport {
   }
 
   send(frame: Uint8Array, attachments: ReadonlyArray<unknown> = []): Promise<Uint8Array> {
+    if (this.closed) {
+      return Promise.reject(new Error("Binary transport closed"));
+    }
     let requestId: bigint;
     try {
       requestId = decodeFrame(frame).requestId;
@@ -233,6 +240,7 @@ export class PortBinaryTransport implements RawBinaryTransport {
   }
 
   close(): void {
+    this.closed = true;
     const error = new Error("Binary transport closed");
     for (const pending of this.pending.values()) {
       pending.reject(error);
@@ -240,7 +248,10 @@ export class PortBinaryTransport implements RawBinaryTransport {
     this.pending.clear();
     if (this.port.removeEventListener) {
       this.port.removeEventListener("message", this.onMessage);
+    } else if (this.port.onmessage === this.onMessage) {
+      this.port.onmessage = null;
     }
+    this.listeners.clear();
     this.port.close?.();
   }
 }
@@ -315,10 +326,8 @@ export class BinaryRpcClient {
   private readonly listeners = new Set<(event: BackendEvent) => void>();
   private readonly unsubscribeRaw: () => void;
   private lastSequence = 0;
-  private waitActive = false;
   private disposed = false;
   private subscriptionId = BigInt(0);
-  private subscriptionReady: Promise<void> = Promise.resolve();
   private resyncInFlight: Promise<void> | undefined;
 
   constructor(private readonly transport: RawBinaryTransport) {
@@ -368,7 +377,7 @@ export class BinaryRpcClient {
     if (firstListener) {
       this.subscriptionId = this.nextSubscriptionId++;
       const subscriptionId = this.subscriptionId;
-      this.subscriptionReady = this.call<BackendSnapshot>(Opcode.Subscribe, {
+      const ready = this.call<BackendSnapshot>(Opcode.Subscribe, {
         subscriptionId: subscriptionId.toString(),
       }).then((snapshot) => {
         if (this.disposed || this.listeners.size === 0 || this.subscriptionId !== subscriptionId) {
@@ -384,24 +393,18 @@ export class BinaryRpcClient {
           callback(event);
         }
       });
-      if (!this.transport.supportsPushEvents) {
-        this.waitActive = true;
-        void this.subscriptionReady.then(
-          () => {
-            if (this.waitActive && !this.disposed) {
-              void this.waitLoop();
-            }
-          },
-          () => {
-            this.waitActive = false;
-          },
-        );
-      }
+      void ready.then(
+        () => {
+          if (!this.transport.supportsPushEvents && this.isSubscriptionActive(subscriptionId)) {
+            void this.waitLoop(subscriptionId);
+          }
+        },
+        () => undefined,
+      );
     }
     return () => {
       this.listeners.delete(listener);
       if (this.listeners.size === 0) {
-        this.waitActive = false;
         const subscriptionId = this.subscriptionId;
         this.subscriptionId = BigInt(0);
         this.sendUnsubscribe(subscriptionId);
@@ -412,14 +415,17 @@ export class BinaryRpcClient {
   close(): void {
     this.sendUnsubscribe(this.subscriptionId);
     this.disposed = true;
-    this.waitActive = false;
     this.unsubscribeRaw();
     this.transport.close();
     this.listeners.clear();
   }
 
-  private async waitLoop(): Promise<void> {
-    while (this.waitActive && !this.disposed) {
+  private isSubscriptionActive(subscriptionId: bigint): boolean {
+    return !this.disposed && this.subscriptionId === subscriptionId;
+  }
+
+  private async waitLoop(subscriptionId: bigint): Promise<void> {
+    while (this.isSubscriptionActive(subscriptionId)) {
       const requestId = this.nextRequestId++;
       const frame = encodeFrame({
         kind: MessageKind.WaitEvent,
@@ -428,12 +434,15 @@ export class BinaryRpcClient {
         sequence: BigInt(this.lastSequence),
         status: 0,
         payload: jsonBytes({
-          subscriptionId: this.subscriptionId.toString(),
+          subscriptionId: subscriptionId.toString(),
           lastSequence: this.lastSequence,
         }),
       });
       try {
         const response = decodeFrame(await this.transport.send(frame));
+        if (!this.isSubscriptionActive(subscriptionId)) {
+          return;
+        }
         if (response.kind === MessageKind.Event) {
           this.dispatchEvent(response);
         } else {
@@ -443,7 +452,7 @@ export class BinaryRpcClient {
           await new Promise((resolve) => setTimeout(resolve, 250));
         }
       } catch {
-        if (this.waitActive) {
+        if (this.isSubscriptionActive(subscriptionId)) {
           // A disconnected transport must not turn into a tight empty poll.
           await new Promise((resolve) => setTimeout(resolve, 250));
         }
