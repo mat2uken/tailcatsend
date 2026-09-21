@@ -11,6 +11,7 @@ const dist = resolve(process.env.PONLET_TEST_DIST ?? resolve(root, "dist"));
 const uiDist = resolve(process.env.PONLET_TEST_UI_DIST ?? resolve(root, "web-ui/dist/web"));
 const serial = process.env.PONLET_ANDROID_SERIAL ?? "";
 const cdpPort = Number(process.env.PONLET_ANDROID_CDP_PORT ?? "9223");
+const androidPackage = process.env.PONLET_ANDROID_PACKAGE ?? "jp.yasagure.ponlet";
 const transportOverride = process.env.PONLET_TEST_TRANSPORT;
 const knownTransportPaths = new Set(["direct-udp", "webrtc", "derp"]);
 
@@ -77,6 +78,13 @@ function shellQuote(value) {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
+function hideAndroidImeIfShown() {
+  const inputMethod = adb("shell", "dumpsys input_method | grep 'mInputShown' | head -n 1");
+  if (/mInputShown=(?:true|1)/.test(inputMethod)) {
+    adb("shell", "input", "keyevent", "4");
+  }
+}
+
 async function snapshot(page) {
   return page.evaluate(() => window.__ponletBackend?.snapshot?.());
 }
@@ -112,6 +120,12 @@ function sha256(bytes) {
 }
 
 async function tapAndroidButton(page, locator) {
+  hideAndroidImeIfShown();
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const stable = await page.evaluate(() => visualViewport.height >= innerHeight * 0.6);
+    if (stable) break;
+    await page.waitForTimeout(100);
+  }
   await locator.waitFor({ state: "visible" });
   // Android WebView's IME pans the visual viewport independently of layout.
   // CDP clicks can hit a different row; send a real device tap at the visible
@@ -161,7 +175,7 @@ async function main() {
   requiredFile(resolve(uiDist, "index.html"));
   requiredFile(resolve(uiDist, "assets/index.js"));
 
-  const pid = adb("shell", "pidof", "jp.yasagure.ponlet");
+  const pid = adb("shell", "pidof", androidPackage);
   if (!pid) {
     throw new Error("Ponlet Android process is not running");
   }
@@ -251,7 +265,6 @@ async function main() {
     await android.locator("textarea").fill(reverseText);
     await tapAndroidButton(android, android.getByRole("button", { name: /Send|送信/ }));
     await host.locator(".message-bubble.incoming").filter({ hasText: reverseText }).first().waitFor({ state: "visible" });
-
     await host.getByRole("tab", { name: /Transfer|転送/ }).click();
     await tapAndroidButton(android, android.getByRole("tab", { name: /Transfer|転送/ }));
 
@@ -278,12 +291,12 @@ async function main() {
       (item) => item.name === fileName,
     );
     const relativePath = received.localPathOrHandle.replace(
-      /^\/data\/user\/0\/jp\.yasagure\.ponlet\//,
+      `/data/user/0/${androidPackage}/`,
       "",
     );
     const hashOutput = adb(
       "shell",
-      `run-as jp.yasagure.ponlet sha256sum -- ${shellQuote(relativePath)}`,
+      `run-as ${shellQuote(androidPackage)} sha256sum -- ${shellQuote(relativePath)}`,
     );
     const actualHash = hashOutput.split(/\s+/, 1)[0];
     if (actualHash !== expectedHash) {

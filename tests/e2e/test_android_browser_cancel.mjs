@@ -11,6 +11,7 @@ const dist = resolve(process.env.PONLET_TEST_DIST ?? resolve(root, "dist"));
 const uiDist = resolve(process.env.PONLET_TEST_UI_DIST ?? resolve(root, "web-ui/dist/web"));
 const serial = process.env.PONLET_ANDROID_SERIAL ?? "";
 const cdpPort = Number(process.env.PONLET_ANDROID_CDP_PORT ?? "9223");
+const androidPackage = process.env.PONLET_ANDROID_PACKAGE ?? "jp.yasagure.ponlet";
 
 const contentTypes = {
   ".css": "text/css; charset=utf-8",
@@ -58,6 +59,10 @@ function serveStatic() {
 
 function adb(...args) {
   return execFileSync("adb", ["-s", serial, ...args], { encoding: "utf8" }).trim();
+}
+
+function shellQuote(value) {
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 async function snapshot(page) {
@@ -117,7 +122,7 @@ try {
     .getByRole("img", { name: /Invitation QR code|招待QRコード/ })
     .waitFor({ state: "visible", timeout: 30_000 });
 
-  const pid = adb("shell", "pidof", "jp.yasagure.ponlet");
+  const pid = adb("shell", "pidof", androidPackage);
   if (!pid) {
     throw new Error("Ponlet Android process is not running");
   }
@@ -170,8 +175,12 @@ try {
       value.transfer.total === cancelledSize,
     "cancel transfer start",
   );
-  await new Promise((resolveWait) => setTimeout(resolveWait, 500));
-  const progressed = await snapshot(host);
+  const progressed = await waitFor(
+    () => snapshot(host),
+    (value) => value.transfer?.id === active.transfer.id && value.transfer.done > 0 && value.transfer.done < value.transfer.total,
+    "cancel transfer progressed",
+    30_000,
+  );
   const cancelResult = await host.evaluate(async (id) => {
     await window.__ponletBackend.cancelTransfer(id);
     return await globalThis.__cancelTransferPromise;
@@ -191,10 +200,10 @@ try {
   );
   const leftovers = adb(
     "shell",
-    `run-as jp.yasagure.ponlet sh -c 'find received -maxdepth 1 -type f -name ".${cancelledName}*" -print'`,
+    `run-as ${shellQuote(androidPackage)} sh -c 'find files/received -maxdepth 1 -type f \\( -name ".${cancelledName}*" -o -name "${cancelledName}" \\) -print'`,
   );
   if (leftovers) {
-    throw new Error(`cancelled temporary files remain: ${leftovers}`);
+    throw new Error(`cancelled files remain: ${leftovers}`);
   }
 
   const retransmitName = `cancel-retransfer-${runTag}-日本語.bin`;
@@ -220,12 +229,12 @@ try {
   );
   const received = androidAfterRetransmit.received.find((item) => item.name === retransmitName);
   const relativePath = received.localPathOrHandle.replace(
-    /^\/data\/user\/0\/jp\.yasagure\.ponlet\//,
+    `/data/user/0/${androidPackage}/`,
     "",
   );
   const actualHash = adb(
     "shell",
-    `run-as jp.yasagure.ponlet sha256sum -- '${relativePath.replaceAll("'", String.raw`'\''`)}'`,
+    `run-as ${shellQuote(androidPackage)} sha256sum -- ${shellQuote(relativePath)}`,
   ).split(/\s+/, 1)[0];
   if (actualHash !== expectedHash) {
     throw new Error(`retransfer hash mismatch: ${actualHash} != ${expectedHash}`);
