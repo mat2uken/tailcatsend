@@ -1,5 +1,3 @@
-pub mod actor;
-pub mod command;
 pub mod event;
 pub mod mock_transport;
 pub mod service;
@@ -7,8 +5,6 @@ pub mod session;
 pub mod snapshot;
 pub mod state;
 
-pub use actor::*;
-pub use command::*;
 pub use event::*;
 pub use mock_transport::*;
 pub use service::*;

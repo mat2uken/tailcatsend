@@ -4254,16 +4254,13 @@ dependencies = [
  "bytes",
  "futures",
  "getrandom 0.2.17",
- "log",
  "rand 0.8.8",
  "serde",
  "tailsend-platform-api",
  "tailsend-protocol",
- "tailsend-qr",
  "tailsend-telemetry",
  "tailsend-transfer",
  "tailsend-transport-api",
- "thiserror 2.0.20",
  "tokio",
  "web-time",
 ]
@@ -4302,7 +4299,6 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
- "futures",
  "serde",
  "tailsend-protocol",
  "thiserror 2.0.20",
@@ -4313,11 +4309,8 @@ name = "tailsend-protocol"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
- "bytes",
  "ciborium",
- "getrandom 0.2.17",
  "hmac",
- "rand 0.8.8",
  "serde",
  "serde_bytes",
  "sha2",
@@ -4371,9 +4364,6 @@ dependencies = [
 [[package]]
 name = "tailsend-telemetry"
 version = "0.1.0"
-dependencies = [
- "log",
-]
 
 [[package]]
 name = "tailsend-transfer"
@@ -4382,7 +4372,6 @@ dependencies = [
  "async-trait",
  "bytes",
  "futures",
- "log",
  "tailsend-platform-api",
  "tailsend-protocol",
  "tailsend-transport-api",
@@ -4395,8 +4384,6 @@ name = "tailsend-transport-api"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "bytes",
- "futures",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
@@ -4424,7 +4411,6 @@ dependencies = [
  "futures",
  "getrandom 0.2.17",
  "js-sys",
- "log",
  "serde",
  "serde-wasm-bindgen",
  "tailsend-core",
@@ -4435,7 +4421,6 @@ dependencies = [
  "tailsend-transport-api",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "web-sys",
 ]
 
 [[package]]
