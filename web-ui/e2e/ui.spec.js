@@ -22,9 +22,12 @@ test("switches QR and join panes on a narrow disconnected screen", async ({ page
   await expect(page.locator(".workspace")).toBeHidden();
 });
 
-async function installBackend(page, { failFirstInvite = false, connected = false } = {}) {
+async function installBackend(
+  page,
+  { failFirstInvite = false, connected = false, receivedSharing = false } = {},
+) {
   await page.addInitScript(
-    ({ failFirstInvite, connected }) => {
+    ({ failFirstInvite, connected, receivedSharing }) => {
       let listener;
       const calls = [];
       let state = {
@@ -105,7 +108,16 @@ async function installBackend(page, { failFirstInvite = false, connected = false
         dispose: async () => {
           calls.push("dispose");
         },
-        openReceivedItem: async () => {},
+        openReceivedItem: async (item) => {
+          calls.push(["openReceived", item]);
+        },
+        ...(receivedSharing
+          ? {
+              shareReceivedItem: async (item) => {
+                calls.push(["shareReceived", item]);
+              },
+            }
+          : {}),
         copyText: async (value) => {
           calls.push(["copy", value]);
         },
@@ -128,8 +140,46 @@ async function installBackend(page, { failFirstInvite = false, connected = false
         },
       };
     },
-    { failFirstInvite, connected },
+    { failFirstInvite, connected, receivedSharing },
   );
+}
+
+for (const receivedSharing of [true, false]) {
+  test(`received file sharing is ${receivedSharing ? "available" : "unavailable"}`, async ({
+    page,
+  }) => {
+    await installBackend(page, { connected: true, receivedSharing });
+    await page.goto("/");
+    const items = ["first.bin", "second.bin"].map((name) => ({
+      id: name,
+      name,
+      size: 7,
+      localPathOrHandle: `/received/${name}`,
+    }));
+    await page.evaluate((received) => window.__testPonlet.publish({ received }), items);
+
+    const rows = page.locator(".received-item");
+    await expect(rows).toHaveCount(2);
+    const selectedRow = rows.nth(1);
+    const shareButtons = rows.getByRole("button", { name: "Share", exact: true });
+    await expect(shareButtons).toHaveCount(receivedSharing ? 2 : 0);
+    await selectedRow.getByRole("button", { name: "Open", exact: true }).click();
+    const expectedCalls = [["openReceived", items[1]]];
+    if (receivedSharing) {
+      await selectedRow.getByRole("button", { name: "Share", exact: true }).click();
+      expectedCalls.push(["shareReceived", items[1]]);
+    }
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          window.__testPonlet.calls.filter(
+            (call) =>
+              Array.isArray(call) && (call[0] === "openReceived" || call[0] === "shareReceived"),
+          ),
+        ),
+      )
+      .toEqual(expectedCalls);
+  });
 }
 
 test("keeps long received filenames and message controls inside a narrow screen", async ({
