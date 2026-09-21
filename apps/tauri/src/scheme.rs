@@ -18,7 +18,7 @@ pub(crate) fn handle(
         ));
         return;
     }
-    let method = request.method().as_str().to_owned();
+    let method = request.method().as_str();
     if method == "OPTIONS" {
         responder.respond(cors_response(StatusCode::NO_CONTENT, Vec::new()));
         return;
@@ -30,7 +30,7 @@ pub(crate) fn handle(
         ));
         return;
     }
-    let path = request.uri().path().to_owned();
+    let path = request.uri().path();
     if path != "/rpc" {
         responder.respond(cors_response(
             StatusCode::NOT_FOUND,

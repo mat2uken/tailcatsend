@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::transfer_telemetry_reason;
-use crate::{transfer_status_for_reason, AppEvent, AppSnapshot, SessionState};
+use crate::{format_transfer_id, transfer_status_for_reason, AppEvent, AppSnapshot, SessionState};
 use tailsend_transport_api::{CancellationCallback, TransportPath};
 
 const DEFAULT_EVENT_QUEUE: usize = 32;
@@ -462,7 +462,7 @@ impl BackendSession {
 fn observe_telemetry(
     inner: &ServiceState,
     event: &AppEvent,
-) -> Option<(&'static str, Vec<(&'static str, String)>)> {
+) -> Option<(&'static str, Vec<(&'static str, &'static str)>)> {
     #[cfg(target_arch = "wasm32")]
     {
         let _ = (inner, event);
@@ -478,12 +478,12 @@ fn observe_telemetry(
         };
         match event {
             AppEvent::StateChanged(SessionState::AwaitingPeer { .. }) => {
-                Some(("session_created", vec![("transport", transport.into())]))
+                Some(("session_created", vec![("transport", transport)]))
             }
             AppEvent::StateChanged(SessionState::ConnectedIdle { .. })
                 if inner.connected_state.is_none() =>
             {
-                Some(("peer_connected", vec![("transport", transport.into())]))
+                Some(("peer_connected", vec![("transport", transport)]))
             }
             AppEvent::StateChanged(SessionState::Transferring {
                 is_incoming,
@@ -492,42 +492,35 @@ fn observe_telemetry(
             }) => Some((
                 "transfer_started",
                 vec![
-                    ("transport", transport.into()),
-                    (
-                        "direction",
-                        if *is_incoming { "receive" } else { "send" }.into(),
-                    ),
-                    ("file_count", if *is_files { "1" } else { "0" }.into()),
+                    ("transport", transport),
+                    ("direction", if *is_incoming { "receive" } else { "send" }),
+                    ("file_count", if *is_files { "1" } else { "0" }),
                 ],
             )),
             AppEvent::TextReceived { text } => Some((
                 "text_message_received",
                 vec![(
                     "length_bucket",
-                    tailsend_telemetry::length_bucket(text.chars().count()).into(),
+                    tailsend_telemetry::length_bucket(text.chars().take(2001).count()),
                 )],
             )),
             AppEvent::TransferCompleted { .. } => {
-                Some(("transfer_completed", vec![("transport", transport.into())]))
+                Some(("transfer_completed", vec![("transport", transport)]))
             }
             AppEvent::TransferCancelled { reason, .. } => Some((
                 "transfer_cancelled",
-                vec![("reason", transfer_telemetry_reason(reason).into())],
+                vec![("reason", transfer_telemetry_reason(reason))],
             )),
             AppEvent::ErrorOccurred { .. } | AppEvent::StateChanged(SessionState::Error { .. }) => {
-                Some(("error", vec![("category", "transport".into())]))
+                Some(("error", vec![("category", "transport")]))
             }
             _ => None,
         }
     }
 }
 
-fn record_telemetry(observation: Option<(&'static str, Vec<(&'static str, String)>)>) {
+fn record_telemetry(observation: Option<(&'static str, Vec<(&'static str, &'static str)>)>) {
     if let Some((name, params)) = observation {
-        let params = params
-            .iter()
-            .map(|(name, value)| (*name, value.as_str()))
-            .collect::<Vec<_>>();
         tailsend_telemetry::log_event(name, &params);
     }
 }
@@ -564,10 +557,7 @@ fn emit_locked(inner: &mut ServiceState, queue_limit: usize, event: AppEvent) ->
                     _ => ("completed", None),
                 };
                 inner.snapshot.last_transfer = Some(TransferOutcome {
-                    id: transfer_id
-                        .iter()
-                        .map(|byte| format!("{byte:02x}"))
-                        .collect(),
+                    id: format_transfer_id(*transfer_id),
                     name: current_item_name.clone(),
                     done: if status == "completed" {
                         *bytes_total

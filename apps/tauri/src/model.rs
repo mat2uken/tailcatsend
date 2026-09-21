@@ -118,13 +118,8 @@ pub fn new_id() -> [u8; 16] {
     id
 }
 
-pub fn id_string(id: [u8; 16]) -> String {
-    hex_id(id)
-}
-
-pub fn hex_id(id: [u8; 16]) -> String {
-    id.iter().map(|byte| format!("{byte:02x}")).collect()
-}
+pub use tailsend_core::format_transfer_id as id_string;
+pub use tailsend_core::format_transfer_id as hex_id;
 
 pub fn parse_id(value: &str) -> Result<[u8; 16], String> {
     if value.len() != 32 {

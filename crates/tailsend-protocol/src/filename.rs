@@ -38,15 +38,10 @@ pub fn sanitize_filename(raw_name: &str) -> Result<String, FilenameError> {
         return Ok("unnamed_file".to_string());
     }
 
-    // Filter out NUL and control characters
-    let mut cleaned: String = basename
+    // Filter controls and replace dangerous Windows characters in one pass.
+    let cleaned: String = basename
         .chars()
-        .filter(|c| !c.is_control() && *c != '\0')
-        .collect();
-
-    // Replace dangerous characters on Windows: < > : " / \ | ? *
-    cleaned = cleaned
-        .chars()
+        .filter(|c| !c.is_control())
         .map(|c| match c {
             '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '_',
             other => other,
