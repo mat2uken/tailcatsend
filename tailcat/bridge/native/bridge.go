@@ -48,6 +48,7 @@ import (
 	"unsafe"
 
 	"github.com/tailscale/tailcat"
+	"github.com/tailsend/tailcat-bridge/bridge/transportpath"
 	"tailscale.com/envknob"
 	_ "tailscale.com/feature/webrtc"
 	"tailscale.com/net/netmon"
@@ -145,44 +146,16 @@ func configureTransportMode() error {
 // useful fallback makes locally produced bridge artifacts diagnosable too.
 var bridgeVersion = "tailcat-bridge/abi2/dev"
 
-const staticDERPMapJSON = `{"Regions":{"301":{"RegionID":301,"RegionCode":"nyc","RegionName":"New York City","Latitude":40.7128,"Longitude":-74.006,"Nodes":[{"Name":"301a","RegionID":301,"HostName":"tc301a.ipn.dev","IPv4":"199.38.181.166","IPv6":"2607:f740:f::26b","CanPort80":true}]},"302":{"RegionID":302,"RegionCode":"sfo","RegionName":"San Francisco","Latitude":37.7775,"Longitude":-122.416389,"Nodes":[{"Name":"302a","RegionID":302,"HostName":"tc302a.ipn.dev","IPv4":"208.111.39.38","IPv6":"2607:f740:0:3f::720","CanPort80":true}]},"303":{"RegionID":303,"RegionCode":"fra","RegionName":"Frankfurt","Latitude":50.1109,"Longitude":8.6821,"Nodes":[{"Name":"303a","RegionID":303,"HostName":"tc303a.ipn.dev","IPv4":"185.178.202.197","IPv6":"2a00:dd80:20::207","CanPort80":true}]},"304":{"RegionID":304,"RegionCode":"tok","RegionName":"Tokyo","Latitude":35.6764,"Longitude":139.65,"Nodes":[{"Name":"304a","RegionID":304,"HostName":"tc304a.ipn.dev","IPv4":"172.238.7.124","IPv6":"2600:3c18::2000:31ff:fe29:e8e8","CanPort80":true}]}}}`
-
-type staticDERPCache struct{}
-
-func (staticDERPCache) Get(url string) ([]byte, string, time.Time, bool) {
-	return []byte(staticDERPMapJSON), "", time.Now(), true
-}
-
-func (staticDERPCache) Put(url string, data []byte, etag string) error {
-	return nil
-}
-
 func init() {
 	netmon.RegisterInterfaceGetter(interfacesViaGetifaddrs)
 }
 
 func transportFromEndpoint(endpoint string) uint8 {
-	endpoint = strings.TrimSpace(endpoint)
-	if idx := strings.Index(endpoint, " ("); idx >= 0 {
-		endpoint = endpoint[:idx]
-	}
-	if endpoint == "" {
-		return TC_TRANSPORT_UNKNOWN
-	}
-	if strings.HasPrefix(endpoint, tailcfg.WebRTCMagicIP+":") {
-		return TC_TRANSPORT_WEBRTC
-	}
-	return TC_TRANSPORT_DIRECT_UDP
+	return transportpath.FromEndpoint(endpoint)
 }
 
 func transportFromPing(endpoint, peerRelay string, usedDERP bool) uint8 {
-	if path := transportFromEndpoint(endpoint); path != TC_TRANSPORT_UNKNOWN {
-		return path
-	}
-	if peerRelay != "" || usedDERP {
-		return TC_TRANSPORT_DERP
-	}
-	return TC_TRANSPORT_UNKNOWN
+	return transportpath.FromPing(endpoint, peerRelay, usedDERP)
 }
 
 func transportFromServer(server *tailcat.Server) uint8 {
