@@ -386,7 +386,16 @@ function installGoProxy(port: MessagePort): void {
     const message = event.data;
     if (message.type === "incoming") {
       const callback = listeners.get(message.listenerId);
-      callback?.(
+      if (!callback) {
+        // The window may accept a connection while listener close is in flight.
+        void postGo({
+          type: "stream-close",
+          requestId: ++goRequestId,
+          connectionId: message.connectionId,
+        }).catch(() => undefined);
+        return;
+      }
+      callback(
         connectionProxy({
           connectionId: message.connectionId,
           port: message.port,

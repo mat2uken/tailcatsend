@@ -134,6 +134,7 @@ jobs:
           cd web-ui
           npx playwright install --with-deps chromium firefox webkit
           npm run test:e2e
+          npm run test:e2e:wasm
           npm run test:e2e:real
           npm run test:e2e:real:derp
           PONLET_TEST_BROWSER=firefox npm run test:e2e:real

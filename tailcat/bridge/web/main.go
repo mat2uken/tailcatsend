@@ -58,6 +58,32 @@ func main() {
 	select {}
 }
 
+// listenerCallbacks ensures shutdown waits for an in-flight callback and
+// rejects later connections before the JavaScript owner releases its callback.
+type listenerCallbacks struct {
+	mu     sync.Mutex
+	closed bool
+}
+
+func (callbacks *listenerCallbacks) deliver(c net.Conn, accept func(net.Conn)) {
+	callbacks.mu.Lock()
+	if callbacks.closed {
+		callbacks.mu.Unlock()
+		c.Close()
+		return
+	}
+	defer callbacks.mu.Unlock()
+	accept(c)
+}
+
+// stop must run on the asynchronous close goroutine, never in a synchronous
+// JS callback: accept may itself call close and receive its pending Promise.
+func (callbacks *listenerCallbacks) stop() {
+	callbacks.mu.Lock()
+	callbacks.closed = true
+	callbacks.mu.Unlock()
+}
+
 func tailcatListen(this js.Value, args []js.Value) any {
 	if len(args) != 1 || args[0].Type() != js.TypeObject {
 		return rejectedPromise(errors.New("tailcatListen requires an options object"))
@@ -116,14 +142,18 @@ func tailcatListen(this js.Value, args []js.Value) any {
 			Logf:         logf,
 			Region:       reg,
 		}
+		var callbacks listenerCallbacks
 		srv.OnTCP = func(port uint16) (handler func(net.Conn)) {
 			return func(c net.Conn) {
-				onConnection.Invoke(makeJSConn(c, port, transportFromServer(srv), func() uint8 {
-					return transportFromServer(srv)
-				}, nil))
+				callbacks.deliver(c, func(c net.Conn) {
+					onConnection.Invoke(makeJSConn(c, port, transportFromServer(srv), func() uint8 {
+						return transportFromServer(srv)
+					}, nil))
+				})
 			}
 		}
 		if err := srv.Start(); err != nil {
+			callbacks.stop()
 			srv.Close()
 			return nil, fmt.Errorf("Server.Start: %w", err)
 		}
@@ -142,6 +172,7 @@ func tailcatListen(this js.Value, args []js.Value) any {
 				// event loop while those callbacks are needed to finish shutdown.
 				return makePromise(func() (any, error) {
 					closeOnce.Do(func() {
+						callbacks.stop()
 						clientsMu.Lock()
 						if currentServer == srv {
 							currentServer = nil
@@ -407,6 +438,9 @@ func makePromise(f func() (any, error)) js.Value {
 		}()
 		return nil
 	})
+	// The Promise constructor calls its executor synchronously. Only the
+	// resolve/reject values are needed by the goroutine after it returns.
+	defer handler.Release()
 	return js.Global().Get("Promise").New(handler)
 }
 

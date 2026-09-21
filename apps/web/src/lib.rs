@@ -22,10 +22,10 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
 
 use tailsend_core::{
-    read_framed_control, run_host_handshake, run_host_handshake_stream, run_joiner_handshake,
-    transfer_status_for_reason, write_framed_control, AppEvent, BackendEvent, BackendService,
-    BackendSession, HostHandshakeError, SessionState, TRANSFER_CANCELLED_BY_PEER,
-    TRANSFER_CANCELLED_BY_USER,
+    format_transfer_id as id_string, read_framed_control, run_host_handshake,
+    run_host_handshake_stream, run_joiner_handshake, transfer_status_for_reason,
+    write_framed_control, AppEvent, BackendEvent, BackendService, BackendSession,
+    HostHandshakeError, SessionState, TRANSFER_CANCELLED_BY_PEER, TRANSFER_CANCELLED_BY_USER,
 };
 use tailsend_platform_api::{
     FileMetadata, FileSource, IncomingFileSink, ReceivedItem, StorageError,
@@ -81,7 +81,7 @@ struct UiTransfer {
     status: &'static str,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct UiReceivedItem {
     name: String,
@@ -181,6 +181,24 @@ enum PendingReadStatus {
 }
 
 impl WebStream {
+    fn new(connection: JsValue) -> Self {
+        let transport_path = property(&connection, "transportType")
+            .ok()
+            .and_then(|value| value.as_f64())
+            .map(|code| TransportPath::from_code(code as u8))
+            .unwrap_or_default();
+        Self {
+            connection,
+            closed: Rc::new(Cell::new(false)),
+            transport_path,
+            pending_read_status: None,
+            read_buffer: Uint8Array::new_with_length(64 * 1024),
+            read_offset: 0,
+            read_length: 0,
+            write_buffer: Uint8Array::new_with_length(64 * 1024),
+        }
+    }
+
     fn current_transport_path(&self) -> TransportPath {
         let Ok(get_transport) = function(&self.connection, "getTransport") else {
             return self.transport_path;
@@ -340,6 +358,7 @@ struct WebListener {
     address: String,
     close: JsValue,
     incoming: RefCell<UnboundedReceiver<JsValue>>,
+    incoming_tx: UnboundedSender<JsValue>,
     _callback: Closure<dyn FnMut(JsValue)>,
 }
 
@@ -360,27 +379,16 @@ impl Listener for WebListener {
             .as_f64()
             .ok_or_else(|| TransportError::Protocol("incoming stream has no port".into()))?
             as u16;
-        let transport_path = property(&value, "transportType")
-            .ok()
-            .and_then(|value| value.as_f64())
-            .map(|code| TransportPath::from_code(code as u8))
-            .unwrap_or_default();
         Ok(IncomingStream {
-            stream: Box::new(WebStream {
-                connection: value,
-                closed: Rc::new(Cell::new(false)),
-                transport_path,
-                pending_read_status: None,
-                read_buffer: Uint8Array::new_with_length(64 * 1024),
-                read_offset: 0,
-                read_length: 0,
-                write_buffer: Uint8Array::new_with_length(64 * 1024),
-            }),
+            stream: Box::new(WebStream::new(value)),
             port,
         })
     }
 
     async fn close(&self) -> Result<(), TransportError> {
+        // Wake an accept/host handshake before awaiting Go shutdown. Otherwise
+        // it retains this listener and its callback after the session ends.
+        self.incoming_tx.close_channel();
         if let Ok(close) = self.close.clone().dyn_into::<Function>() {
             let result = close.call0(&JsValue::UNDEFINED).map_err(js_error)?;
             promise(result).await?;
@@ -395,8 +403,19 @@ impl TailcatTransport for WebTransport {
         let bridge = tailcat_bridge()?;
         let (sender, receiver): (UnboundedSender<JsValue>, UnboundedReceiver<JsValue>) =
             unbounded();
+        let incoming_tx = sender.clone();
         let callback = Closure::wrap(Box::new(move |connection: JsValue| {
-            let _ = sender.unbounded_send(connection);
+            if let Err(error) = sender.unbounded_send(connection) {
+                // A connection can arrive while listener shutdown is pending.
+                let connection = error.into_inner();
+                if let Ok(close) = function(&connection, "close") {
+                    if let Ok(closing) = close.call0(&connection) {
+                        wasm_bindgen_futures::spawn_local(async move {
+                            let _ = promise(closing).await;
+                        });
+                    }
+                }
+            }
         }) as Box<dyn FnMut(JsValue)>);
         let opts = Object::new();
         Reflect::set(
@@ -430,6 +449,7 @@ impl TailcatTransport for WebTransport {
             address,
             close,
             incoming: RefCell::new(receiver),
+            incoming_tx,
             _callback: callback,
         }))
     }
@@ -454,21 +474,7 @@ impl TailcatTransport for WebTransport {
             .call1(&bridge, &opts)
             .map_err(js_error)?;
         let connection = promise(dial).await?;
-        let transport_path = property(&connection, "transportType")
-            .ok()
-            .and_then(|value| value.as_f64())
-            .map(|code| TransportPath::from_code(code as u8))
-            .unwrap_or_default();
-        Ok(Box::new(WebStream {
-            connection,
-            closed: Rc::new(Cell::new(false)),
-            transport_path,
-            pending_read_status: None,
-            read_buffer: Uint8Array::new_with_length(64 * 1024),
-            read_offset: 0,
-            read_length: 0,
-            write_buffer: Uint8Array::new_with_length(64 * 1024),
-        }))
+        Ok(Box::new(WebStream::new(connection)))
     }
 }
 
@@ -594,49 +600,8 @@ struct WebFileSource {
     metadata: FileMetadata,
 }
 
-#[async_trait(?Send)]
-impl FileSource for WebFileSource {
-    fn metadata(&self) -> FileMetadata {
-        self.metadata.clone()
-    }
-
-    async fn read_into(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> Result<usize, StorageError> {
-        if destination.is_empty() {
-            return Ok(0);
-        }
-        let end = offset.saturating_add(destination.len() as u64);
-        let slice = function(&self.file, "slice")
-            .map_err(|error| StorageError::Io(error.to_string()))?
-            .call2(
-                &self.file,
-                &JsValue::from_f64(offset as f64),
-                &JsValue::from_f64(end as f64),
-            )
-            .map_err(|error| StorageError::Io(format!("{error:?}")))?;
-        let buffer = function(&slice, "arrayBuffer")
-            .map_err(|error| StorageError::Io(error.to_string()))?
-            .call0(&slice)
-            .map_err(|error| StorageError::Io(format!("{error:?}")))?;
-        let buffer = promise(buffer)
-            .await
-            .map_err(|error| StorageError::Io(error.to_string()))?;
-        let bytes = Uint8Array::new(&buffer);
-        let count = bytes.length() as usize;
-        if count > destination.len() {
-            return Err(StorageError::Io(format!(
-                "file source returned {count} bytes for a {} byte buffer",
-                destination.len()
-            )));
-        }
-        bytes.copy_to(&mut destination[..count]);
-        Ok(count)
-    }
-
-    async fn read_at(&mut self, offset: u64, max_len: usize) -> Result<Bytes, StorageError> {
+impl WebFileSource {
+    async fn read_chunk(&self, offset: u64, max_len: usize) -> Result<Uint8Array, StorageError> {
         let end = offset.saturating_add(max_len as u64);
         let slice = function(&self.file, "slice")
             .map_err(|error| StorageError::Io(error.to_string()))?
@@ -653,7 +618,38 @@ impl FileSource for WebFileSource {
         let buffer = promise(buffer)
             .await
             .map_err(|error| StorageError::Io(error.to_string()))?;
-        let bytes = Uint8Array::new(&buffer);
+        Ok(Uint8Array::new(&buffer))
+    }
+}
+
+#[async_trait(?Send)]
+impl FileSource for WebFileSource {
+    fn metadata(&self) -> FileMetadata {
+        self.metadata.clone()
+    }
+
+    async fn read_into(
+        &mut self,
+        offset: u64,
+        destination: &mut [u8],
+    ) -> Result<usize, StorageError> {
+        if destination.is_empty() {
+            return Ok(0);
+        }
+        let bytes = self.read_chunk(offset, destination.len()).await?;
+        let count = bytes.length() as usize;
+        if count > destination.len() {
+            return Err(StorageError::Io(format!(
+                "file source returned {count} bytes for a {} byte buffer",
+                destination.len()
+            )));
+        }
+        bytes.copy_to(&mut destination[..count]);
+        Ok(count)
+    }
+
+    async fn read_at(&mut self, offset: u64, max_len: usize) -> Result<Bytes, StorageError> {
+        let bytes = self.read_chunk(offset, max_len).await?;
         Ok(Bytes::from(bytes.to_vec()))
     }
 
@@ -663,14 +659,6 @@ impl FileSource for WebFileSource {
 struct WebFileSink {
     sink: JsValue,
     size: u64,
-}
-
-#[derive(serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct WorkerReceivedItem {
-    name: String,
-    size: u64,
-    local_path_or_handle: String,
 }
 
 impl WebFileSink {
@@ -717,7 +705,7 @@ impl IncomingFileSink for WebFileSink {
             let committed = promise(commit)
                 .await
                 .map_err(|error| StorageError::Io(error.to_string()))?;
-            let item: WorkerReceivedItem = serde_wasm_bindgen::from_value(committed)
+            let item: UiReceivedItem = serde_wasm_bindgen::from_value(committed)
                 .map_err(|error| StorageError::Io(error.to_string()))?;
             if item.size != self.size {
                 return Err(StorageError::Io("received file size mismatch".into()));
@@ -754,9 +742,6 @@ struct WebSession {
     /// verified and replace the previous peer instead of failing with an EOF.
     invitation: RefCell<Option<InvitationV1>>,
     peer_address: RefCell<String>,
-    peer_info: RefCell<Option<PeerInfo>>,
-    peer_capabilities: RefCell<Option<Capabilities>>,
-    transport_path: RefCell<TransportPath>,
     cancel: Arc<AtomicBool>,
 }
 
@@ -810,14 +795,12 @@ impl WebBackend {
 
     fn notify_ordered(&self, ordered: BackendEvent) {
         match ordered.event {
-            AppEvent::StateChanged(_) => self.notify(UiEvent::Snapshot {
-                sequence: ordered.sequence,
-                snapshot: self.snapshot(),
-            }),
-            AppEvent::TransportChanged(_) => self.notify(UiEvent::Snapshot {
-                sequence: ordered.sequence,
-                snapshot: self.snapshot(),
-            }),
+            AppEvent::StateChanged(_) | AppEvent::TransportChanged(_) => {
+                self.notify(UiEvent::Snapshot {
+                    sequence: ordered.sequence,
+                    snapshot: self.snapshot(),
+                })
+            }
             AppEvent::FilesReceived { items } => {
                 let items = items
                     .into_iter()
@@ -933,9 +916,6 @@ impl WebBackend {
             listener,
             invitation: RefCell::new(Some(invitation.clone())),
             peer_address: RefCell::new(String::new()),
-            peer_info: RefCell::new(None),
-            peer_capabilities: RefCell::new(None),
-            transport_path: RefCell::new(TransportPath::Unknown),
             cancel: Arc::new(AtomicBool::new(false)),
         });
         *self.session.borrow_mut() = Some(session.clone());
@@ -965,10 +945,7 @@ impl WebBackend {
             match result {
                 Ok(handshake) => {
                     *session.peer_address.borrow_mut() = handshake.peer_address.clone();
-                    *session.peer_info.borrow_mut() = Some(handshake.peer_info.clone());
-                    *session.peer_capabilities.borrow_mut() =
-                        Some(handshake.peer_capabilities.clone());
-                    *session.transport_path.borrow_mut() = handshake.transport_path;
+
                     backend.state_for(
                         &scope,
                         SessionState::ConnectedIdle {
@@ -1030,9 +1007,6 @@ impl WebBackend {
             listener,
             invitation: RefCell::new(None),
             peer_address: RefCell::new(invitation.host_address.clone()),
-            peer_info: RefCell::new(None),
-            peer_capabilities: RefCell::new(None),
-            transport_path: RefCell::new(TransportPath::Unknown),
             cancel: Arc::new(AtomicBool::new(false)),
         });
         *self.session.borrow_mut() = Some(session.clone());
@@ -1052,10 +1026,8 @@ impl WebBackend {
         }
         match result {
             Ok(handshake) => {
-                *session.peer_info.borrow_mut() = Some(handshake.peer_info.clone());
-                *session.peer_capabilities.borrow_mut() = Some(handshake.peer_capabilities.clone());
                 *session.peer_address.borrow_mut() = handshake.peer_address.clone();
-                *session.transport_path.borrow_mut() = handshake.transport_path;
+
                 self.state_for(
                     &scope,
                     SessionState::ConnectedIdle {
@@ -1089,7 +1061,7 @@ impl WebBackend {
             .session
             .borrow()
             .clone()
-            .filter(|session| session.scope.is_current() && session.peer_info.borrow().is_some())
+            .filter(|session| session.scope.has_peer())
             .ok_or_else(|| JsValue::from_str("No connected peer"))?;
         let id = new_id();
         let cancel = session.scope.register_transfer(id);
@@ -1145,7 +1117,7 @@ impl WebBackend {
             .session
             .borrow()
             .clone()
-            .filter(|session| session.scope.is_current() && session.peer_info.borrow().is_some())
+            .filter(|session| session.scope.has_peer())
             .ok_or_else(|| JsValue::from_str("No connected peer"))?;
         let files = js_sys::Array::from(&files);
         for file in files.iter() {
@@ -1380,9 +1352,7 @@ async fn accept_repeated_join(
                 return;
             }
             *session.peer_address.borrow_mut() = handshake.peer_address.clone();
-            *session.peer_info.borrow_mut() = Some(handshake.peer_info.clone());
-            *session.peer_capabilities.borrow_mut() = Some(handshake.peer_capabilities.clone());
-            *session.transport_path.borrow_mut() = handshake.transport_path;
+
             backend.state_for(
                 &session.scope,
                 SessionState::ConnectedIdle {
@@ -1443,7 +1413,7 @@ async fn receive_text(
     })
     .await;
     let transport_path = stream.transport_path();
-    *session.transport_path.borrow_mut() = transport_path;
+
     backend.event_for(&session, AppEvent::TransportChanged(transport_path));
     let _ = stream.close().await;
     if let Err(error) = result {
@@ -1512,7 +1482,7 @@ async fn receive_file(
     )
     .await;
     let transport_path = stream.transport_path();
-    *session.transport_path.borrow_mut() = transport_path;
+
     backend.event_for(&session, AppEvent::TransportChanged(transport_path));
     let _ = stream.close().await;
     match result {
@@ -1822,9 +1792,6 @@ fn new_secret() -> [u8; 32] {
     let mut secret = [0; 32];
     getrandom::getrandom(&mut secret).expect("browser random source");
     secret
-}
-fn id_string(id: [u8; 16]) -> String {
-    id.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 fn parse_id(value: &str) -> Result<[u8; 16], JsValue> {
     if value.len() != 32 {
