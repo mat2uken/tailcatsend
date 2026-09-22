@@ -13,7 +13,6 @@ import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.io.File
-import org.json.JSONObject
 
 @InvokeArg class FileArgs { lateinit var path: String }
 @InvokeArg class TextArgs { lateinit var text: String }
@@ -21,7 +20,6 @@ import org.json.JSONObject
 @InvokeArg class TelemetryInitArgs { var optOut: Boolean = false }
 @InvokeArg class EventArgs { lateinit var name: String; var params: Map<String, String> = emptyMap() }
 @InvokeArg class PropertyArgs { lateinit var name: String; lateinit var value: String }
-@InvokeArg class KeyArgs { lateinit var key: String }
 
 @TauriPlugin
 class PonletPlatformPlugin(private val activity: Activity) : Plugin(activity) {
@@ -91,7 +89,7 @@ class PonletPlatformPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun telemetryEvent(invoke: Invoke) {
         val args = invoke.parseArgs(EventArgs::class.java)
-        TelemetryBridge.logEvent(args.name, JSONObject(args.params).toString())
+        TelemetryBridge.logEvent(args.name, args.params)
         invoke.resolve()
     }
 
@@ -100,13 +98,5 @@ class PonletPlatformPlugin(private val activity: Activity) : Plugin(activity) {
         val args = invoke.parseArgs(PropertyArgs::class.java)
         TelemetryBridge.setUserProperty(args.name, args.value)
         invoke.resolve()
-    }
-
-    @Command
-    fun telemetryRemoteString(invoke: Invoke) {
-        val value = TelemetryBridge.remoteString(invoke.parseArgs(KeyArgs::class.java).key)
-        val result = JSObject()
-        result.put("value", value ?: JSONObject.NULL)
-        invoke.resolve(result)
     }
 }

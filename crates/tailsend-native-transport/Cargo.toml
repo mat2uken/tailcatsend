@@ -7,4 +7,4 @@ edition = "2021"
 tailsend-native-bridge = { workspace = true }
 tailsend-transport-api = { workspace = true }
 async-trait = { workspace = true }
-tokio = { workspace = true, features = ["rt", "sync"] }
+tokio = { workspace = true }

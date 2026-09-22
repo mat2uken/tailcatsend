@@ -97,7 +97,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use tailsend_core::BackendService;
     use tailsend_native_transport::NativeTailcatTransport;
-    use tailsend_transport_api::{ListenOptions, TailcatTransport, TransportPath};
+    use tailsend_transport_api::{IncomingStream, Listener, TransportError, TransportPath};
     use tauri_plugin_fs::FilePath;
 
     #[test]
@@ -165,16 +165,23 @@ mod tests {
         );
     }
 
-    #[tokio::test]
-    async fn stale_session_cannot_replace_or_clear_current_session() {
-        let hub = tailsend_core::MockNetworkHub::new();
-        let listener = hub
-            .listen(ListenOptions {
-                derp_map_url: String::new(),
-                verbose: false,
-            })
-            .await
-            .expect("mock listener");
+    struct UnusedListener;
+
+    #[async_trait::async_trait]
+    impl Listener for UnusedListener {
+        fn local_address(&self) -> &str {
+            unreachable!("session identity checks do not use transport I/O")
+        }
+        async fn accept(&self) -> Result<IncomingStream, TransportError> {
+            unreachable!("session identity checks do not use transport I/O")
+        }
+        async fn close(&self) -> Result<(), TransportError> {
+            unreachable!("session identity checks do not use transport I/O")
+        }
+    }
+
+    #[test]
+    fn stale_session_cannot_replace_or_clear_current_session() {
         let runtime = TauriRuntime {
             backend: BackendService::default(),
             transport: Arc::new(NativeTailcatTransport),
@@ -192,7 +199,7 @@ mod tests {
         };
         let current = Arc::new(PeerSession {
             scope: runtime.backend.begin_session(),
-            listener: Arc::new(listener),
+            listener: Arc::new(Box::new(UnusedListener)),
             invitation: None,
             peer_address: Mutex::new(String::new()),
             cancel: Arc::new(AtomicBool::new(false)),

@@ -49,92 +49,115 @@ function response(bytes, contentType = "application/octet-stream") {
   });
 }
 
-it("stages a verified release and leaves activation to the service worker", async () => {
-  const originalCrypto = globalThis.crypto;
-  const originalFetch = globalThis.fetch;
-  const originalCaches = globalThis.caches;
-  const originalConfig = window.__PONLET_UPDATE_CONFIG__;
-  const originalWorker = window.navigator.serviceWorker;
-  vi.stubGlobal("crypto", webcrypto);
-  const storage = memoryCacheStorage();
-  vi.stubGlobal("caches", storage);
-  const worker = { postMessage: vi.fn() };
-  Object.defineProperty(window.navigator, "serviceWorker", {
-    configurable: true,
-    value: {
-      ready: Promise.resolve({ active: worker }),
-      register: vi.fn(async () => ({ active: worker })),
-    },
-  });
-  const pair = await webcrypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
-    "sign",
-    "verify",
-  ]);
-  const indexBytes = new TextEncoder().encode("index");
-  const manifestObject = {
-    release_id: "release-2",
-    revision: 2,
-    distribution: "web",
-    target: "browser",
-    min_api_version: 1,
-    files: [
-      {
-        path: "index.html",
-        size: indexBytes.byteLength,
-        sha256: await sha256Hex(indexBytes),
-      },
-    ],
-  };
-  const manifestBytes = new TextEncoder().encode(JSON.stringify(manifestObject));
-  const signature = new Uint8Array(
-    await webcrypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, manifestBytes),
-  );
-  const publicKey = await webcrypto.subtle.exportKey("jwk", pair.publicKey);
-  window.__PONLET_UPDATE_CONFIG__ = {
-    apiVersion: 1,
-    currentRevision: 1,
-    distribution: "web",
-    fileBaseUrl: "https://updates.example/releases/release-2/",
-    manifestUrl: "https://updates.example/releases/release-2/manifest.json",
-    publicKey,
-    signatureUrl: "https://updates.example/releases/release-2/manifest.sig",
-    target: "browser",
-  };
-  globalThis.fetch = vi.fn(async (url) => {
-    const value = String(url);
-    if (value.endsWith("manifest.json")) {
-      return response(manifestBytes, "application/json");
-    }
-    if (value.endsWith("manifest.sig")) {
-      return response(
-        new TextEncoder().encode(Buffer.from(signature).toString("base64")),
-        "text/plain",
-      );
-    }
-    if (value.endsWith("index.html")) {
-      return new Response(indexBytes, { headers: { "content-type": "text/html" } });
-    }
-    return new Response("missing", { status: 404 });
-  });
-  try {
-    const result = await checkForUpdate();
-    expect(result).toEqual({ releaseId: "release-2", status: "staged" });
-    const releaseCache = storage.stores.get(`${RELEASE_CACHE_PREFIX}release-2`);
-    expect(await releaseCache.match("http://localhost:3000/index.html")).toBeDefined();
-    const control = storage.stores.get(CONTROL_CACHE_NAME);
-    expect(await (await control.match("/pending-release")).text()).toBe("release-2");
-    expect(worker.postMessage).toHaveBeenCalledWith({ releaseId: "release-2", type: "stage" });
-  } finally {
-    globalThis.crypto = originalCrypto;
-    globalThis.fetch = originalFetch;
-    globalThis.caches = originalCaches;
-    window.__PONLET_UPDATE_CONFIG__ = originalConfig;
+it.each([false, true])(
+  "validates signed release files (missing asset: %s)",
+  async (missingFile) => {
+    const originalCrypto = globalThis.crypto;
+    const originalFetch = globalThis.fetch;
+    const originalCaches = globalThis.caches;
+    const originalConfig = window.__PONLET_UPDATE_CONFIG__;
+    const originalWorker = window.navigator.serviceWorker;
+    vi.stubGlobal("crypto", webcrypto);
+    const storage = memoryCacheStorage();
+    vi.stubGlobal("caches", storage);
+    const worker = { postMessage: vi.fn() };
     Object.defineProperty(window.navigator, "serviceWorker", {
       configurable: true,
-      value: originalWorker,
+      value: {
+        ready: Promise.resolve({ active: worker }),
+        register: vi.fn(async () => ({ active: worker })),
+      },
     });
-  }
-});
+    const pair = await webcrypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
+      "sign",
+      "verify",
+    ]);
+    const indexBytes = new TextEncoder().encode("index");
+    const manifestObject = {
+      release_id: "release-2",
+      revision: 2,
+      distribution: "web",
+      target: "browser",
+      min_api_version: 1,
+      files: [
+        {
+          path: "index.html",
+          size: indexBytes.byteLength,
+          sha256: await sha256Hex(indexBytes),
+        },
+        {
+          path: "assets/app.js",
+          size: indexBytes.byteLength,
+          sha256: await sha256Hex(indexBytes),
+        },
+      ],
+    };
+    const manifestBytes = new TextEncoder().encode(JSON.stringify(manifestObject));
+    const signature = new Uint8Array(
+      await webcrypto.subtle.sign(
+        { name: "ECDSA", hash: "SHA-256" },
+        pair.privateKey,
+        manifestBytes,
+      ),
+    );
+    const publicKey = await webcrypto.subtle.exportKey("jwk", pair.publicKey);
+    window.__PONLET_UPDATE_CONFIG__ = {
+      apiVersion: 1,
+      currentRevision: 1,
+      distribution: "web",
+      fileBaseUrl: "https://updates.example/releases/release-2/",
+      manifestUrl: "https://updates.example/releases/release-2/manifest.json",
+      publicKey,
+      signatureUrl: "https://updates.example/releases/release-2/manifest.sig",
+      target: "browser",
+    };
+    globalThis.fetch = vi.fn(async (url) => {
+      const value = String(url);
+      if (value.endsWith("manifest.json")) {
+        return response(manifestBytes, "application/json");
+      }
+      if (value.endsWith("manifest.sig")) {
+        return response(
+          new TextEncoder().encode(Buffer.from(signature).toString("base64")),
+          "text/plain",
+        );
+      }
+      if (value.endsWith("index.html")) {
+        return new Response(indexBytes, { headers: { "content-type": "text/html" } });
+      }
+      if (value.endsWith("assets/app.js") && !missingFile) {
+        return response(indexBytes, "text/javascript");
+      }
+      return new Response("missing", { status: 404 });
+    });
+    try {
+      const result = await checkForUpdate();
+      const releaseCache = storage.stores.get(`${RELEASE_CACHE_PREFIX}release-2`);
+      const control = storage.stores.get(CONTROL_CACHE_NAME);
+      if (missingFile) {
+        expect(result).toEqual({ error: "update file fetch failed (404)", status: "failed" });
+        expect(releaseCache).toBeUndefined();
+        expect(await control?.match("/pending-release")).toBeUndefined();
+        expect(worker.postMessage).not.toHaveBeenCalled();
+      } else {
+        expect(result).toEqual({ releaseId: "release-2", status: "staged" });
+        expect(await releaseCache.match("http://localhost:3000/index.html")).toBeDefined();
+        expect(await releaseCache.match("http://localhost:3000/assets/app.js")).toBeDefined();
+        expect(await (await control.match("/pending-release")).text()).toBe("release-2");
+        expect(worker.postMessage).toHaveBeenCalledWith({ releaseId: "release-2", type: "stage" });
+      }
+    } finally {
+      globalThis.crypto = originalCrypto;
+      globalThis.fetch = originalFetch;
+      globalThis.caches = originalCaches;
+      window.__PONLET_UPDATE_CONFIG__ = originalConfig;
+      Object.defineProperty(window.navigator, "serviceWorker", {
+        configurable: true,
+        value: originalWorker,
+      });
+    }
+  },
+);
 
 it("does not contact an update endpoint in a Tauri WebView", async () => {
   const originalFetch = globalThis.fetch;

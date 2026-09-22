@@ -1,4 +1,4 @@
-use crate::state::{PendingOffer, SessionState};
+use crate::state::SessionState;
 use serde::{Deserialize, Serialize};
 use tailsend_transport_api::TransportPath;
 
@@ -6,11 +6,9 @@ use tailsend_transport_api::TransportPath;
 pub struct AppSnapshot {
     pub state: SessionState,
     pub peer_display_name: String,
-    pub invite_qr_url: Option<String>,
     pub invite_expires_in_secs: u64,
     pub can_disconnect: bool,
     pub can_send: bool,
-    pub pending_offer: Option<PendingOffer>,
     /// Last path observed by this endpoint; the peer may report another path.
     pub transport_path: TransportPath,
 }
@@ -20,11 +18,9 @@ impl Default for AppSnapshot {
         Self {
             state: SessionState::Booting,
             peer_display_name: String::new(),
-            invite_qr_url: None,
             invite_expires_in_secs: 0,
             can_disconnect: false,
             can_send: false,
-            pending_offer: None,
             transport_path: TransportPath::Unknown,
         }
     }

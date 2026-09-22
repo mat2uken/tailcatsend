@@ -16,7 +16,7 @@ use std::sync::Arc;
 use tokio::runtime::{Handle, RuntimeFlavor};
 
 use tailsend_native_bridge::{
-    status, TcHandle, TC_BUFFER_TOO_SMALL, TC_CANCELLED, TC_EOF, TC_EVENT_INCOMING_STREAM,
+    TcHandle, TC_BUFFER_TOO_SMALL, TC_CANCELLED, TC_EOF, TC_EVENT_INCOMING_STREAM,
     TC_EVENT_LISTENER_ERROR, TC_EVENT_STREAM_ERROR, TC_INVALID_HANDLE_ERROR, TC_NETWORK_ERROR,
     TC_OK, TC_PROTOCOL_ERROR, TC_TIMEOUT,
 };
@@ -109,7 +109,11 @@ impl NativeTailcatTransport {
     pub fn shutdown() -> Result<(), TransportError> {
         let code = unsafe { tailsend_native_bridge::tc_shutdown() };
         event_router::close_all_listeners();
-        status(code).map_err(|error| transport_error(error.code()))
+        if code == TC_OK {
+            Ok(())
+        } else {
+            Err(transport_error(code))
+        }
     }
 
     /// Start a dial operation that can be interrupted before the Tailcat

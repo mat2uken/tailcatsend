@@ -4,8 +4,6 @@ target/
 *.zip
 
 # Go binaries & static archives
-tailcat_daemon
-tailcat_daemon.exe
 *.exe
 libtailcat*.a
 libtailcat*.h
@@ -58,3 +56,13 @@ apps/tauri/gen/android/app/src/main/jniLibs/
 apps/tauri/gen/android/app/google-services.json
 
 .DS_Store
+
+# Generated UI, Python caches and local verification output
+dist/index.html
+dist/assets/index.js
+dist/assets/index.css
+__pycache__/
+work/
+
+# Tauri regenerates these permission descriptions and editor schemas at build time.
+apps/tauri/gen/schemas/

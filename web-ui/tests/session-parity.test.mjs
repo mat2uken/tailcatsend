@@ -29,7 +29,7 @@ it("recovers missed incoming messages in newest order without duplicate events",
   );
   session.applyEvent({ type: "text", sequence: 5, incoming: true, text: "missed" });
   expect(session.view.messages.map((item) => item.text)).toEqual(["missed", "reply", "first"]);
-  expect(session.view.lastReceivedText).toBe("missed");
+  expect(session.view.messages.find((message) => message.incoming)?.text).toBe("missed");
   session.applyEvent(snapshotEvent(4, { receivedMessages: [{ sequence: 4, text: "stale" }] }));
   expect(session.view.messages).toHaveLength(3);
 });
@@ -49,7 +49,7 @@ it("does not restore cleared history from a later snapshot", async () => {
     }),
   );
   expect(session.view.messages.map((item) => item.text)).toEqual(["new"]);
-  expect(session.view.lastReceivedText).toBe("new");
+  expect(session.view.messages.find((message) => message.incoming)?.text).toBe("new");
 });
 it("keeps an explicit terminal result after a connected snapshot clears progress", async () => {
   const session = sessionWith();

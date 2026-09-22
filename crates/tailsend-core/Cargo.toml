@@ -8,7 +8,6 @@ tailsend-protocol = { workspace = true }
 tailsend-transport-api = { workspace = true }
 tailsend-platform-api = { workspace = true }
 tailsend-telemetry = { workspace = true }
-async-trait = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }
 rand = { workspace = true }
@@ -16,6 +15,7 @@ getrandom = { workspace = true }
 web-time = "1.1"
 
 [dev-dependencies]
-bytes = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
 tailsend-transfer = { workspace = true }
 tokio = { workspace = true }

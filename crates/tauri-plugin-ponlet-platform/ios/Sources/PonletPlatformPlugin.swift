@@ -1,11 +1,9 @@
 import Foundation
 import Tauri
 import UIKit
-import WebKit
 import FirebaseCore
 import FirebaseAnalytics
 import FirebaseCrashlytics
-import FirebaseRemoteConfig
 
 private struct FileArgs: Decodable { let path: String }
 private struct TextArgs: Decodable { let text: String }
@@ -13,7 +11,6 @@ private struct EnabledArgs: Decodable { let enabled: Bool }
 private struct TelemetryInitArgs: Decodable { let optOut: Bool }
 private struct EventArgs: Decodable { let name: String; let params: [String: String] }
 private struct PropertyArgs: Decodable { let name: String; let value: String }
-private struct KeyArgs: Decodable { let key: String }
 private struct SharedItemArgs: Decodable { let id: String }
 private struct SharedManifest: Decodable {
     let id: String
@@ -135,21 +132,17 @@ class PonletPlatformPlugin: Plugin, UIDocumentInteractionControllerDelegate, UID
     public func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) { finishExport() }
     public func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { finishExport() }
 
-    private func sharedInboxURL(create: Bool) throws -> URL? {
+    private func sharedInboxURL() -> URL? {
         guard let container = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: ponletShareGroupIdentifier
         ) else {
             return nil
         }
         let inbox = container.appendingPathComponent(ponletShareInboxDirectory, isDirectory: true)
-        if create {
-            try FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
-        } else {
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: inbox.path, isDirectory: &isDirectory),
-                  isDirectory.boolValue else {
-                return nil
-            }
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: inbox.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            return nil
         }
         return inbox
     }
@@ -167,7 +160,7 @@ class PonletPlatformPlugin: Plugin, UIDocumentInteractionControllerDelegate, UID
     }
 
     @objc public func readSharedItems(_ invoke: Invoke) throws {
-        guard let inbox = try sharedInboxURL(create: false) else {
+        guard let inbox = sharedInboxURL() else {
             invoke.resolve([SharedItemReply]())
             return
         }
@@ -230,7 +223,7 @@ class PonletPlatformPlugin: Plugin, UIDocumentInteractionControllerDelegate, UID
             invoke.reject("Shared item identifier is invalid")
             return
         }
-        guard let inbox = try sharedInboxURL(create: false) else {
+        guard let inbox = sharedInboxURL() else {
             invoke.resolve()
             return
         }
@@ -258,12 +251,6 @@ class PonletPlatformPlugin: Plugin, UIDocumentInteractionControllerDelegate, UID
             telemetryConfigured = true
             Analytics.setAnalyticsCollectionEnabled(enabled)
             Crashlytics.crashlytics().setCrashlyticsCollectionEnabled(enabled)
-            let remote = RemoteConfig.remoteConfig()
-            let settings = RemoteConfigSettings()
-            settings.minimumFetchInterval = 43200
-            remote.configSettings = settings
-            remote.setDefaults(["announcement_text": "" as NSObject])
-            if enabled { remote.fetchAndActivate { _, _ in } }
         }
         invoke.resolve(["enabled": enabled, "language": Locale.preferredLanguages.first ?? "en", "osVersion": UIDevice.current.systemVersion])
     }
@@ -286,11 +273,6 @@ class PonletPlatformPlugin: Plugin, UIDocumentInteractionControllerDelegate, UID
         let args = try invoke.parseArgs(PropertyArgs.self)
         if telemetryConfigured { Analytics.setUserProperty(args.value, forName: args.name) }
         invoke.resolve()
-    }
-    @objc public func telemetryRemoteString(_ invoke: Invoke) throws {
-        let args = try invoke.parseArgs(KeyArgs.self)
-        let value = telemetryConfigured ? RemoteConfig.remoteConfig().configValue(forKey: args.key).stringValue : ""
-        invoke.resolve(["value": value])
     }
 }
 

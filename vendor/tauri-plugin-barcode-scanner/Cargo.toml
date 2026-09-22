@@ -54,22 +54,9 @@ notes = ""
 name = "tauri_plugin_barcode_scanner"
 path = "src/lib.rs"
 
-[dependencies.log]
-version = "0.4"
-
-[dependencies.serde]
-version = "1"
-features = ["derive"]
-
-[dependencies.serde_json]
-version = "1"
-
 [dependencies.tauri]
 version = "2.10"
 default-features = false
-
-[dependencies.thiserror]
-version = "2"
 
 [build-dependencies.tauri-plugin]
 version = "2.5"

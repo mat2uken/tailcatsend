@@ -65,7 +65,7 @@ The complete notices shipped by each dependency remain available through the pac
   Source: https://github.com/cozmo/jsQR.
 - The mobile barcode scanner uses Android ML Kit and iOS AVFoundation through
   the Tauri barcode scanner plugin. SDK notices accompany the native packages.
-- Firebase Analytics, Crashlytics, and Remote Config are restored from the
+- Firebase Analytics and Crashlytics are restored from the
   previous mobile integration. Source and SDK notices:
   https://github.com/firebase/firebase-ios-sdk and
   https://github.com/firebase/firebase-android-sdk.

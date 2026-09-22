@@ -12,6 +12,8 @@ use tailsend_platform_api::{
     FileMetadata, FileSource, IncomingFileSink, ReceivedItem, StorageError,
 };
 
+pub use tailsend_protocol::filename::generate_unique_filename as unique_received_name;
+
 use crate::model::{hex_id, new_id, FileRequest, UiReceivedItem};
 
 pub struct NativeFileSource {
@@ -46,8 +48,6 @@ impl NativeFileSource {
             metadata: FileMetadata {
                 name: request.name,
                 size: request.size,
-                mime: request.mime,
-                modified_unix_ms: None,
             },
             next_offset: 0,
         })
@@ -56,12 +56,7 @@ impl NativeFileSource {
     /// Open a file staged by the iOS Share Extension in the application group.
     /// The native plugin has already checked that this path belongs to the
     /// inbox, so it must bypass the WebView FS scope.
-    pub async fn open_local(
-        path: PathBuf,
-        name: String,
-        size: u64,
-        mime: Option<String>,
-    ) -> Result<Self, String> {
+    pub async fn open_local(path: PathBuf, name: String, size: u64) -> Result<Self, String> {
         let metadata = tokio::fs::symlink_metadata(&path)
             .await
             .map_err(|error| error.to_string())?;
@@ -80,12 +75,7 @@ impl NativeFileSource {
             .map_err(|error| error.to_string())?;
         Ok(Self {
             file,
-            metadata: FileMetadata {
-                name,
-                size,
-                mime,
-                modified_unix_ms: None,
-            },
+            metadata: FileMetadata { name, size },
             next_offset: 0,
         })
     }
@@ -95,23 +85,6 @@ impl NativeFileSource {
 impl FileSource for NativeFileSource {
     fn metadata(&self) -> FileMetadata {
         self.metadata.clone()
-    }
-
-    async fn read_at(&mut self, offset: u64, max_len: usize) -> Result<bytes::Bytes, StorageError> {
-        use tokio::io::{AsyncReadExt, AsyncSeekExt};
-        self.file
-            .seek(std::io::SeekFrom::Start(offset))
-            .await
-            .map_err(|error| StorageError::Io(error.to_string()))?;
-        let mut bytes = vec![0u8; max_len];
-        let count = self
-            .file
-            .read(&mut bytes)
-            .await
-            .map_err(|error| StorageError::Io(error.to_string()))?;
-        self.next_offset = offset.saturating_add(count as u64);
-        bytes.truncate(count);
-        Ok(bytes::Bytes::from(bytes))
     }
 
     async fn read_into(
@@ -134,8 +107,6 @@ impl FileSource for NativeFileSource {
         self.next_offset = offset.saturating_add(count as u64);
         Ok(count)
     }
-
-    async fn close(&mut self) {}
 }
 
 pub struct NativeFileSink {
@@ -329,10 +300,6 @@ async fn copy_received_file_exclusively(source: &Path, destination: &Path) -> st
         let _ = tokio::fs::remove_file(destination).await;
     }
     result
-}
-
-pub fn unique_received_name(existing: &HashSet<String>, candidate: &str) -> String {
-    tailsend_protocol::filename::generate_unique_filename(existing, candidate)
 }
 
 pub fn pick_file_requests(app: &AppHandle) -> Result<Vec<FileRequest>, String> {

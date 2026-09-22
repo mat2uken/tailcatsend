@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { sha256, snapshot, waitForSnapshot, waitForNativeSnapshot as waitForAndroidSnapshot, assertTransport } from "./test-support.mjs";
 import { serveStatic } from "./static-server.mjs";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -13,7 +13,6 @@ const serial = process.env.PONLET_ANDROID_SERIAL ?? "";
 const cdpPort = Number(process.env.PONLET_ANDROID_CDP_PORT ?? "9223");
 const androidPackage = process.env.PONLET_ANDROID_PACKAGE ?? "jp.yasagure.ponlet";
 const transportOverride = process.env.PONLET_TEST_TRANSPORT;
-const knownTransportPaths = new Set(["direct-udp", "webrtc", "derp"]);
 
 if (transportOverride && transportOverride !== "derp") {
   throw new Error(`unsupported PONLET_TEST_TRANSPORT: ${transportOverride}`);
@@ -38,40 +37,6 @@ function hideAndroidImeIfShown() {
   if (/mInputShown=(?:true|1)/.test(inputMethod)) {
     adb("shell", "input", "keyevent", "4");
   }
-}
-
-async function snapshot(page) {
-  return page.evaluate(() => window.__ponletBackend?.snapshot?.());
-}
-
-async function waitForSnapshot(page, predicate, description, timeout = 90_000) {
-  const deadline = Date.now() + timeout;
-  let last;
-  while (Date.now() < deadline) {
-    last = await snapshot(page);
-    if (last && predicate(last)) {
-      return last;
-    }
-    await page.waitForTimeout(150);
-  }
-  throw new Error(`${description}: timed out; last snapshot=${JSON.stringify(last)}`);
-}
-
-async function waitForAndroidSnapshot(page, predicate, description, timeout = 90_000) {
-  const deadline = Date.now() + timeout;
-  let last;
-  while (Date.now() < deadline) {
-    last = await page.evaluate(() => window.__TAURI_INTERNALS__?.invoke("ponlet_snapshot"));
-    if (last && predicate(last)) {
-      return last;
-    }
-    await page.waitForTimeout(150);
-  }
-  throw new Error(`${description}: timed out; last snapshot=${JSON.stringify(last)}`);
-}
-
-function sha256(bytes) {
-  return createHash("sha256").update(bytes).digest("hex");
 }
 
 async function tapAndroidButton(page, locator) {
@@ -108,15 +73,6 @@ async function tapAndroidButton(page, locator) {
   }
   if (!point) throw new Error("Android button is not available in the visible viewport");
   adb("shell", "input", "tap", String(point.x), String(point.y));
-}
-
-function assertTransport(snapshotValue, label) {
-  if (!knownTransportPaths.has(snapshotValue.transport)) {
-    throw new Error(`${label} reported an unknown transport: ${snapshotValue.transport}`);
-  }
-  if (transportOverride === "derp" && snapshotValue.transport !== "derp") {
-    throw new Error(`${label} did not use DERP: ${snapshotValue.transport}`);
-  }
 }
 
 async function main() {

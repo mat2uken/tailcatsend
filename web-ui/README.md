@@ -1,6 +1,6 @@
 # Ponlet WebView UI
 
-VanJSとTypeScriptで実装した共通UI。`web` modeは`dist/web`、`tauri` modeは`dist/native`へ出力する。同じUIから`@backend`でadapterの入口を選ぶ。Vite 8、esbuild、Oxlint、Oxfmt、Vitestはvanjslitetemplateの構成に合わせ、実行時依存は`vanjs-core`、Tauri API、`@nkzw/core`とQR読取り用の`jsqr`。
+VanJSとTypeScriptで実装した共通UI。`web` modeは`dist/web`、`tauri` modeは`dist/native`へ出力する。同じUIから`@backend`でadapterの入口を選ぶ。Vite 8、esbuild、Oxlint、Oxfmt、Vitestはvanjslitetemplateの構成に合わせ、実行時依存は`vanjs-core`、Tauri APIとQR読取り用の`jsqr`。
 
 ブラウザmodeは起動時にGo Tailcat WASMをWindowへ読み込み、Rust WASMサービスをDedicated Worker内で初期化する。Rust側が招待、handshake、NAME形式の転送、進捗、取消、OPFS保存を担当し、WorkerとWindowの間はMessagePortとTransferableなArrayBufferで接続する。Dedicated Workerを利用できないブラウザではエラーを表示する。JSON＋Tauri invoke fallbackはTauri modeでのみ利用する。必要なWASMがない場合は送受信成功を作らず、画面にエラーを表示する。Tauri modeはbinary custom schemeまたはAndroid ArrayBuffer portを優先し、対応しない端末だけJSON＋Tauri invoke adapterを使用する。公開先のURLは`document.baseURI`から解決するため、Pagesのパス配下でも同じbundleを利用できる。
 

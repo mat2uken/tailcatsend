@@ -1,16 +1,9 @@
-/**
- * Browser-side validation for a signed WebView release.
- *
- * The Rust update crate performs the same checks for native callers. Keeping
- * this module free of DOM, Cache Storage, and network code makes the rules
- * easy to test and prevents an unverified manifest from reaching either
- * platform's installer.
- */
+/** Validate signed browser releases before they reach Cache Storage. */
 
 export const MAX_MANIFEST_BYTES = 512 * 1024;
 export const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
-export interface ReleaseFile {
+interface ReleaseFile {
   path: string;
   sha256: string;
   size: number;
@@ -25,7 +18,7 @@ export interface ReleaseManifest {
   target: string;
 }
 
-export interface ReleaseCompatibility {
+interface ReleaseCompatibility {
   apiVersion: number;
   currentRevision: number;
   distribution: string;

@@ -24,36 +24,52 @@ func TestPromiseSettlesAfterExecutorReturns(t *testing.T) {
 				}
 				return "deferred success", nil
 			})
-			type outcome struct {
-				rejected bool
-				value    string
-			}
-			settled := make(chan outcome, 1)
-			resolved := js.FuncOf(func(_ js.Value, args []js.Value) any {
-				settled <- outcome{value: args[0].String()}
-				return nil
-			})
-			defer resolved.Release()
-			rejected := js.FuncOf(func(_ js.Value, args []js.Value) any {
-				settled <- outcome{rejected: true, value: args[0].Get("message").String()}
-				return nil
-			})
-			defer rejected.Release()
-			promise.Call("then", resolved, rejected)
 			// makePromise has returned and released the executor before work starts.
 			close(gate)
-			select {
-			case got := <-settled:
-				want := "deferred success"
-				if reject {
-					want = "deferred failure"
-				}
-				if got.rejected != reject || got.value != want {
-					t.Fatalf("settled as %+v, want rejected=%t value=%q", got, reject, want)
-				}
-			case <-time.After(5 * time.Second):
-				t.Fatal("promise did not settle")
+			got, rejected := awaitJSPromise(t, promise)
+			value, want := got.String(), "deferred success"
+			if reject {
+				value, want = got.Get("message").String(), "deferred failure"
+			}
+			if rejected != reject || value != want {
+				t.Fatalf("settled as rejected=%t value=%q, want rejected=%t value=%q", rejected, value, reject, want)
 			}
 		})
 	}
+}
+
+func awaitJSPromise(t *testing.T, promise js.Value) (js.Value, bool) {
+	t.Helper()
+	type outcome struct {
+		value    js.Value
+		rejected bool
+	}
+	done := make(chan outcome, 1)
+	resolve := js.FuncOf(func(_ js.Value, args []js.Value) any {
+		done <- outcome{value: args[0]}
+		return nil
+	})
+	defer resolve.Release()
+	reject := js.FuncOf(func(_ js.Value, args []js.Value) any {
+		done <- outcome{value: args[0], rejected: true}
+		return nil
+	})
+	defer reject.Release()
+	promise.Call("then", resolve, reject)
+	select {
+	case result := <-done:
+		return result.value, result.rejected
+	case <-time.After(5 * time.Second):
+		t.Fatal("JavaScript Promise did not settle")
+		return js.Undefined(), true
+	}
+}
+
+func requireJSResolved(t *testing.T, promise js.Value) js.Value {
+	t.Helper()
+	value, rejected := awaitJSPromise(t, promise)
+	if rejected {
+		t.Fatalf("JavaScript Promise rejected: %s", value.Get("message").String())
+	}
+	return value
 }

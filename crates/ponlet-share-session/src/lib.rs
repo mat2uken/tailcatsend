@@ -8,7 +8,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use bytes::Bytes;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use tailsend_core::{run_host_handshake_stream, run_joiner_handshake};
@@ -16,15 +15,15 @@ use tailsend_native_transport::NativeTailcatTransport;
 use tailsend_platform_api::{FileMetadata, FileSource, StorageError};
 use tailsend_protocol::control::{Capabilities, PeerInfo, PlatformKind};
 use tailsend_protocol::invitation::InvitationV1;
-use tailsend_protocol::limits::{CONTROL_PORT, FILE_PORT, TEXT_PORT};
+use tailsend_protocol::limits::{
+    CONTROL_PORT, DEFAULT_INVITE_LIFETIME_SECS, FILE_PORT, MAX_TEXT_PAYLOAD_SIZE, TEXT_PORT,
+};
 use tailsend_transfer::{send_live_text_stream, send_named_file_stream, ProgressCallback};
 use tailsend_transport_api::{
     CancellationCallback, DuplexStream, ListenOptions, Listener, TailcatTransport, TransportError,
 };
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
-const TEXT_LIMIT: u64 = 1024 * 1024;
-const INVITE_LIFETIME: u64 = 600;
 const CANCELLED: &str = "Operation cancelled";
 
 #[derive(Clone, Debug, Deserialize)]
@@ -41,6 +40,8 @@ struct Item {
     name: String,
     size: u64,
     path: PathBuf,
+    // Keep validating the optional MIME field supplied by the Share Extension.
+    #[allow(dead_code)]
     mime: Option<String>,
 }
 
@@ -183,7 +184,7 @@ fn parse_items(json: &str) -> Result<(Vec<Item>, u64), String> {
         {
             return Err("Invalid shared item identity, name or path".into());
         }
-        if matches!(item.kind, Kind::Text) && item.size > TEXT_LIMIT {
+        if matches!(item.kind, Kind::Text) && item.size > MAX_TEXT_PAYLOAD_SIZE {
             return Err("Shared text exceeds 1 MiB".into());
         }
         total = total.checked_add(item.size).ok_or("Shared size overflow")?;
@@ -304,7 +305,7 @@ async fn run_connected(
             id,
             secret,
             now(),
-            INVITE_LIFETIME,
+            DEFAULT_INVITE_LIFETIME_SECS,
         );
         let url = invitation
             .to_qr_url("https://ponlet.mat2uken.app")
@@ -313,11 +314,13 @@ async fn run_connected(
             snapshot.state = "waiting";
             snapshot.invite_url = Some(url);
         });
-        let incoming =
-            tokio::time::timeout(Duration::from_secs(INVITE_LIFETIME), listener.accept())
-                .await
-                .map_err(|_| "Invitation expired".to_string())?
-                .map_err(|e| e.to_string())?;
+        let incoming = tokio::time::timeout(
+            Duration::from_secs(DEFAULT_INVITE_LIFETIME_SECS),
+            listener.accept(),
+        )
+        .await
+        .map_err(|_| "Invitation expired".to_string())?
+        .map_err(|e| e.to_string())?;
         let mut stream = incoming.stream;
         session.track_stream(&*stream);
         session.update(|snapshot| snapshot.state = "connecting");
@@ -375,7 +378,7 @@ async fn run_connected(
         let result = match item.kind {
             Kind::Text => {
                 let mut bytes = Vec::with_capacity(item.size as usize);
-                file.take(TEXT_LIMIT + 1)
+                file.take(MAX_TEXT_PAYLOAD_SIZE + 1)
                     .read_to_end(&mut bytes)
                     .await
                     .map_err(|e| e.to_string())?;
@@ -393,8 +396,6 @@ async fn run_connected(
                     metadata: FileMetadata {
                         name: item.name.clone(),
                         size: item.size,
-                        mime: item.mime.clone(),
-                        modified_unix_ms: None,
                     },
                 });
                 let progress_session = session.clone();
@@ -448,12 +449,7 @@ impl FileSource for Source {
     fn metadata(&self) -> FileMetadata {
         self.metadata.clone()
     }
-    async fn read_at(&mut self, offset: u64, max_len: usize) -> Result<Bytes, StorageError> {
-        let mut bytes = vec![0; max_len];
-        let count = self.read_into(offset, &mut bytes).await?;
-        bytes.truncate(count);
-        Ok(Bytes::from(bytes))
-    }
+
     async fn read_into(
         &mut self,
         offset: u64,
@@ -468,7 +464,6 @@ impl FileSource for Source {
             .await
             .map_err(|e| StorageError::Io(e.to_string()))
     }
-    async fn close(&mut self) {}
 }
 
 /// # Safety

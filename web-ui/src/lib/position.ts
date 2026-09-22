@@ -1,4 +1,4 @@
-export type Placement = "bottom-start" | "bottom-end" | "top-start" | "top-end";
+type Placement = "bottom-start" | "bottom-end" | "top-start" | "top-end";
 
 export interface PositionOptions {
   offset?: number;

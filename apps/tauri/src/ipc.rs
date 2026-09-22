@@ -194,16 +194,11 @@ async fn wait_event(runtime: &TauriRuntime, request: Frame) -> Frame {
         // the UI. Check the retained history before waiting so the client can
         // resubscribe from a fresh snapshot instead of waiting on a dead
         // channel.
-        if let Err(gap) = runtime.backend.events_since(payload.last_sequence) {
-            let snapshot = match runtime.replace_subscription(&id) {
-                Ok(snapshot) => snapshot,
-                Err(message) => return error(&request, message),
-            };
-            return snapshot_frame(
-                &request,
-                runtime,
-                snapshot.sequence.max(gap.snapshot.sequence),
-            );
+        if runtime.backend.events_since(payload.last_sequence).is_err() {
+            if let Err(message) = runtime.replace_subscription(&id) {
+                return error(&request, message);
+            }
+            return snapshot_frame(&request, runtime);
         }
     }
     let initial_snapshot = if had_subscription {
@@ -234,7 +229,7 @@ async fn wait_event(runtime: &TauriRuntime, request: Frame) -> Frame {
                 );
                 return event_batch_frame(&request, runtime, events.into_iter().take(32).collect());
             }
-            Err(gap) => {
+            Err(_) => {
                 runtime.store_subscription(
                     id,
                     crate::Subscription {
@@ -242,7 +237,7 @@ async fn wait_event(runtime: &TauriRuntime, request: Frame) -> Frame {
                         cancelled,
                     },
                 );
-                return snapshot_frame(&request, runtime, gap.snapshot.sequence);
+                return snapshot_frame(&request, runtime);
             }
             Ok(_) if snapshot.sequence > payload.last_sequence => {
                 runtime.store_subscription(
@@ -252,7 +247,7 @@ async fn wait_event(runtime: &TauriRuntime, request: Frame) -> Frame {
                         cancelled,
                     },
                 );
-                return snapshot_frame(&request, runtime, snapshot.sequence);
+                return snapshot_frame(&request, runtime);
             }
             Ok(_) => {}
         }
@@ -285,20 +280,12 @@ async fn wait_event(runtime: &TauriRuntime, request: Frame) -> Frame {
             }
         }
         None => {
-            let snapshot = match runtime.replace_subscription(&id) {
-                Ok(snapshot) => snapshot,
-                Err(message) => return error(&request, message),
-            };
-            snapshot_frame(&request, runtime, snapshot.sequence)
+            if let Err(message) = runtime.replace_subscription(&id) {
+                return error(&request, message);
+            }
+            snapshot_frame(&request, runtime)
         }
     }
-}
-
-pub(crate) fn subscribe_json(
-    runtime: &TauriRuntime,
-    subscription_id: String,
-) -> Result<crate::UiSnapshot, String> {
-    runtime.ensure_subscription(&subscription_id)
 }
 
 pub(crate) async fn wait_event_json(
@@ -337,7 +324,7 @@ pub(crate) fn unsubscribe_json(runtime: &TauriRuntime, subscription_id: &str) {
     }
 }
 
-fn snapshot_frame(request: &Frame, runtime: &TauriRuntime, _sequence: u64) -> Frame {
+fn snapshot_frame(request: &Frame, runtime: &TauriRuntime) -> Frame {
     let snapshot = runtime.snapshot();
     let sequence = snapshot.sequence;
     let event = UiEvent::Snapshot { sequence, snapshot };

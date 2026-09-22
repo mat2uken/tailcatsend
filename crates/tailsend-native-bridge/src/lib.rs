@@ -5,8 +5,6 @@
 //! by Android, iOS, and the future Tauri adapter.  Payload buffers are borrowed
 //! for the duration of each call; the bridge must not retain their pointers.
 
-use std::fmt;
-
 pub type TcHandle = u64;
 
 pub const TC_OK: i32 = 0;
@@ -42,34 +40,6 @@ pub struct TcEvent {
     pub port: u16,
     pub reserved: u16,
     pub status_code: i32,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TcError(pub i32);
-
-impl TcError {
-    pub const fn code(self) -> i32 {
-        self.0
-    }
-}
-
-impl fmt::Display for TcError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Tailcat bridge error {}", self.0)
-    }
-}
-
-impl std::error::Error for TcError {}
-
-/// Convert a C ABI status into a Rust result.  Calls that also return a
-/// byte count use this only after consuming the count, so partial progress is
-/// never hidden by the status conversion.
-pub fn status(code: i32) -> Result<(), TcError> {
-    if code == TC_OK {
-        Ok(())
-    } else {
-        Err(TcError(code))
-    }
 }
 
 extern "C" {
@@ -131,29 +101,15 @@ extern "C" {
         out_written: *mut usize,
         timeout_ms: u32,
     ) -> i32;
-    pub fn tc_stream_write_all(
-        stream: TcHandle,
-        buffer: *const u8,
-        length: usize,
-        timeout_ms: u32,
-    ) -> i32;
     pub fn tc_stream_close_write(stream: TcHandle) -> i32;
     pub fn tc_stream_close(stream: TcHandle) -> i32;
     pub fn tc_stream_transport(stream: TcHandle, out_transport: *mut u8) -> i32;
     pub fn tc_cancel(handle: TcHandle) -> i32;
-    pub fn tc_last_error(buffer: *mut u8, capacity: usize, out_length: *mut usize) -> i32;
-    pub fn tc_bridge_version(buffer: *mut u8, capacity: usize, out_length: *mut usize) -> i32;
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn status_keeps_nonzero_code() {
-        assert_eq!(status(TC_OK), Ok(()));
-        assert_eq!(status(TC_TIMEOUT), Err(TcError(TC_TIMEOUT)));
-    }
 
     #[test]
     fn event_layout_matches_c_header() {

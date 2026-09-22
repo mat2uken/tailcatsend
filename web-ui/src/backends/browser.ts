@@ -19,8 +19,7 @@ interface GoRuntime {
 type GoConstructor = new () => GoRuntime;
 
 interface GoListener {
-  addr?: string;
-  address?: string;
+  addr: string;
   close(): unknown;
 }
 
@@ -165,7 +164,7 @@ async function handleGoMessage(
         type: "response",
         requestId: message.requestId,
         ok: true,
-        value: { address: listener.addr ?? listener.address ?? "" },
+        value: { address: listener.addr },
       });
     } catch (error) {
       post({

@@ -1,5 +1,3 @@
-//go:build !tailcat_daemon
-
 package main
 
 /*
@@ -63,22 +61,11 @@ const (
 	TC_CANCELLED            = 3
 	TC_INVALID_ARGUMENT     = 10
 	TC_INVALID_HANDLE_ERROR = 11
-	TC_ALREADY_CLOSED       = 12
 	TC_BUFFER_TOO_SMALL     = 13
 	TC_NETWORK_ERROR        = 20
-	TC_PROTOCOL_ERROR       = 21
 	TC_INTERNAL_ERROR       = 255
 
-	TC_EVENT_NONE            = 0
 	TC_EVENT_INCOMING_STREAM = 1
-	TC_EVENT_LISTENER_ERROR  = 2
-	TC_EVENT_STREAM_ERROR    = 3
-	TC_EVENT_LOG             = 4
-
-	TC_TRANSPORT_DIRECT_UDP = 0
-	TC_TRANSPORT_WEBRTC     = 1
-	TC_TRANSPORT_DERP       = 2
-	TC_TRANSPORT_UNKNOWN    = 255
 )
 
 const transportModeEnv = "PONLET_TRANSPORT"
@@ -150,34 +137,6 @@ func init() {
 	netmon.RegisterInterfaceGetter(interfacesViaGetifaddrs)
 }
 
-func transportFromEndpoint(endpoint string) uint8 {
-	return transportpath.FromEndpoint(endpoint)
-}
-
-func transportFromPing(endpoint, peerRelay string, usedDERP bool) uint8 {
-	return transportpath.FromPing(endpoint, peerRelay, usedDERP)
-}
-
-func transportFromServer(server *tailcat.Server, remote net.Addr) uint8 {
-	if server == nil || remote == nil {
-		return TC_TRANSPORT_UNKNOWN
-	}
-	return transportpath.FromPeer(server.Status(), remote)
-}
-
-func transportFromClient(client *tailcat.Client) uint8 {
-	if client == nil {
-		return TC_TRANSPORT_UNKNOWN
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	result, err := client.DiscoPing(ctx)
-	if err != nil || result == nil {
-		return TC_TRANSPORT_UNKNOWN
-	}
-	return transportFromPing(result.Endpoint, result.PeerRelay, result.DERPRegionID != 0)
-}
-
 func tcLogf(format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	cStr := C.CString(msg)
@@ -201,14 +160,12 @@ type bridgeState struct {
 
 type listenerEntry struct {
 	mu      sync.Mutex // serializes Start and Close
-	handle  uint64
 	server  *tailcat.Server
 	address string
 	closed  atomic.Bool
 }
 
 type streamEntry struct {
-	handle      uint64
 	owner       uint64
 	conn        net.Conn
 	client      *tailcat.Client
@@ -239,11 +196,9 @@ type bridgeClientEntry struct {
 type dialResult struct {
 	stream uint64
 	code   C.int32_t
-	err    string
 }
 
 type dialOperation struct {
-	handle     uint64
 	generation uint64
 	cancel     context.CancelFunc
 	done       chan struct{}
@@ -338,7 +293,7 @@ func closeListenerEntry(l *listenerEntry) {
 	_ = l.server.Close()
 }
 
-func enqueueEvent(ev C.tc_event_t, streamHandle uint64) {
+func enqueueEvent(ev C.tc_event_t) {
 	state.mu.Lock()
 	owner := state.listeners[uint64(ev.owner_handle)]
 	if !state.shuttingDown.Load() && owner != nil && !owner.closed.Load() {
@@ -353,11 +308,7 @@ func enqueueEvent(ev C.tc_event_t, streamHandle uint64) {
 		}
 	}
 	state.mu.Unlock()
-	if streamHandle != 0 {
-		if s := takeStream(streamHandle); s != nil {
-			closeStreamEntry(s)
-		}
-	}
+	closeStreamEntry(takeStream(uint64(ev.object_handle)))
 	setLastError("tailcat bridge event queue is full")
 }
 
@@ -512,22 +463,11 @@ func tc_listener_create(
 			return TC_NETWORK_ERROR
 		}
 	}
-	var reg *tailcfg.DERPRegion
-	if len(ci.Region) > 0 {
-		reg = ci.Region[0]
-	} else {
-		var dm tailcfg.DERPMap
-		_ = json.Unmarshal([]byte(staticDERPMapJSON), &dm)
-		if r, ok := dm.Regions[ci.RegionID]; ok {
-			reg = r
-		} else if r304, ok2 := dm.Regions[304]; ok2 {
-			reg = r304
-		}
-	}
-	if reg == nil {
+	if len(ci.Region) == 0 || ci.Region[0] == nil {
 		setLastError("no valid DERP region found")
 		return TC_INTERNAL_ERROR
 	}
+	reg := ci.Region[0]
 	if pk.Public.PresharedKey.IsZero() {
 		pk.Public.PresharedKey = tailcat.NewPresharedKey()
 	}
@@ -545,7 +485,6 @@ func tc_listener_create(
 	handle := nextHandleLocked()
 
 	lEntry := &listenerEntry{
-		handle:  handle,
 		server:  srv,
 		address: string(blob),
 	}
@@ -566,10 +505,9 @@ func tc_listener_create(
 			}
 			sHandle := nextHandleLocked()
 			sEntry := &streamEntry{
-				handle:    sHandle,
 				owner:     handle,
 				conn:      c,
-				transport: transportFromServer(lEntry.server, c.RemoteAddr()),
+				transport: transportpath.FromServer(lEntry.server, c.RemoteAddr()),
 			}
 			state.streams[sHandle] = sEntry
 			state.mu.Unlock()
@@ -580,9 +518,9 @@ func tc_listener_create(
 			ev.owner_handle = C.tc_handle_t(handle)
 			ev.object_handle = C.tc_handle_t(sHandle)
 			ev.port = C.uint16_t(port)
-			ev.reserved = C.uint16_t(transportFromServer(lEntry.server, c.RemoteAddr()))
+			ev.reserved = C.uint16_t(sEntry.transport)
 
-			enqueueEvent(ev, sHandle)
+			enqueueEvent(ev)
 		}
 	}
 
@@ -629,19 +567,7 @@ func tc_listener_address(
 		return TC_INVALID_HANDLE_ERROR
 	}
 
-	addrBytes := []byte(l.address)
-	if out_length != nil {
-		*out_length = C.size_t(len(addrBytes))
-	}
-
-	if capacity < C.size_t(len(addrBytes)) || (len(addrBytes) > 0 && buffer == nil) {
-		return TC_BUFFER_TOO_SMALL
-	}
-
-	if len(addrBytes) > 0 {
-		C.memcpy(unsafe.Pointer(buffer), unsafe.Pointer(&addrBytes[0]), C.size_t(len(addrBytes)))
-	}
-	return TC_OK
+	return copyCString(l.address, buffer, capacity, out_length)
 }
 
 //export tc_listener_close
@@ -796,11 +722,11 @@ func dialStatus(ctx context.Context, err error) C.int32_t {
 	return TC_NETWORK_ERROR
 }
 
-func dialBridge(ctx context.Context, addr, derpURL string, port uint16, generation uint64) (uint64, C.int32_t, error) {
+func dialBridge(ctx context.Context, addr, derpURL string, port uint16, generation uint64) (uint64, C.int32_t) {
 	state.mu.Lock()
 	if state.shuttingDown.Load() || state.generation != generation {
 		state.mu.Unlock()
-		return 0, TC_CANCELLED, context.Canceled
+		return 0, TC_CANCELLED
 	}
 	client, clientKey := acquireBridgeClient(addr, derpURL)
 	state.mu.Unlock()
@@ -811,32 +737,31 @@ func dialBridge(ctx context.Context, addr, derpURL string, port uint16, generati
 		if code != TC_TIMEOUT && code != TC_CANCELLED {
 			setLastError(err.Error())
 		}
-		return 0, code, err
+		return 0, code
 	}
 	if ctx.Err() != nil || !generationActive(generation) {
 		_ = c.Close()
 		releaseBridgeClient(clientKey, client, false)
-		return 0, TC_CANCELLED, context.Canceled
+		return 0, TC_CANCELLED
 	}
-	transport := transportFromClient(client)
+	transport := transportpath.FromClient(client)
 
 	state.mu.Lock()
 	if state.shuttingDown.Load() || state.generation != generation {
 		state.mu.Unlock()
 		_ = c.Close()
 		releaseBridgeClient(clientKey, client, false)
-		return 0, TC_CANCELLED, context.Canceled
+		return 0, TC_CANCELLED
 	}
 	handle := nextHandleLocked()
 	state.streams[handle] = &streamEntry{
-		handle:    handle,
 		conn:      c,
 		client:    client,
 		clientKey: clientKey,
 		transport: transport,
 	}
 	state.mu.Unlock()
-	return handle, TC_OK, nil
+	return handle, TC_OK
 }
 
 func (op *dialOperation) finish(result dialResult) {
@@ -885,36 +810,18 @@ func startDialOperation(addr, derpURL string, port uint16, timeout C.uint32_t) (
 		cancel()
 		return 0, nil
 	}
-	op.handle = nextHandleLocked()
+	handle := nextHandleLocked()
 	op.generation = state.generation
-	state.dials[op.handle] = op
+	state.dials[handle] = op
 	state.mu.Unlock()
 
 	go func() {
-		ctx := baseCtx
-		var timeoutCancel context.CancelFunc
-		if !isInfiniteTimeout(timeout) {
-			ctx, timeoutCancel = context.WithTimeout(baseCtx, time.Duration(timeout)*time.Millisecond)
-		} else {
-			ctx, timeoutCancel = context.WithTimeout(baseCtx, 60*time.Second)
-		}
-		stream, code, err := dialBridge(ctx, addr, derpURL, port, op.generation)
-		if timeoutCancel != nil {
-			timeoutCancel()
-		}
-		if err != nil && code != TC_TIMEOUT && code != TC_CANCELLED {
-			setLastError(err.Error())
-		}
-		op.finish(dialResult{stream: stream, code: code, err: errorString(err)})
+		ctx, cancelTimeout := context.WithTimeout(baseCtx, timeoutDuration(timeout, 60*time.Second))
+		stream, code := dialBridge(ctx, addr, derpURL, port, op.generation)
+		cancelTimeout()
+		op.finish(dialResult{stream: stream, code: code})
 	}()
-	return op.handle, op
-}
-
-func errorString(err error) string {
-	if err == nil {
-		return ""
-	}
-	return err.Error()
+	return handle, op
 }
 
 //export tc_stream_dial
@@ -959,7 +866,7 @@ func tc_stream_dial(
 	timeout := timeoutDuration(timeout_ms, 60*time.Second)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	stream, code, _ := dialBridge(ctx, addr, derpURL, uint16(port), currentGeneration())
+	stream, code := dialBridge(ctx, addr, derpURL, uint16(port), currentGeneration())
 	if code == TC_OK {
 		*out_stream = C.tc_handle_t(stream)
 	}
@@ -1108,12 +1015,6 @@ func tc_stream_read(
 	// observe the returned status on their next read. Returning TC_OK here
 	// would silently discard a non-EOF error and could make a truncated file
 	// look complete.
-	if n > 0 {
-		return readStatus(s, err)
-	}
-	if s.cancelled.Load() {
-		return TC_CANCELLED
-	}
 	return readStatus(s, err)
 }
 
@@ -1212,17 +1113,6 @@ func tc_stream_write(
 	return code
 }
 
-//export tc_stream_write_all
-func tc_stream_write_all(
-	stream C.tc_handle_t,
-	buffer *C.uint8_t,
-	length C.size_t,
-	timeout_ms C.uint32_t,
-) C.int32_t {
-	var written C.size_t
-	return tc_stream_write(stream, buffer, length, &written, timeout_ms)
-}
-
 //export tc_stream_close_write
 func tc_stream_close_write(stream C.tc_handle_t) C.int32_t {
 	state.mu.Lock()
@@ -1267,18 +1157,18 @@ func tc_stream_transport(stream C.tc_handle_t, outTransport *C.uint8_t) C.int32_
 		return TC_INVALID_HANDLE_ERROR
 	}
 	path := s.transportPath()
-	if path == TC_TRANSPORT_UNKNOWN {
+	if path == transportpath.Unknown {
 		if s.client != nil {
-			path = transportFromClient(s.client)
+			path = transportpath.FromClient(s.client)
 		} else {
 			state.mu.Lock()
 			listener := state.listeners[s.owner]
 			state.mu.Unlock()
 			if listener != nil {
-				path = transportFromServer(listener.server, s.conn.RemoteAddr())
+				path = transportpath.FromServer(listener.server, s.conn.RemoteAddr())
 			}
 		}
-		if path != TC_TRANSPORT_UNKNOWN {
+		if path != transportpath.Unknown {
 			s.setTransport(path)
 		}
 	}
@@ -1332,34 +1222,24 @@ func tc_last_error(buffer *C.uint8_t, capacity C.size_t, out_length *C.size_t) C
 	msg := state.lastErrorMsg
 	state.mu.Unlock()
 
-	msgBytes := []byte(msg)
-	if out_length != nil {
-		*out_length = C.size_t(len(msgBytes))
-	}
-
-	if capacity < C.size_t(len(msgBytes)) || (len(msgBytes) > 0 && buffer == nil) {
-		return TC_BUFFER_TOO_SMALL
-	}
-
-	if len(msgBytes) > 0 {
-		C.memcpy(unsafe.Pointer(buffer), unsafe.Pointer(&msgBytes[0]), C.size_t(len(msgBytes)))
-	}
-	return TC_OK
+	return copyCString(msg, buffer, capacity, out_length)
 }
 
 //export tc_bridge_version
 func tc_bridge_version(buffer *C.uint8_t, capacity C.size_t, out_length *C.size_t) C.int32_t {
-	ver := bridgeVersion
-	verBytes := []byte(ver)
-	if out_length != nil {
-		*out_length = C.size_t(len(verBytes))
-	}
+	return copyCString(bridgeVersion, buffer, capacity, out_length)
+}
 
-	if capacity < C.size_t(len(verBytes)) || (len(verBytes) > 0 && buffer == nil) {
+func copyCString(value string, buffer *C.uint8_t, capacity C.size_t, outLength *C.size_t) C.int32_t {
+	if outLength != nil {
+		*outLength = C.size_t(len(value))
+	}
+	if capacity < C.size_t(len(value)) || (len(value) > 0 && buffer == nil) {
 		return TC_BUFFER_TOO_SMALL
 	}
-
-	C.memcpy(unsafe.Pointer(buffer), unsafe.Pointer(&verBytes[0]), C.size_t(len(verBytes)))
+	if len(value) > 0 {
+		C.memcpy(unsafe.Pointer(buffer), unsafe.Pointer(unsafe.StringData(value)), C.size_t(len(value)))
+	}
 	return TC_OK
 }
 

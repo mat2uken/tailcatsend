@@ -43,7 +43,6 @@ function getBackend(): PonletBackend {
 }
 const snapshot = van.state(initialSnapshot());
 const messages = van.state<Array<Message>>([]);
-const lastReceivedText = van.state("");
 const lastTransfer = van.state<TransferResult | null>(null);
 const transferRate = van.state(0);
 const textDraft = van.state("");
@@ -91,7 +90,6 @@ function createSession(): Session {
     }
     snapshot.val = view.snapshot;
     messages.val = view.messages;
-    lastReceivedText.val = view.lastReceivedText;
     lastTransfer.val = view.lastTransfer;
     transferRate.val = view.transferBytesPerSecond;
     if (view.snapshot.state === "connected" && !previouslyIdle) {
@@ -178,7 +176,7 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-export function formatBytes(bytes: number): string {
+function formatBytes(bytes: number): string {
   if (bytes <= 0 || !Number.isFinite(bytes)) {
     return "0 B";
   }
@@ -204,7 +202,7 @@ async function readClipboard(): Promise<string> {
   throw new Error(uiText.clipboardUnavailable);
 }
 
-const statusText = span({ class: "status-text" });
+const statusText = span();
 const status = div(
   {
     class: "status-pill preparing",
@@ -225,8 +223,8 @@ const connectionInfoButton = button(
   },
   "ⓘ",
 );
-const connectionInfoPeer = p({ class: "connection-info-peer" });
-const connectionInfoRoute = p({ class: "connection-info-route" });
+const connectionInfoPeer = p();
+const connectionInfoRoute = p();
 const connectionInfoClose = button({ class: "secondary", type: "button" }, () => uiText.close);
 const connectionInfoPanel = div(
   { class: "connection-info-panel", hidden: true, role: "dialog" },
@@ -251,7 +249,7 @@ const transferProgress = progress({
   "aria-label": () => uiText.transferProgressAriaLabel,
 });
 const transferBytes = span({ class: "transfer-bytes" });
-const transferSpeed = span({ class: "transfer-bytes transfer-speed" });
+const transferSpeed = span({ class: "transfer-bytes" });
 const cancelButton = button({ class: "secondary", type: "button" }, () => uiText.cancel);
 const dismissButton = button({ class: "secondary", type: "button" }, () => uiText.dismiss);
 const transferDetails = div(

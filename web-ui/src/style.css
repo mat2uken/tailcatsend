@@ -126,7 +126,6 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  max-width: 880px;
   width: 100%;
   margin: 0 auto;
   padding: calc(1rem + var(--safe-top)) max(1rem, var(--safe-right)) 0.75rem
@@ -153,8 +152,6 @@ button:disabled {
   flex: 1;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 1.25rem;
-  max-width: 880px;
   width: 100%;
   margin: 0 auto;
   padding: 0 max(1rem, var(--safe-right)) 1.5rem max(1rem, var(--safe-left));
@@ -166,19 +163,12 @@ button:disabled {
   grid-template-columns: minmax(0, 1fr);
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-lg);
-  padding: 1.25rem;
   box-shadow: var(--shadow-card);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   display: grid;
-  gap: 1rem;
 }
 .connection-status-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
   flex-wrap: wrap;
 }
 .status-pill {
@@ -339,13 +329,9 @@ button:disabled {
 .invite-link[hidden] {
   display: none !important;
 }
-.connection-actions,
-.transfer-row,
-.message-actions,
-.composer-actions {
+.transfer-row {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
   flex-wrap: wrap;
 }
 .join-input,
@@ -377,8 +363,6 @@ button:disabled {
   color: var(--text-primary);
 }
 .transfer-row {
-  min-height: 3.5rem;
-  padding: 0.75rem 1rem;
   background: var(--bg-inset);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
@@ -470,27 +454,18 @@ progress::-moz-progress-bar {
   font-size: 0.825rem;
 }
 .message-log {
-  min-height: 10rem;
-  max-height: 22rem;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior-y: contain;
-  padding: 0.85rem;
   background: var(--bg-inset);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
-  scroll-behavior: smooth;
 }
 .message-bubble {
-  margin: 0;
-  padding: 0.65rem 0.95rem;
   border-radius: 14px;
-  font-size: 0.9rem;
   line-height: 1.45;
-  max-width: 82%;
   word-break: break-word;
   white-space: pre-wrap;
   display: inline-block;
@@ -508,21 +483,11 @@ progress::-moz-progress-bar {
   color: #ffffff;
   border-bottom-right-radius: 4px;
 }
-.message-sender {
-  font-size: 0.75rem;
-  font-weight: 600;
-  margin-right: 0.35rem;
-  opacity: 0.8;
-}
 .message-text {
   word-break: break-word;
 }
 .composer-label {
   display: block;
-}
-.composer {
-  resize: vertical;
-  min-height: 4.5rem;
 }
 .settings-toggle {
   display: flex;
@@ -621,7 +586,6 @@ progress::-moz-progress-bar {
   color: var(--text-secondary);
 }
 .footer {
-  max-width: 880px;
   width: 100%;
   margin: 0 auto;
   padding: 1rem max(1rem, var(--safe-right)) calc(1.5rem + var(--safe-bottom))
@@ -629,14 +593,6 @@ progress::-moz-progress-bar {
   color: var(--text-muted);
   font-size: 0.8rem;
   text-align: center;
-}
-.popover {
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  padding: 0.6rem 0.85rem;
-  background: #222733;
-  color: #fff;
-  box-shadow: var(--shadow-card);
 }
 .toast-container {
   position: fixed;
@@ -670,17 +626,6 @@ progress::-moz-progress-bar {
 .toast-anchor {
   position: fixed;
   z-index: 9999;
-  pointer-events: auto;
-  background: rgba(30, 35, 48, 0.96);
-  color: var(--text-primary);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-md);
-  padding: 0.65rem 1.1rem;
-  font-size: 0.875rem;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  animation: toast-fade-in 0.18s ease-out;
 }
 @keyframes toast-fade-in {
   from {
@@ -696,31 +641,12 @@ progress::-moz-progress-bar {
   .shell {
     padding-left: max(0.75rem, var(--safe-left));
     padding-right: max(0.75rem, var(--safe-right));
-    gap: 0.85rem;
-  }
-  .connection-card,
-  .transfer-card,
-  .chat-card {
-    padding: 1rem;
-    border-radius: var(--radius-md);
-  }
-  .connection-actions > * {
-    flex: 1 1 100%;
-  }
-  .message-actions > * {
-    flex: 1 1 auto;
-  }
-  .composer-actions > * {
-    width: 100%;
   }
   progress {
     width: 100%;
   }
   .transfer-row > * {
     flex: 1 1 auto;
-  }
-  .message-bubble {
-    max-width: 90%;
   }
 }
 .empty-state {
@@ -777,8 +703,7 @@ select {
   justify-content: space-between;
   gap: 1rem;
 }
-.settings-note,
-.draft-count {
+.settings-note {
   font-size: 0.85rem;
   color: var(--text-secondary);
 }
@@ -795,26 +720,11 @@ select {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem;
-  padding: 0.85rem;
   background: var(--bg-inset);
   border-radius: var(--radius-md);
 }
 .transfer-status {
   flex-basis: 100%;
-}
-.footer-links {
-  display: flex;
-  gap: 1rem;
-  justify-content: center;
-  flex-wrap: wrap;
-}
-.footer-links a {
-  color: #93c5fd;
-  padding: 0.5rem;
-}
-.message-log {
-  scroll-behavior: auto;
 }
 .native-scanning,
 .native-scanning body {
@@ -899,9 +809,6 @@ body {
   white-space: nowrap;
   color: var(--text-primary);
   font-size: 0.95rem;
-}
-.connection-peer-row .disconnect {
-  flex: 0 0 auto;
 }
 .connection-info-button {
   flex: 0 0 auto;

@@ -52,13 +52,11 @@ func TestListenerStopWaitsForCallback(t *testing.T) {
 func TestListenerCallbackCanStartClose(t *testing.T) {
 	var callbacks listenerCallbacks
 	var closing js.Value
-	closeListener := js.FuncOf(func(_ js.Value, _ []js.Value) any {
-		return makePromise(func() (any, error) {
-			callbacks.stop()
-			return js.Undefined(), nil
-		})
+	listener := makeJSListener("test", func() error {
+		callbacks.stop()
+		return nil
 	})
-	defer closeListener.Release()
+	closeListener := listener.Get("close")
 	accepted := js.FuncOf(func(_ js.Value, _ []js.Value) any {
 		// Reenter close synchronously from onConnection, as a JS caller can.
 		closing = closeListener.Invoke()
@@ -69,26 +67,7 @@ func TestListenerCallbackCanStartClose(t *testing.T) {
 	defer connection.Close()
 	defer peer.Close()
 	callbacks.deliver(connection, func(net.Conn) { accepted.Invoke() })
-	settled := make(chan bool, 1)
-	resolved := js.FuncOf(func(_ js.Value, _ []js.Value) any {
-		settled <- true
-		return nil
-	})
-	defer resolved.Release()
-	rejected := js.FuncOf(func(_ js.Value, _ []js.Value) any {
-		settled <- false
-		return nil
-	})
-	defer rejected.Release()
-	closing.Call("then", resolved, rejected)
-	select {
-	case success := <-settled:
-		if !success {
-			t.Fatal("close rejected")
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("reentrant close did not settle")
-	}
+	requireJSResolved(t, closing)
 	// The owner can now drop onConnection. A late arrival must be closed
 	// without invoking it or creating another JavaScript connection wrapper.
 	late, latePeer := net.Pipe()

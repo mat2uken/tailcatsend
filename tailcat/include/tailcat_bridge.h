@@ -96,9 +96,9 @@ tc_result_t tc_stream_dial(
     tc_handle_t *out_stream);
 
 /*
- * Start a cancellable dial and wait for its result separately. After cancel,
- * wait again to consume the terminal result. One waiter consumes a result;
- * further waits return TC_INVALID_HANDLE_ERROR. A timeout does not consume it.
+ * Start a cancellable dial and wait for its result separately. Cancelling an
+ * operation or consuming its result removes the handle; subsequent waits
+ * return TC_INVALID_HANDLE_ERROR. A timeout does not consume the operation.
  */
 tc_result_t tc_stream_dial_start(
     const uint8_t *address,
@@ -133,13 +133,6 @@ tc_result_t tc_stream_write(
     const uint8_t *buffer,
     size_t length,
     size_t *out_written,
-    uint32_t timeout_ms);
-
-/* Compatibility wrapper that writes the complete buffer or returns an error. */
-tc_result_t tc_stream_write_all(
-    tc_handle_t stream,
-    const uint8_t *buffer,
-    size_t length,
     uint32_t timeout_ms);
 
 tc_result_t tc_stream_close_write(tc_handle_t stream);

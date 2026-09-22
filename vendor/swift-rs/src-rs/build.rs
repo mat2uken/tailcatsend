@@ -12,26 +12,12 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct SwiftTarget {
-    triple: String,
-    unversioned_triple: String,
-    module_triple: String,
-    //pub swift_runtime_compatibility_version: String,
-    #[serde(rename = "librariesRequireRPath")]
-    libraries_require_rpath: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct SwiftPaths {
     runtime_library_paths: Vec<String>,
-    runtime_library_import_paths: Vec<String>,
-    runtime_resource_path: String,
 }
 
 #[derive(Deserialize)]
 struct SwiftEnv {
-    target: SwiftTarget,
     paths: SwiftPaths,
 }
 
@@ -80,16 +66,6 @@ impl RustTargetOS {
             Self::MacOS => "macosx",
             Self::IOS => "ios",
             Self::VisionOS => "xros",
-        }
-    }
-}
-
-impl Display for RustTargetOS {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::MacOS => write!(f, "macos"),
-            Self::IOS => write!(f, "ios"),
-            Self::VisionOS => write!(f, "visionos"),
         }
     }
 }
@@ -545,8 +521,7 @@ impl SwiftLinker {
             // including on Xcode 26. Compiler-only -target flags still make its
             // package planner choose macOS frameworks for an iOS build.
             let xcode27 = xcode_major_version().map(|v| v >= 27).unwrap_or(false);
-            let cross_compiling = !matches!(rust_target.os, RustTargetOS::MacOS);
-            let use_triple = cross_compiling;
+            let use_triple = !matches!(rust_target.os, RustTargetOS::MacOS);
 
             // Xcode 27 SDKs reject iOS deployment targets below 15
             // ("supported deployment target versions is 15.0 to 27.0.x") and

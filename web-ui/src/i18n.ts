@@ -17,9 +17,7 @@ function initialLanguage(): Language {
     : "en";
 }
 export const language = van.state<Language>(initialLanguage());
-export let isJapanese = language.val === "ja";
 export function setLanguage(value: Language): void {
-  isJapanese = value === "ja";
   language.val = value;
   try {
     localStorage.setItem(LANGUAGE_KEY, value);
@@ -206,13 +204,13 @@ export const uiText = new Proxy(translations.en, {
 
 export function transportLabel(path: TransportPath): string {
   if (path === "direct-udp") {
-    return isJapanese ? "WireGuard UDP" : "WireGuard UDP";
+    return "WireGuard UDP";
   }
   if (path === "webrtc") {
-    return isJapanese ? "WebRTC DataChannel" : "WebRTC DataChannel";
+    return "WebRTC DataChannel";
   }
   if (path === "derp") {
-    return isJapanese ? "DERPリレー" : "DERP relay";
+    return language.val === "ja" ? "DERPリレー" : "DERP relay";
   }
   return uiText.transportUnknown;
 }

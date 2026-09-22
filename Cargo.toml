@@ -8,13 +8,11 @@ members = [
     "crates/tailsend-core",
     "crates/tailsend-qr",
     "crates/tailsend-telemetry",
-    "crates/tailsend-updates",
     "crates/tailsend-native-bridge",
     "crates/tailsend-native-transport",
     "crates/tailsend-ipc",
     "crates/ponlet-share-session",
     "crates/tauri-plugin-ponlet-platform",
-    "apps/desktop",
     "apps/web",
     "apps/tauri",
 ]
@@ -33,7 +31,6 @@ tailsend-transfer = { path = "crates/tailsend-transfer" }
 tailsend-core = { path = "crates/tailsend-core" }
 tailsend-qr = { path = "crates/tailsend-qr" }
 tailsend-telemetry = { path = "crates/tailsend-telemetry" }
-tailsend-updates = { path = "crates/tailsend-updates" }
 tailsend-native-bridge = { path = "crates/tailsend-native-bridge" }
 tailsend-native-transport = { path = "crates/tailsend-native-transport" }
 tailsend-ipc = { path = "crates/tailsend-ipc" }
@@ -49,36 +46,17 @@ base64 = "0.22"
 subtle = "2.6"
 rand = "0.8"
 getrandom = { version = "0.2", features = ["js"] }
-bytes = "1.10"
 thiserror = "2.0"
 log = "0.4"
-env_logger = "0.11"
 async-trait = "0.1"
 futures = "0.3"
-tokio = { version = "1.43", features = ["full"] }
+tokio = { version = "1.43", features = ["rt-multi-thread", "sync", "time", "macros", "fs", "io-util"] }
 ureq = { version = "2", default-features = false, features = ["tls"] }
 
 # WASM dependencies
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
-web-sys = { version = "0.3", features = [
-    "Window",
-    "Document",
-    "Location",
-    "History",
-    "Navigator",
-    "Clipboard",
-    "File",
-    "Blob",
-    "ReadableStream",
-    "WritableStream",
-    "WritableStreamDefaultWriter",
-    "DecompressionStream",
-    "Response",
-    "HtmlInputElement",
-    "FileList",
-] }
 
 # QR code
 qrcode = { version = "0.14", default-features = false }

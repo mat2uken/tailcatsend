@@ -1,10 +1,11 @@
-import { createHash } from "node:crypto";
+import { sha256, snapshot, nativeSnapshot as androidSnapshot, waitFor as waitForShared } from "./test-support.mjs";
 import { serveStatic } from "./static-server.mjs";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import playwright from "../../web-ui/node_modules/playwright/index.js";
 
+const waitFor = (read, predicate, description, timeout) => waitForShared(read, predicate, description, timeout, 100);
 const { chromium } = playwright;
 const root = resolve(new URL("../..", import.meta.url).pathname);
 const dist = resolve(process.env.PONLET_TEST_DIST ?? resolve(root, "dist"));
@@ -13,38 +14,12 @@ const serial = process.env.PONLET_ANDROID_SERIAL ?? "";
 const cdpPort = Number(process.env.PONLET_ANDROID_CDP_PORT ?? "9223");
 const androidPackage = process.env.PONLET_ANDROID_PACKAGE ?? "jp.yasagure.ponlet";
 
-
 function adb(...args) {
   return execFileSync("adb", ["-s", serial, ...args], { encoding: "utf8" }).trim();
 }
 
 function shellQuote(value) {
   return `'${value.replaceAll("'", "'\\''")}'`;
-}
-
-async function snapshot(page) {
-  return page.evaluate(() => window.__ponletBackend?.snapshot?.());
-}
-
-async function androidSnapshot(page) {
-  return page.evaluate(() => window.__TAURI_INTERNALS__?.invoke("ponlet_snapshot"));
-}
-
-async function waitFor(read, predicate, label, timeout = 90_000) {
-  const deadline = Date.now() + timeout;
-  let last;
-  while (Date.now() < deadline) {
-    last = await read();
-    if (last && predicate(last)) {
-      return last;
-    }
-    await new Promise((resolveWait) => setTimeout(resolveWait, 100));
-  }
-  throw new Error(`${label} timed out: ${JSON.stringify(last)}`);
-}
-
-function sha256(bytes) {
-  return createHash("sha256").update(bytes).digest("hex");
 }
 
 if (!serial) {

@@ -103,12 +103,6 @@ pub struct BackendService {
     queue_limit: usize,
 }
 
-/// Public name used by the Tauri and Web Worker adapters.  Keeping the
-/// implementation in `BackendService` makes it possible to construct the
-/// same service in native and WASM builds without adding a second state
-/// machine.
-pub type PonletBackend = BackendService;
-
 impl Default for BackendService {
     fn default() -> Self {
         Self::new(DEFAULT_EVENT_QUEUE)
@@ -168,18 +162,6 @@ impl BackendService {
         inner.snapshot.clone()
     }
 
-    /// Subscribe before taking a snapshot, then ignore events up to its
-    /// sequence. Prefer `subscribe_with_snapshot` to perform both atomically.
-    pub fn subscribe(&self) -> Receiver<BackendEvent> {
-        let (tx, rx) = channel(self.queue_limit);
-        self.inner
-            .lock()
-            .expect("backend state mutex poisoned")
-            .subscribers
-            .push(tx);
-        rx
-    }
-
     pub fn subscribe_with_snapshot(&self) -> (BackendSnapshot, Receiver<BackendEvent>) {
         let (tx, rx) = channel(self.queue_limit);
         let mut inner = self.inner.lock().expect("backend state mutex poisoned");
@@ -193,13 +175,6 @@ impl BackendService {
         self.emit(AppEvent::StateChanged(state))
     }
 
-    /// Record the path selected for the current data stream.  Tailcat can
-    /// choose a different path for a transfer than it used for the control
-    /// handshake, so adapters call this after every dial/accept.
-    pub fn set_transport_path(&self, path: TransportPath) -> BackendEvent {
-        self.emit(AppEvent::TransportChanged(path))
-    }
-
     /// Publish a non-progress event.  Terminal events are never coalesced.
     pub fn emit(&self, event: AppEvent) -> BackendEvent {
         let mut inner = self.inner.lock().expect("backend state mutex poisoned");
@@ -208,45 +183,6 @@ impl BackendService {
         drop(inner);
         record_telemetry(telemetry);
         ordered
-    }
-
-    /// Publish progress at most every 200 ms for each transfer.  The latest
-    /// value is retained and can be flushed at a transfer boundary.
-    pub fn progress(
-        &self,
-        transfer_id: [u8; 16],
-        bytes_done: u64,
-        bytes_total: u64,
-    ) -> Option<BackendEvent> {
-        let mut inner = self.inner.lock().expect("backend state mutex poisoned");
-        progress_locked(
-            &mut inner,
-            self.queue_limit,
-            transfer_id,
-            bytes_done,
-            bytes_total,
-        )
-    }
-
-    /// Publish the latest progress value before a terminal event.
-    pub fn flush_progress(&self, transfer_id: [u8; 16]) -> Option<BackendEvent> {
-        let mut inner = self.inner.lock().expect("backend state mutex poisoned");
-        let queued = inner.progress.remove(&transfer_id)?;
-        if let AppEvent::TransferProgress { bytes_done, .. } = &queued.event {
-            update_snapshot_progress(&mut inner.snapshot, transfer_id, *bytes_done);
-        }
-        Some(publish_locked(&mut inner, self.queue_limit, queued.event))
-    }
-
-    /// Create the cancellation token used by a transfer worker.
-    pub fn register_transfer(&self, transfer_id: [u8; 16]) -> Arc<AtomicBool> {
-        self.inner
-            .lock()
-            .expect("backend state mutex poisoned")
-            .cancellation
-            .entry(transfer_id)
-            .or_insert_with(|| Arc::new(AtomicBool::new(false)))
-            .clone()
     }
 
     /// Request cancellation without entering the transfer I/O lock.
@@ -616,8 +552,6 @@ fn refresh_capabilities(snapshot: &mut AppSnapshot, state: &SessionState) {
     let previous_transport_path = snapshot.transport_path;
     snapshot.can_send = false;
     snapshot.can_disconnect = false;
-    snapshot.pending_offer = None;
-    snapshot.invite_qr_url = None;
     snapshot.invite_expires_in_secs = 0;
     snapshot.transport_path = match state {
         SessionState::ConnectedIdle { transport_path, .. } => *transport_path,
@@ -625,27 +559,17 @@ fn refresh_capabilities(snapshot: &mut AppSnapshot, state: &SessionState) {
         _ => TransportPath::Unknown,
     };
     match state {
-        SessionState::AwaitingPeer { invite_url, .. } => {
-            snapshot.invite_qr_url = Some(invite_url.clone());
+        SessionState::AwaitingPeer { .. } => {
             refresh_invite_expiry(snapshot);
             snapshot.can_disconnect = true;
-            snapshot.can_send = false;
         }
         SessionState::ConnectedIdle { peer_info, .. } => {
             snapshot.peer_display_name = peer_info.display_name.clone();
             snapshot.can_disconnect = true;
             snapshot.can_send = true;
-            snapshot.pending_offer = None;
-            snapshot.invite_qr_url = None;
-            snapshot.invite_expires_in_secs = 0;
-        }
-        SessionState::AwaitingUserDecision { offer, .. } => {
-            snapshot.pending_offer = Some(offer.clone());
-            snapshot.can_disconnect = true;
         }
         SessionState::DialingHost { .. }
         | SessionState::Authenticating
-        | SessionState::AwaitingAcceptance { .. }
         | SessionState::Transferring { .. } => {
             snapshot.can_disconnect = true;
         }
@@ -779,7 +703,10 @@ mod tests {
         assert!(previous.restore_connected_idle([1; 16]).is_none());
         assert_eq!(service.snapshot().sequence, sequence);
         assert!(service.snapshot().received_messages.is_empty());
-        assert_eq!(service.snapshot().app.invite_qr_url.as_deref(), Some("new"));
+        assert!(matches!(
+            service.snapshot().app.state,
+            SessionState::AwaitingPeer { invite_url, .. } if invite_url == "new"
+        ));
     }
 
     #[test]
@@ -902,7 +829,7 @@ mod tests {
     #[test]
     fn state_event_has_monotonic_sequence_and_snapshot() {
         let service = BackendService::default();
-        let _rx = service.subscribe();
+        let (_, _rx) = service.subscribe_with_snapshot();
         let state = SessionState::Disconnected {
             reason: "test".to_string(),
         };
@@ -916,7 +843,8 @@ mod tests {
     #[test]
     fn transport_event_updates_the_path_during_a_transfer() {
         let service = BackendService::default();
-        let event = service.set_transport_path(TransportPath::Derp);
+        let scope = service.begin_session();
+        let event = scope.set_transport_path(TransportPath::Derp).unwrap();
         let snapshot = service.snapshot();
         assert!(matches!(
             event.event,
@@ -959,11 +887,14 @@ mod tests {
     #[test]
     fn missing_route_is_not_inferred_and_replacement_sessions_reset_old_measurements() {
         let service = BackendService::default();
+        let previous = service.begin_session();
         assert!(matches!(
-            service.set_transport_path(TransportPath::Unknown).event,
+            previous
+                .set_transport_path(TransportPath::Unknown)
+                .unwrap()
+                .event,
             AppEvent::TransportChanged(TransportPath::Unknown)
         ));
-        let previous = service.begin_session();
         previous.set_transport_path(TransportPath::Derp);
         let disconnected = service.begin_session();
         disconnected.set_state(SessionState::Disconnected {
@@ -1000,8 +931,9 @@ mod tests {
     #[test]
     fn cancellation_is_independent_from_event_delivery() {
         let service = BackendService::default();
+        let scope = service.begin_session();
         let transfer_id = [7u8; 16];
-        let token = service.register_transfer(transfer_id);
+        let token = scope.register_transfer(transfer_id);
         assert!(!token.load(Ordering::Acquire));
         assert!(service.cancel(transfer_id));
         assert!(token.load(Ordering::Acquire));
@@ -1013,8 +945,9 @@ mod tests {
     #[test]
     fn cancellation_callback_runs_once_and_outside_state_lock() {
         let service = BackendService::default();
+        let scope = service.begin_session();
         let transfer_id = [8u8; 16];
-        service.register_transfer(transfer_id);
+        scope.register_transfer(transfer_id);
         let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let calls_for_callback = calls.clone();
         let service_for_callback = service.clone();
@@ -1056,7 +989,8 @@ mod tests {
     fn subscriber_receives_ordered_events() {
         futures::executor::block_on(async {
             let service = BackendService::default();
-            let mut rx = service.subscribe();
+            let (snapshot, mut rx) = service.subscribe_with_snapshot();
+            assert_eq!(snapshot.sequence, 0);
             service.emit(AppEvent::ErrorOccurred {
                 code: 9,
                 message: "ordered".to_string(),
@@ -1100,8 +1034,9 @@ mod tests {
     #[test]
     fn repeated_registration_keeps_the_workers_cancellation_token() {
         let service = BackendService::default();
-        let first = service.register_transfer([1; 16]);
-        let second = service.register_transfer([1; 16]);
+        let scope = service.begin_session();
+        let first = scope.register_transfer([1; 16]);
+        let second = scope.register_transfer([1; 16]);
         assert!(Arc::ptr_eq(&first, &second));
         service.cancel([1; 16]);
         assert!(first.load(Ordering::Acquire));
@@ -1110,10 +1045,11 @@ mod tests {
     #[test]
     fn terminal_event_flushes_final_progress_before_itself() {
         let service = BackendService::default();
-        service.register_transfer([1; 16]);
-        service.progress([1; 16], 1, 10);
-        service.progress([1; 16], 10, 10);
-        service.emit(AppEvent::TransferCompleted {
+        let scope = service.begin_session();
+        scope.register_transfer([1; 16]);
+        scope.progress([1; 16], 1, 10);
+        scope.progress([1; 16], 10, 10);
+        scope.emit(AppEvent::TransferCompleted {
             transfer_id: [1; 16],
         });
         let events = service.events_since(0).unwrap();
@@ -1126,7 +1062,7 @@ mod tests {
             AppEvent::TransferCompleted { .. }
         ));
         assert!(!service.cancel([1; 16]));
-        assert!(service.flush_progress([1; 16]).is_none());
+        assert!(service.inner.lock().unwrap().progress.is_empty());
     }
 
     #[test]
@@ -1140,7 +1076,7 @@ mod tests {
         assert_eq!(service.snapshot().app.invite_expires_in_secs, 0);
         assert!(service.snapshot().app.can_disconnect);
         service.set_state(SessionState::Booting);
-        assert!(service.snapshot().app.invite_qr_url.is_none());
+        assert_eq!(service.snapshot().app.state, SessionState::Booting);
         assert!(!service.snapshot().app.can_disconnect);
         service.set_state(SessionState::DialingHost {
             host_address: "test".into(),

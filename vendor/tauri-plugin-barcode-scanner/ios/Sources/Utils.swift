@@ -33,22 +33,13 @@ func createCaptureDeviceInput(
 }
 
 func discoverCaptureDevices() -> [AVCaptureDevice] {
-  if #available(iOS 13.0, *) {
-    return AVCaptureDevice.DiscoverySession(
-      deviceTypes: [
-        .builtInTripleCamera, .builtInDualCamera, .builtInTelephotoCamera,
-        .builtInTrueDepthCamera,
-        .builtInUltraWideCamera, .builtInDualWideCamera, .builtInWideAngleCamera,
-      ], mediaType: .video, position: .unspecified
-    ).devices
-  } else {
-    return AVCaptureDevice.DiscoverySession(
-      deviceTypes: [
-        .builtInDualCamera, .builtInWideAngleCamera, .builtInTelephotoCamera,
-        .builtInTrueDepthCamera,
-      ], mediaType: .video, position: .unspecified
-    ).devices
-  }
+  return AVCaptureDevice.DiscoverySession(
+    deviceTypes: [
+      .builtInTripleCamera, .builtInDualCamera, .builtInTelephotoCamera,
+      .builtInTrueDepthCamera,
+      .builtInUltraWideCamera, .builtInDualWideCamera, .builtInWideAngleCamera,
+    ], mediaType: .video, position: .unspecified
+  ).devices
 }
 
 func formatStringFromMetadata(_ type: AVMetadataObject.ObjectType) -> String {

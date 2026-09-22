@@ -4,7 +4,6 @@ pub const PROTOCOL_MINOR: u32 = 0;
 pub const CONTROL_PORT: u16 = 100;
 pub const TEXT_PORT: u16 = 101;
 pub const FILE_PORT: u16 = 102;
-pub const RESERVED_DIR_PORT: u16 = 103;
 
 pub const MAX_CONTROL_FRAME_SIZE: usize = 1024 * 1024; // 1 MiB
 pub const MAX_TEXT_PAYLOAD_SIZE: u64 = 1024 * 1024; // 1 MiB

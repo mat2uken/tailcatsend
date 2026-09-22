@@ -8,14 +8,7 @@ tailsend-protocol = { workspace = true }
 tailsend-transport-api = { workspace = true }
 tailsend-platform-api = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, optional = true }
-
-[features]
-default = []
-tokio-runtime = ["dep:tokio"]
-
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 async-trait = { workspace = true }
-bytes = { workspace = true }
 futures = { workspace = true }
 tokio = { workspace = true }

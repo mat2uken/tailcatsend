@@ -9,7 +9,7 @@ pub use crate::runtime::ponlet_qr_code_impl;
 
 #[tauri::command]
 pub async fn ponlet_snapshot(runtime: State<'_, TauriRuntime>) -> Result<UiSnapshot, String> {
-    crate::runtime::ponlet_snapshot_impl(&runtime).await
+    Ok(runtime.snapshot())
 }
 
 #[tauri::command]
@@ -17,7 +17,7 @@ pub fn ponlet_subscribe(
     runtime: State<'_, TauriRuntime>,
     subscription_id: String,
 ) -> Result<UiSnapshot, String> {
-    crate::ipc::subscribe_json(&runtime, subscription_id)
+    runtime.ensure_subscription(&subscription_id)
 }
 
 #[tauri::command]

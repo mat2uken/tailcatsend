@@ -28,7 +28,7 @@ cleared `savedInvoke` before rejecting it, leaving the scan Promise pending.
 
 `ScanSession.kt` now identifies each scan. Provider, binding and analysis
 callbacks check that scan before acting. Scan/cancel and camera state changes
-run on the UI thread. Cleanup invalidates callbacks, removes preview/overlay
+run on the UI thread. Cleanup invalidates callbacks, removes preview
 views even before provider readiness, unbinds the camera and closes ML Kit.
 The pending invocation is taken before cleanup and completed exactly once.
 No-camera, permission and provider/binding failures now reject the scan.
@@ -56,3 +56,19 @@ cd apps/tauri/gen/android
 Physical camera/permission/preview checks on Android and iOS remain separate
 from these state tests. When updating the plugin, compare the upstream changes
 against these fixes before removing the workspace patch.
+
+The Android overlay inherited from upstream had no graphics, image dimensions,
+or callers adding graphics. It has been removed together with write-only camera
+and scanner-options fields. Camera binding, ML Kit processing and teardown are
+unchanged. On iOS, the unused camera index and redundant preview-layer field
+were removed; `CameraView` continues to retain and remove its preview layer.
+
+Unused Android instrumentation-test dependencies and runner configuration were
+removed because this plugin only contains local JVM unit tests.
+
+The unused Rust `BarcodeScanner` state wrapper, extension trait, error types and
+their direct serde/thiserror dependencies are removed. Ponlet registers the
+native plugin through `init()` and invokes its commands from the frontend.
+Tauri's native plugin managers own the registered instances; its Rust
+`PluginHandle` has no unregistering Drop behavior. Native registration, command
+permissions and Kotlin/Swift command implementations remain unchanged.

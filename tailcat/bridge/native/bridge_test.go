@@ -1,5 +1,3 @@
-//go:build !tailcat_daemon
-
 package main
 
 import (
@@ -137,7 +135,7 @@ func TestDialCancellationClosesCompletedUnclaimedStream(t *testing.T) {
 		conn := &scriptedConn{}
 		state.mu.Lock()
 		handle := nextHandleLocked()
-		state.streams[handle] = &streamEntry{handle: handle, conn: conn}
+		state.streams[handle] = &streamEntry{conn: conn}
 		state.mu.Unlock()
 		op := &dialOperation{cancel: func() {}, done: make(chan struct{})}
 		if before {
@@ -175,37 +173,6 @@ func TestConcurrentShutdownAndInit(t *testing.T) {
 	tc_init()
 	if !generationActive(currentGeneration()) {
 		t.Fatal("last initialization is not active")
-	}
-}
-
-func TestTransportFromEndpoint(t *testing.T) {
-	tests := []struct {
-		name     string
-		endpoint string
-		want     uint8
-	}{
-		{name: "direct", endpoint: "192.0.2.10:41641", want: TC_TRANSPORT_DIRECT_UDP},
-		{name: "webrtc", endpoint: "127.3.3.41:3478 (198.51.100.8:443)", want: TC_TRANSPORT_WEBRTC},
-		{name: "empty", endpoint: "", want: TC_TRANSPORT_UNKNOWN},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := transportFromEndpoint(tt.endpoint); got != tt.want {
-				t.Fatalf("transportFromEndpoint(%q) = %d, want %d", tt.endpoint, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestTransportFromPing(t *testing.T) {
-	if got := transportFromPing("", "", true); got != TC_TRANSPORT_DERP {
-		t.Fatalf("DERP path = %d, want %d", got, TC_TRANSPORT_DERP)
-	}
-	if got := transportFromPing("", "198.51.100.3:443:vni:1", false); got != TC_TRANSPORT_DERP {
-		t.Fatalf("peer relay path = %d, want %d", got, TC_TRANSPORT_DERP)
-	}
-	if got := transportFromPing("", "", false); got != TC_TRANSPORT_UNKNOWN {
-		t.Fatalf("unknown path = %d, want %d", got, TC_TRANSPORT_UNKNOWN)
 	}
 }
 

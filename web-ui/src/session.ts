@@ -16,8 +16,7 @@ export interface TransferResult {
   status: "completed" | "cancelled" | "failed";
   total: number;
 }
-export interface SessionView {
-  lastReceivedText: string;
+interface SessionView {
   lastTransfer: TransferResult | null;
   messages: Array<Message>;
   snapshot: BackendSnapshot;
@@ -30,7 +29,6 @@ export class Session {
   view: SessionView = {
     snapshot: initialSnapshot(),
     messages: [],
-    lastReceivedText: "",
     lastTransfer: null,
     transferBytesPerSecond: 0,
   };
@@ -86,7 +84,7 @@ export class Session {
 
   clearHistory(): void {
     this.historyClearedAt = this.sequence;
-    this.view = { ...this.view, messages: [], lastReceivedText: "" };
+    this.view = { ...this.view, messages: [] };
     this.changed(this.view);
   }
 
@@ -168,7 +166,6 @@ export class Session {
       ...this.view,
       snapshot,
       messages,
-      lastReceivedText: messages.find((message) => message.incoming)?.text ?? "",
     };
     this.changed(this.view);
   }
@@ -199,7 +196,6 @@ export class Session {
           { text: event.text, incoming: event.incoming, sequence: event.sequence },
           ...this.view.messages,
         ],
-        lastReceivedText: event.incoming ? event.text : this.view.lastReceivedText,
       };
     } else if (event.type === "files") {
       snapshot.received = [...snapshot.received, ...event.items];

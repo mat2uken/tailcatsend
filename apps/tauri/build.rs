@@ -12,16 +12,14 @@ fn main() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("ios") {
         stage_swift_products(&manifest, &target);
     }
-    let target_default = match target.as_str() {
-        "aarch64-apple-ios" => Some(repo.join("target/native/tailcat/ios")),
-        "aarch64-apple-ios-sim" => Some(repo.join("target/native/tailcat/ios-sim")),
-        "aarch64-linux-android" => Some(repo.join("target/native/tailcat/android")),
-        _ => Some(repo.join("target/native/tailcat")),
-    };
     let lib_dir = std::env::var_os("PONLET_TAILCAT_LIB_DIR")
         .map(std::path::PathBuf::from)
-        .or(target_default)
-        .expect("native Tailcat library directory must be configured");
+        .unwrap_or_else(|| match target.as_str() {
+            "aarch64-apple-ios" => repo.join("target/native/tailcat/ios"),
+            "aarch64-apple-ios-sim" => repo.join("target/native/tailcat/ios-sim"),
+            "aarch64-linux-android" => repo.join("target/native/tailcat/android"),
+            _ => repo.join("target/native/tailcat"),
+        });
     let lib_name = std::env::var("PONLET_TAILCAT_LIB_NAME").unwrap_or_else(|_| "tailcat".into());
     println!("cargo:rustc-link-search=native={}", lib_dir.display());
     println!("cargo:rustc-link-lib={lib_name}");

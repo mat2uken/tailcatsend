@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { sha256, snapshot, waitForSnapshot, waitForNativeSnapshot as waitForIosSnapshot, assertTransport } from "./test-support.mjs";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -12,7 +12,6 @@ const webUrl = process.env.PONLET_TEST_WEB_URL ?? "https://ponlet.mat2uken.app/"
 const transportOverride = process.env.PONLET_TEST_TRANSPORT;
 const output = resolve(process.env.PONLET_TEST_OUTPUT ?? `${tmpdir()}/ponlet-ios-${Date.now()}`);
 const appBundleId = "jp.yasagure.ponlet";
-const knownTransportPaths = new Set(["direct-udp", "webrtc", "derp"]);
 
 if (transportOverride && transportOverride !== "derp") {
   throw new Error(`unsupported PONLET_TEST_TRANSPORT: ${transportOverride}`);
@@ -47,40 +46,6 @@ function verifyCdpDevice() {
 
 function devicectl(...args) {
   return execFileSync("xcrun", ["devicectl", ...args], { encoding: "utf8" }).trim();
-}
-
-async function snapshot(page) {
-  return page.evaluate(() => window.__ponletBackend?.snapshot?.());
-}
-
-async function waitForSnapshot(page, predicate, description, timeout = 90_000) {
-  const deadline = Date.now() + timeout;
-  let last;
-  while (Date.now() < deadline) {
-    last = await snapshot(page);
-    if (last && predicate(last)) {
-      return last;
-    }
-    await page.waitForTimeout(150);
-  }
-  throw new Error(`${description}: timed out; last snapshot=${JSON.stringify(last)}`);
-}
-
-async function waitForIosSnapshot(page, predicate, description, timeout = 90_000) {
-  const deadline = Date.now() + timeout;
-  let last;
-  while (Date.now() < deadline) {
-    last = await page.evaluate(() => window.__TAURI_INTERNALS__?.invoke("ponlet_snapshot"));
-    if (last && predicate(last)) {
-      return last;
-    }
-    await page.waitForTimeout(150);
-  }
-  throw new Error(`${description}: timed out; last snapshot=${JSON.stringify(last)}`);
-}
-
-function sha256(bytes) {
-  return createHash("sha256").update(bytes).digest("hex");
 }
 
 async function tapIosButton(page, locator) {
@@ -122,15 +87,6 @@ function copyFromApp(source, destination) {
     "--timeout",
     "120",
   );
-}
-
-function assertTransport(snapshotValue, label) {
-  if (!knownTransportPaths.has(snapshotValue.transport)) {
-    throw new Error(`${label} reported an unknown transport: ${snapshotValue.transport}`);
-  }
-  if (transportOverride === "derp" && snapshotValue.transport !== "derp") {
-    throw new Error(`${label} did not use DERP: ${snapshotValue.transport}`);
-  }
 }
 
 async function main() {

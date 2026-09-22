@@ -22,10 +22,6 @@ pub trait TelemetryBackend: Send + Sync {
     fn set_user_property(&self, _name: &str, _value: &str) {}
     /// SDKレベルの収集有効/無効制御 (例: Firebase setAnalyticsCollectionEnabled)
     fn set_collection_enabled(&self, enabled: bool);
-    /// Remote Config 相当の文字列取得 (未設定時は None)
-    fn remote_config_string(&self, _key: &str) -> Option<String> {
-        None
-    }
 }
 
 static BACKEND: Mutex<Option<Box<dyn TelemetryBackend>>> = Mutex::new(None);
@@ -82,28 +78,6 @@ pub fn set_user_property(name: &str, value: &str) {
     }
 }
 
-/// Logs the standard `error` event. `category` is an enumerated string; never
-/// include error message bodies (they may contain paths or peer addresses).
-pub fn record_error(category: &str) {
-    log_event("error", &[("category", category)]);
-}
-
-/// Remote Config equivalent. Returns `default_value` when disabled or before
-/// `init`.
-pub fn remote_string(key: &str, default_value: &str) -> String {
-    if !is_enabled() {
-        return default_value.to_string();
-    }
-    if let Ok(guard) = BACKEND.lock() {
-        if let Some(backend) = guard.as_ref() {
-            return backend
-                .remote_config_string(key)
-                .unwrap_or_else(|| default_value.to_string());
-        }
-    }
-    default_value.to_string()
-}
-
 /// Buckets free-form text lengths so raw sizes (and never contents) are sent.
 pub fn length_bucket(chars: usize) -> &'static str {
     match chars {
@@ -139,74 +113,10 @@ pub mod events {
         );
     }
 
-    /// Best-effort; not sent when the process is killed.
-    pub fn app_end(session_duration_ms: u128) {
-        log_event(
-            "app_end",
-            &[("session_duration_ms", &session_duration_ms.to_string())],
-        );
-    }
-
-    pub fn session_created(transport: &str) {
-        log_event("session_created", &[("transport", transport)]);
-    }
-
-    pub fn peer_connected(transport: &str) {
-        log_event("peer_connected", &[("transport", transport)]);
-    }
-
-    /// Byte counts only; file names must never be sent.
-    pub fn transfer_started(file_count: usize, transport: &str, direction: &str) {
-        log_event(
-            "transfer_started",
-            &[
-                ("file_count", &file_count.to_string()),
-                ("transport", transport),
-                ("direction", direction),
-            ],
-        );
-    }
-
-    pub fn transfer_completed(
-        file_count: usize,
-        total_bytes: u64,
-        duration_ms: u128,
-        transport: &str,
-        direction: &str,
-    ) {
-        log_event(
-            "transfer_completed",
-            &[
-                ("file_count", &file_count.to_string()),
-                ("total_bytes", &total_bytes.to_string()),
-                ("duration_ms", &duration_ms.to_string()),
-                ("transport", transport),
-                ("direction", direction),
-            ],
-        );
-    }
-
-    /// `reason` is an enumerated string such as "user"; no transfer details.
-    pub fn transfer_cancelled(reason: &str) {
-        log_event("transfer_cancelled", &[("reason", reason)]);
-    }
-
     /// No parameters besides the length bucket; text contents must never be
     /// sent.
     pub fn text_message_sent(length_bucket: &str) {
         log_event("text_message_sent", &[("length_bucket", length_bucket)]);
-    }
-
-    /// No parameters besides the length bucket; text contents must never be
-    /// sent.
-    pub fn text_message_received(length_bucket: &str) {
-        log_event("text_message_received", &[("length_bucket", length_bucket)]);
-    }
-
-    /// `category` is one of "transport" | "storage" | "camera" | "daemon" |
-    /// "other". Never include error message bodies.
-    pub fn error(category: &str) {
-        log_event("error", &[("category", category)]);
     }
 }
 
@@ -220,7 +130,6 @@ mod tests {
     static EVENT_COUNT: AtomicUsize = AtomicUsize::new(0);
     static PROPERTY_COUNT: AtomicUsize = AtomicUsize::new(0);
     static LAST_PARAMS: Mutex<Option<RecordedEvent>> = Mutex::new(None);
-    static REMOTE_VALUE: Mutex<Option<String>> = Mutex::new(None);
 
     struct CountingBackend;
 
@@ -236,9 +145,6 @@ mod tests {
             PROPERTY_COUNT.fetch_add(1, AtomicOrdering::SeqCst);
         }
         fn set_collection_enabled(&self, _enabled: bool) {}
-        fn remote_config_string(&self, _key: &str) -> Option<String> {
-            REMOTE_VALUE.lock().unwrap().clone()
-        }
     }
 
     // The global state is process-wide, so everything is asserted in order
@@ -247,15 +153,13 @@ mod tests {
     fn records_events_and_respects_disabled_state() {
         EVENT_COUNT.store(0, AtomicOrdering::SeqCst);
         PROPERTY_COUNT.store(0, AtomicOrdering::SeqCst);
-        REMOTE_VALUE.lock().unwrap().take();
 
-        // Before init: log_event is a no-op, remote_string returns default.
+        // Before init: log_event is a no-op.
         log_event("app_start", &[("platform", "test")]);
-        assert_eq!(remote_string("k", "fallback"), "fallback");
 
         init(Box::new(CountingBackend), true);
         log_event("app_start", &[("platform", "test")]);
-        events::error("other");
+        log_event("error", &[("category", "other")]);
         set_user_property("platform", "test");
         assert_eq!(2, EVENT_COUNT.load(AtomicOrdering::SeqCst));
         assert_eq!(1, PROPERTY_COUNT.load(AtomicOrdering::SeqCst));
@@ -272,15 +176,10 @@ mod tests {
         set_user_property("k", "v");
         assert_eq!(2, EVENT_COUNT.load(AtomicOrdering::SeqCst));
         assert_eq!(1, PROPERTY_COUNT.load(AtomicOrdering::SeqCst));
-        assert_eq!(remote_string("k", "d"), "d");
 
         set_enabled(true);
         log_event("app_start", &[]);
         assert_eq!(3, EVENT_COUNT.load(AtomicOrdering::SeqCst));
-
-        // Remote config passthrough.
-        *REMOTE_VALUE.lock().unwrap() = Some("value".to_string());
-        assert_eq!(remote_string("cfg", "d"), "value");
     }
 
     #[test]

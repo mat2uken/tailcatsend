@@ -35,7 +35,17 @@ it("normalizes a valid manifest and lowercases hashes", () => {
 });
 
 it("rejects traversal, aliases, reserved names, and file directory conflicts", () => {
-  for (const path of ["../index.js", "%2e%2e/index.js", "index.js?x", "CON.txt", "index.js."]) {
+  for (const path of [
+    "../index.js",
+    "%2e%2e/index.js",
+    "C:payload",
+    "index.js?x",
+    "index.js#other",
+    "CON.txt",
+    "LPT1",
+    "index.js.",
+    "a /b",
+  ]) {
     expect(() => validateManifest({ ...manifest(), files: [{ ...validFile, path }] })).toThrow(
       ManifestError,
     );
@@ -56,22 +66,22 @@ it("rejects traversal, aliases, reserved names, and file directory conflicts", (
 
 it("rejects incompatible and rolled back releases", () => {
   const value = validateManifest(manifest());
-  expect(() =>
-    checkCompatibility(value, {
-      distribution: "native",
-      target: "browser",
-      apiVersion: 1,
-      currentRevision: 1,
-    }),
-  ).toThrow(/distribution/);
-  expect(() =>
-    checkCompatibility(value, {
-      distribution: "web",
-      target: "browser",
-      apiVersion: 1,
-      currentRevision: 2,
-    }),
-  ).toThrow(/revision/);
+  const expected = {
+    distribution: "web",
+    target: "browser",
+    apiVersion: 1,
+    currentRevision: 1,
+  };
+  expect(() => checkCompatibility(value, expected)).not.toThrow();
+  for (const [overrides, message] of [
+    [{ distribution: "native" }, "distribution"],
+    [{ target: "macos" }, "target"],
+    [{ apiVersion: 0 }, "API version"],
+    [{ currentRevision: 2 }, "revision"],
+    [{ currentRevision: 3 }, "revision"],
+  ]) {
+    expect(() => checkCompatibility(value, { ...expected, ...overrides })).toThrow(message);
+  }
 });
 
 it("rejects oversized or malformed exact manifest bytes", () => {

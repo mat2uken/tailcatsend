@@ -2,7 +2,7 @@
 
 Upstream: swift-rs 1.0.8, https://crates.io/crates/swift-rs/1.0.8
 Published crate SHA-256: `e45c444e496845d3f2a351146bff59aae4975b2280238df1dfaa0c7d1846f38e`.
-The upstream MIT and Apache-2.0 licenses and source are retained.
+The upstream MIT and Apache-2.0 licenses and library source are retained.
 
 SwiftPM on Xcode 26 received only compiler-level iOS target flags. Its package
 planner consequently selected macOS slices from Firebase XCFrameworks, then
@@ -52,3 +52,17 @@ information. Object contents and embedded debug information are unchanged;
 the linker records the new archive member names for dSYM generation. Xcode 27
 symbol promotion strips this naming prefix before identifying the plugin's
 own module member.
+
+The published crate includes a test-only build script and Rust FFI tests but
+omits their required `tests/swift-pkg` Swift package. Ponlet does not run those
+upstream tests or set `TEST_SWIFT_RS`. The incomplete test target, its no-op
+normal-build script, and test/build-script dependencies are removed from this
+vendored copy. `Cargo.toml.orig` records the original upstream manifest. The
+`build` feature still exports `SwiftLinker` from `src-rs/build.rs` through the
+library; Tauri's actual plugin linking and the patches above are unchanged.
+
+Unused `base64` dependency and the unregistered, comment-only
+`src-rs/dark_magic.rs` experiment are removed. Swift compiler information is
+deserialized only for `paths.runtimeLibraryPaths`, the fields consumed by the
+linker; unused private target metadata and formatting are omitted. Target/SDK
+selection, Swift linking, and reference-counting code remain unchanged.

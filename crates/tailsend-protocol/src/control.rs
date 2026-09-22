@@ -15,12 +15,6 @@ pub enum ControlCodecError {
     Deserialization(String),
     #[error("Protocol major mismatch: expected {expected}, got {actual}")]
     ProtocolMajorMismatch { expected: u32, actual: u32 },
-    #[error("Session ID mismatch: expected {expected:?}, got {actual:?}")]
-    SessionIdMismatch { expected: Vec<u8>, actual: Vec<u8> },
-    #[error("Invalid sequence number: expected {expected}, got {actual}")]
-    InvalidSequence { expected: u64, actual: u64 },
-    #[error("Unknown or unsupported message type: {0}")]
-    UnsupportedMessageType(u32),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -217,8 +211,6 @@ pub struct Decision {
     #[serde(rename = "3", default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
 }
-
-pub type ResultBody = Decision;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileItem {
