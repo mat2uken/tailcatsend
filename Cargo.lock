@@ -4328,7 +4328,7 @@ dependencies = [
 
 [[package]]
 name = "tailsend-tauri"
-version = "1.0.14"
+version = "1.0.15"
 dependencies = [
  "async-trait",
  "base64 0.22.1",

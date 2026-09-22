@@ -60,8 +60,8 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleShortVersionString: 1.0.14
-        CFBundleVersion: "1.0.14"
+        CFBundleShortVersionString: 1.0.15
+        CFBundleVersion: "1.0.15"
     entitlements:
       path: tailsend-tauri_iOS/tailsend-tauri_iOS.entitlements
       properties:
@@ -119,8 +119,8 @@ targets:
         CFBundleDisplayName: Ponlet
         NSLocalNetworkUsageDescription: Ponlet connects to your other device to send the shared items.
         CFBundlePackageType: XPC!
-        CFBundleShortVersionString: 1.0.14
-        CFBundleVersion: "1.0.14"
+        CFBundleShortVersionString: 1.0.15
+        CFBundleVersion: "1.0.15"
         NSExtension:
           NSExtensionAttributes:
             NSExtensionActivationRule:
