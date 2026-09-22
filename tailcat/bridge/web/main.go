@@ -146,8 +146,8 @@ func tailcatListen(this js.Value, args []js.Value) any {
 		srv.OnTCP = func(port uint16) (handler func(net.Conn)) {
 			return func(c net.Conn) {
 				callbacks.deliver(c, func(c net.Conn) {
-					onConnection.Invoke(makeJSConn(c, port, transportFromServer(srv), func() uint8 {
-						return transportFromServer(srv)
+					onConnection.Invoke(makeJSConn(c, port, transportFromServer(srv, c.RemoteAddr()), func() uint8 {
+						return transportFromServer(srv, c.RemoteAddr())
 					}, nil))
 				})
 			}
@@ -469,26 +469,11 @@ func transportFromClient(client *tailcat.Client) uint8 {
 	return transportFromPing(result.Endpoint, result.PeerRelay, result.DERPRegionID != 0)
 }
 
-func transportFromServer(server *tailcat.Server) uint8 {
-	if server == nil {
+func transportFromServer(server *tailcat.Server, remote net.Addr) uint8 {
+	if server == nil || remote == nil {
 		return transportUnknown
 	}
-	status := server.Status()
-	if status == nil {
-		return transportUnknown
-	}
-	for _, peer := range status.Peer {
-		if peer == nil {
-			continue
-		}
-		if path := transportFromEndpoint(peer.CurAddr); path != transportUnknown {
-			return path
-		}
-		if peer.PeerRelay != "" || peer.Relay != "" {
-			return transportDERP
-		}
-	}
-	return transportUnknown
+	return transportpath.FromPeer(server.Status(), remote)
 }
 
 func tailcatGetTransport(this js.Value, args []js.Value) any {
@@ -508,7 +493,7 @@ func tailcatGetTransport(this js.Value, args []js.Value) any {
 		}
 
 		if srv != nil {
-			return int(transportFromServer(srv)), nil
+			return int(transportFromServer(srv, nil)), nil
 		}
 
 		return int(transportUnknown), nil

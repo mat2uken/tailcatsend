@@ -1,8 +1,8 @@
 diff --git a/tailcat.go b/tailcat.go
-index 41cd966fe..274d25fc5 100644
+index 48072cef9..e3a709481 100644
 --- a/tailcat.go
 +++ b/tailcat.go
-@@ -596,8 +596,17 @@ func (s *Server) Start() error {
+@@ -629,8 +629,17 @@ func (s *Server) startLocked(ctx context.Context) error {
  	netMon, err := netmon.New(bus, func(format string, args ...any) {
  		logf(format, args...)
  	})
@@ -21,7 +21,7 @@ index 41cd966fe..274d25fc5 100644
  		return fmt.Errorf("netmon.New: %w", err)
  	}
  	sys.Set(netMon)
-@@ -703,6 +712,9 @@ func (s *Server) Start() error {
+@@ -741,6 +750,9 @@ func (s *Server) startLocked(ctx context.Context) error {
  		lb.Close()
  		return err
  	}
@@ -31,7 +31,27 @@ index 41cd966fe..274d25fc5 100644
  	return nil
  }
  
-@@ -1833,8 +1845,17 @@ func (c *Client) initLocked() error {
+@@ -1736,6 +1748,19 @@ func (b *locoBackend) Status() *ipnstate.Status {
+ 	sb := ipnstate.StatusBuilder{WantPeers: true}
+ 	mc.UpdateStatus(&sb)
+ 	eng.UpdateStatus(&sb)
++	// The engine and magicsock report paths and counters, but not peer IPs.
++	// Include the node addresses so callers can identify a connection's peer.
++	b.mu.Lock()
++	for k, node := range b.clients {
++		ips := make([]netip.Addr, 0, len(node.Addresses))
++		for _, addr := range node.Addresses {
++			if addr.IsSingleIP() {
++				ips = append(ips, addr.Addr())
++			}
++		}
++		sb.AddPeer(k, &ipnstate.PeerStatus{TailscaleIPs: ips})
++	}
++	b.mu.Unlock()
+ 	return sb.Status()
+ }
+ 
+@@ -1913,8 +1938,17 @@ func (c *Client) initLocked() error {
  	netMon, err := netmon.New(bus, func(format string, args ...any) {
  		logf(format, args...)
  	})
@@ -50,7 +70,7 @@ index 41cd966fe..274d25fc5 100644
  		return fmt.Errorf("netmon.New: %w", err)
  	}
  	sys.Set(netMon)
-@@ -1970,6 +1991,9 @@ func (c *Client) ensureStarted(ctx context.Context) error {
+@@ -2050,6 +2084,9 @@ func (c *Client) ensureStarted(ctx context.Context) error {
  	if err := c.lb.Start(); err != nil {
  		return err
  	}
@@ -60,3 +80,25 @@ index 41cd966fe..274d25fc5 100644
  	c.started = true
  	return nil
  }
+diff --git a/tailcat_test.go b/tailcat_test.go
+index a571dd26e..872dca81d 100644
+--- a/tailcat_test.go
++++ b/tailcat_test.go
+@@ -16,6 +16,7 @@
+ 	"net/http/httptest"
+ 	"net/netip"
+ 	"os"
++	"slices"
+ 	"strings"
+ 	"sync/atomic"
+ 	"testing"
+@@ -381,6 +382,9 @@ func TestStatusReportsPeers(t *testing.T) {
+ 	if !ok {
+ 		t.Fatalf("Status().Peer has no entry for client %v; got %d peer(s)", c.PublicKey(), len(st.Peer))
+ 	}
++	if want := []netip.Addr{tcAddrForKey(c.PublicKey())}; !slices.Equal(ps.TailscaleIPs, want) {
++		t.Fatalf("peer TailscaleIPs = %v, want %v", ps.TailscaleIPs, want)
++	}
+ 	// The path may still be settling, so wait for CurAddr or Relay to show up.
+ 	deadline := time.Now().Add(10 * time.Second)
+ 	for ps.CurAddr == "" && ps.Relay == "" {

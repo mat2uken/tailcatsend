@@ -158,26 +158,11 @@ func transportFromPing(endpoint, peerRelay string, usedDERP bool) uint8 {
 	return transportpath.FromPing(endpoint, peerRelay, usedDERP)
 }
 
-func transportFromServer(server *tailcat.Server) uint8 {
-	if server == nil {
+func transportFromServer(server *tailcat.Server, remote net.Addr) uint8 {
+	if server == nil || remote == nil {
 		return TC_TRANSPORT_UNKNOWN
 	}
-	status := server.Status()
-	if status == nil {
-		return TC_TRANSPORT_UNKNOWN
-	}
-	for _, peer := range status.Peer {
-		if peer == nil {
-			continue
-		}
-		if path := transportFromEndpoint(peer.CurAddr); path != TC_TRANSPORT_UNKNOWN {
-			return path
-		}
-		if peer.PeerRelay != "" || peer.Relay != "" {
-			return TC_TRANSPORT_DERP
-		}
-	}
-	return TC_TRANSPORT_UNKNOWN
+	return transportpath.FromPeer(server.Status(), remote)
 }
 
 func transportFromClient(client *tailcat.Client) uint8 {
@@ -584,7 +569,7 @@ func tc_listener_create(
 				handle:    sHandle,
 				owner:     handle,
 				conn:      c,
-				transport: transportFromServer(lEntry.server),
+				transport: transportFromServer(lEntry.server, c.RemoteAddr()),
 			}
 			state.streams[sHandle] = sEntry
 			state.mu.Unlock()
@@ -595,7 +580,7 @@ func tc_listener_create(
 			ev.owner_handle = C.tc_handle_t(handle)
 			ev.object_handle = C.tc_handle_t(sHandle)
 			ev.port = C.uint16_t(port)
-			ev.reserved = C.uint16_t(transportFromServer(lEntry.server))
+			ev.reserved = C.uint16_t(transportFromServer(lEntry.server, c.RemoteAddr()))
 
 			enqueueEvent(ev, sHandle)
 		}
@@ -1290,7 +1275,7 @@ func tc_stream_transport(stream C.tc_handle_t, outTransport *C.uint8_t) C.int32_
 			listener := state.listeners[s.owner]
 			state.mu.Unlock()
 			if listener != nil {
-				path = transportFromServer(listener.server)
+				path = transportFromServer(listener.server, s.conn.RemoteAddr())
 			}
 		}
 		if path != TC_TRANSPORT_UNKNOWN {

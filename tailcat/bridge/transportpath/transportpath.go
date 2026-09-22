@@ -1,11 +1,14 @@
 // Package transportpath classifies the path selected by Tailcat's peer
-// discovery result. It has no WebAssembly or socket dependency so the
-// classifier can be tested on the host build as well as used by the bridge.
+// discovery result. It is shared by the native and WebAssembly bridges and
+// can be tested on the host build.
 package transportpath
 
 import (
+	"net"
+	"net/netip"
 	"strings"
 
+	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tailcfg"
 )
 
@@ -39,6 +42,31 @@ func FromPing(endpoint, peerRelay string, usedDERP bool) uint8 {
 	}
 	if peerRelay != "" || usedDERP {
 		return DERP
+	}
+	return Unknown
+}
+
+// FromPeer reports the path for the connection's remote peer. Unrelated peers
+// can retain relay metadata after disconnecting, so they must not be used as a
+// fallback when the connection's peer or its path is unknown.
+func FromPeer(status *ipnstate.Status, remote net.Addr) uint8 {
+	if status == nil || remote == nil {
+		return Unknown
+	}
+	addr, err := netip.ParseAddrPort(remote.String())
+	if err != nil {
+		return Unknown
+	}
+	remoteIP := addr.Addr().Unmap()
+	for _, peer := range status.Peer {
+		if peer == nil {
+			continue
+		}
+		for _, ip := range peer.TailscaleIPs {
+			if ip.Unmap() == remoteIP {
+				return FromPing(peer.CurAddr, peer.PeerRelay, peer.Relay != "")
+			}
+		}
 	}
 	return Unknown
 }
