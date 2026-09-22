@@ -12,12 +12,8 @@ host_arch="$(go env GOARCH)"
 build_mode=c-archive
 windows_native=false
 case "${host_os}" in
-  darwin)
-    export CGO_ENABLED=1 GOOS=darwin GOARCH="${host_arch}"
-    go_output="${out_dir}/libtailcat.a"
-    ;;
-  linux)
-    export CGO_ENABLED=1 GOOS=linux GOARCH="${host_arch}"
+  darwin|linux)
+    export CGO_ENABLED=1 GOOS="${host_os}" GOARCH="${host_arch}"
     go_output="${out_dir}/libtailcat.a"
     ;;
   msys*|mingw*|cygwin*|windows_nt)
@@ -72,7 +68,7 @@ fi
 export PONLET_TAILCAT_LIB_DIR="${out_dir}"
 export PONLET_TAILCAT_LIB_NAME=tailcat
 
-"${repo_dir}/scripts/build_web_ui.sh"
+"${repo_dir}/scripts/build_web_ui.sh" --check
 
 # `cargo build` compiles the Tauri runner but does not apply the frontend
 # asset embedding performed by the Tauri CLI.  Use the product build path so a

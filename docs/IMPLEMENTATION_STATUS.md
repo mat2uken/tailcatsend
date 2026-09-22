@@ -15,7 +15,7 @@
 - Slint の workspace crate、旧 mobile shell、旧 UI 定義、winit patch を削除し、製品入口を Tauri WebView に統一した。
 - Pages workflow は Go Tailcat WASM と Rust service WASM を別ファイルとして生成し、Web UI bundle と合わせて配布する。
 - Pages workflow は25 MiBの単一ファイル制限に合わせ、約33 MiBの非圧縮Go WASMをアップロードせず、約7.6 MiBの`tailcat.wasm.gz`を標準経路にする。`DecompressionStream`がない環境向けに非圧縮版を使う場合は、Pages以外の配布先を同じ相対パスへ用意する。
-- ブラウザ側にも署名対象の manifest bytes、P-256 ECDSA `r || s`、ファイルサイズ／SHA-256、配布先・API・revision の検査を追加し、native の `tailsend-updates` と同じ拒否条件を unit test で確認する。設定が注入された Web では 1.5 秒以内の取得・検証と Cache Storage への保留保存を行い、次回ナビゲーションで Service Worker が有効化する。Pages workflow はNode標準暗号を使う `scripts/write_web_update_manifest.mjs` でdistのmanifestと署名を生成し、秘密鍵がない場合は更新を無効にする。Tauri では更新処理を無効にする。
+- ブラウザの更新処理は署名対象の manifest bytes、P-256 ECDSA `r || s`、ファイルサイズ／SHA-256、配布先・API・revision を検査し、拒否条件を TypeScript の unit test で確認する。設定が注入された Web では 1.5 秒以内の取得・検証と Cache Storage への保留保存を行い、次回ナビゲーションで Service Worker が有効化する。Pages workflow はNode標準暗号を使う `scripts/write_web_update_manifest.mjs` でdistのmanifestと署名を生成し、秘密鍵がない場合は更新を無効にする。Tauri では更新処理を無効にする。
 - BrowserではGo Tailcat WASMをWindowに置き、Rust service WASMとOPFSをDedicated Workerへ置く。Workerとのstream I/OはMessagePortで中継し、本文バッファはTransferableなArrayBufferを使う。Workerを使えないWebViewには同一Window adapterの切替を残す。
 - ブラウザのFileSourceは再利用バッファへ直接読み出す`read_into`を使い、64 KiBごとの一時`Bytes`割当を追加しない。
 - Tailcat の状態取得では peer 情報を要求し、受信側のデータ stream でも WebRTC／WireGuard UDP／DERP の表示を接続後に更新する。peer情報を要求する修正は上流 `15ab9e68b` に取り込まれており、ローカルパッチは不要。
@@ -29,7 +29,7 @@
 ```bash
 cargo test --workspace
 cargo check -p tailsend-web --target wasm32-unknown-unknown
-cargo check -p tailsend-tauri -p tailsend-desktop
+cargo check -p tailsend-tauri
 (cd web-ui && npm ci && npm run lint && npm run typecheck && npm test && npm run build -- --mode web && npm run build -- --mode tauri)
 ```
 

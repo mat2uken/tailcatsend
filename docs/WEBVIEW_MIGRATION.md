@@ -9,9 +9,9 @@
 | UI | `web-ui/` の VanJS + TypeScript + 標準 HTML/CSS。Vite mode `web` と `tauri` で同じソースを出力 |
 | Rust service | `tailsend-core`、`tailsend-transfer`、platform/transport API。招待、進捗、取消、保存完了を共通化 |
 | Browser | `apps/web` の Rust WASM と OPFS を Dedicated Workerへ配置し、Window 側 Go Tailcat WASMを MessagePort で中継。File 読み出し、WebRTC bridge を接続 |
-| Native | `apps/tauri` の binary custom scheme、Android `WebMessageListener` port、JSON＋Tauri invoke fallback、Go c-archive/c-shared、native file handle。`apps/desktop` は Tauri 起動のみ |
+| Native | `apps/tauri` の binary custom scheme、Android `WebMessageListener` port、JSON＋Tauri invoke fallback、Go c-archive/c-shared、native file handle |
 | Mobile | `apps/tauri/gen/apple` と `apps/tauri/gen/android`。旧 `apps/ios`、`apps/android`、Slint UI は削除済み |
-| 配布 | Pages workflow が UI、Go WASM、Rust service WASM を release build から配置。更新検証 crate は署名とファイル検査まで実装 |
+| 配布 | Pages workflow が UI、Go WASM、Rust service WASM を release build から配置。`web-ui/src/update` が署名・互換性・ファイルを検査し、次回起動用の更新を保存 |
 
 ## 直近の変更
 
@@ -94,7 +94,7 @@ Linux cross check は aarch64 用 sysroot と `pkg-config` の `libdbus` 設定�
 ```sh
 cargo test --workspace
 cargo check -p tailsend-web --target wasm32-unknown-unknown
-cargo check -p tailsend-tauri -p tailsend-desktop
+cargo check -p tailsend-tauri
 (cd web-ui && npm ci && npm run lint && npm run typecheck && npm test && npm run build -- --mode web && npm run build -- --mode tauri)
 # 接続中の Android 実機と adb が必要
 cd web-ui && PONLET_ANDROID_SERIAL=<serial> npm run test:e2e:android

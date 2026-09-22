@@ -11,6 +11,10 @@ npm run lint
 npm run typecheck
 npm test
 npm run format:check
+# Native wrappers leave bundle generation to Tauri's beforeBuildCommand.
+if [[ "${1:-}" == "--check" ]]; then
+  exit 0
+fi
 npm run build -- --mode web
 npm run build -- --mode tauri
 

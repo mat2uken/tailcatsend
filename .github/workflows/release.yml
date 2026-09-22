@@ -136,36 +136,8 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: |
-          test -n "$ANDROID_KEYSTORE_BASE64"
-          test -n "$ANDROID_KEYSTORE_PASSWORD"
-          test -n "$ANDROID_KEY_ALIAS"
-          test -n "$ANDROID_KEY_PASSWORD"
-          KEYSTORE_PATH="$RUNNER_TEMP/ponlet-release.keystore"
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
-          STORE_PASSWORD=""
-          for candidate in "$ANDROID_KEYSTORE_PASSWORD" "$ANDROID_KEY_PASSWORD" android changeit; do
-            if [ -n "$candidate" ] && keytool -list -keystore "$KEYSTORE_PATH" -storepass "$candidate" >/dev/null 2>&1; then
-              STORE_PASSWORD="$candidate"
-              break
-            fi
-          done
-          test -n "$STORE_PASSWORD"
-          KEY_ALIAS="$ANDROID_KEY_ALIAS"
-          if ! keytool -list -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null 2>&1; then
-            KEY_ALIAS=$(keytool -list -v -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASSWORD" | awk -F': ' '/^Alias name:/{print $2; exit}')
-          fi
-          test -n "$KEY_ALIAS"
-          KEY_PASSWORD="$ANDROID_KEY_PASSWORD"
-          if ! keytool -exportcert -rfc -alias "$KEY_ALIAS" -keystore "$KEYSTORE_PATH" -storepass "$STORE_PASSWORD" -keypass "$KEY_PASSWORD" -file "$RUNNER_TEMP/ponlet-cert.pem" >/dev/null 2>&1; then
-            KEY_PASSWORD="$STORE_PASSWORD"
-          fi
-          {
-            echo "PONLET_ANDROID_KEYSTORE=$KEYSTORE_PATH"
-            echo "ANDROID_KEYSTORE_PASSWORD=$STORE_PASSWORD"
-            echo "ANDROID_KEY_ALIAS=$KEY_ALIAS"
-            echo "ANDROID_KEY_PASSWORD=$KEY_PASSWORD"
-          } >> "$GITHUB_ENV"
+        run: ./scripts/setup_android_signing.sh
+
       - run: cargo install tauri-cli --version 2.10.0 --locked
       - name: Restore Firebase client configuration (optional)
         env:
@@ -177,14 +149,7 @@ jobs:
             echo "::notice::Firebase client configuration is absent; telemetry will stay inactive."
           fi
       - name: Set date-based Android version code
-        run: |
-          today_ymd=$(TZ='Asia/Tokyo' date +%Y%m%d)
-          run_slot=$((GITHUB_RUN_NUMBER % 100))
-          if [ "$run_slot" -eq 0 ]; then
-            run_slot=1
-          fi
-          printf 'PONLET_ANDROID_VERSION_CODE=%s%02d\n' "$today_ymd" "$run_slot" >> "$GITHUB_ENV"
-          echo "Using Android version code ${today_ymd}$(printf '%02d' "$run_slot")"
+        run: ./scripts/set_ci_build_number.sh PONLET_ANDROID_VERSION_CODE
       - run: ./scripts/build_tauri_mobile.sh android release
         env:
           CARGO_PROFILE_RELEASE_STRIP: none
@@ -212,21 +177,14 @@ jobs:
         with: { targets: aarch64-apple-ios }
       - name: Select Xcode 26
         run: |
-          XCODE_APP=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n 1 || true)
+          XCODE_APP=$(find /Applications -maxdepth 1 -name 'Xcode_26*.app' | sort -V | tail -n 1 || true)
           test -n "$XCODE_APP"
           sudo xcode-select -s "$XCODE_APP/Contents/Developer"
           xcodebuild -version
       - run: brew install xcodegen
       - run: cargo install tauri-cli --version 2.10.0 --locked
       - name: Set monotonic iOS build number
-        run: |
-          today_ymd=$(TZ='Asia/Tokyo' date +%Y%m%d)
-          run_slot=$((GITHUB_RUN_NUMBER % 100))
-          if [ "$run_slot" -eq 0 ]; then
-            run_slot=1
-          fi
-          printf 'PONLET_IOS_BUILD_NUMBER=%s%02d\n' "$today_ymd" "$run_slot" >> "$GITHUB_ENV"
-          echo "Using iOS build number ${today_ymd}$(printf '%02d' "$run_slot")"
+        run: ./scripts/set_ci_build_number.sh PONLET_IOS_BUILD_NUMBER
       - name: Install Apple signing material
         env:
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
@@ -234,38 +192,8 @@ jobs:
           BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
           BUILD_PROVISION_PROFILE_SHARE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_SHARE_BASE64 }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD || 'temporary-ci-keychain-pass' }}
-        run: |
-          test -n "$BUILD_CERTIFICATE_BASE64"
-          test -n "$BUILD_PROVISION_PROFILE_BASE64"
-          test -n "$BUILD_PROVISION_PROFILE_SHARE_BASE64"
-          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
-          security import "$RUNNER_TEMP/certificate.p12" -k "$KEYCHAIN_PATH" -P "$P12_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" > /dev/null
-          security list-keychains -d user -s "$KEYCHAIN_PATH"
-          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          echo "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/profile.mobileprovision"
-          APP_UUID=$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" | plutil -extract UUID raw -)
-          APP_TEAM_ID=$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" | plutil -extract TeamIdentifier.0 raw -)
-          APP_PROFILE_NAME=$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" | plutil -extract Name raw -)
-          cp "$RUNNER_TEMP/profile.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/${APP_UUID}.mobileprovision"
-          echo "$BUILD_PROVISION_PROFILE_SHARE_BASE64" | base64 --decode > "$RUNNER_TEMP/share-profile.mobileprovision"
-          SHARE_UUID=$(security cms -D -i "$RUNNER_TEMP/share-profile.mobileprovision" | plutil -extract UUID raw -)
-          SHARE_TEAM_ID=$(security cms -D -i "$RUNNER_TEMP/share-profile.mobileprovision" | plutil -extract TeamIdentifier.0 raw -)
-          SHARE_PROFILE_NAME=$(security cms -D -i "$RUNNER_TEMP/share-profile.mobileprovision" | plutil -extract Name raw -)
-          test "$APP_TEAM_ID" = "$SHARE_TEAM_ID"
-          cp "$RUNNER_TEMP/share-profile.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/${SHARE_UUID}.mobileprovision"
-          echo "APPLE_DEVELOPMENT_TEAM=$APP_TEAM_ID" >> "$GITHUB_ENV"
-          echo "DEVELOPMENT_TEAM=$APP_TEAM_ID" >> "$GITHUB_ENV"
-          echo "CODE_SIGN_STYLE=Manual" >> "$GITHUB_ENV"
-          echo "CODE_SIGN_IDENTITY=Apple Distribution" >> "$GITHUB_ENV"
-          echo "PROVISIONING_PROFILE_SPECIFIER=$APP_PROFILE_NAME" >> "$GITHUB_ENV"
-          echo "PROVISIONING_PROFILE_SPECIFIER_SHARE=$SHARE_PROFILE_NAME" >> "$GITHUB_ENV"
-          # build_tauri_mobile.sh supplies both app and extension export profiles.
-          # Tauri's IOS_* signing variables replace that map with the app alone.
+        run: ./scripts/setup_ios_signing.sh
+
       - run: ./scripts/build_tauri_mobile.sh ios release
       - name: Collect IPA
         run: |

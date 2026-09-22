@@ -68,10 +68,6 @@ function nonNegativeInteger(name, fallback) {
   return number;
 }
 
-async function removeIfPresent(path) {
-  await rm(path, { force: true });
-}
-
 if (!insideRoot(manifestPath) || !insideRoot(signaturePath)) {
   throw new Error("manifest and signature outputs must be inside the release directory");
 }
@@ -82,8 +78,8 @@ assertSafeRelativePath(manifestRelativePath, "manifest output path");
 assertSafeRelativePath(signatureRelativePath, "signature output path");
 
 if (!privateKeyPem) {
-  await removeIfPresent(manifestPath);
-  await removeIfPresent(signaturePath);
+  await rm(manifestPath, { force: true });
+  await rm(signaturePath, { force: true });
   console.log("Signed browser update is disabled: PONLET_UPDATE_PRIVATE_KEY_PEM is not set");
   process.exit(0);
 }
@@ -97,9 +93,6 @@ if (minApiVersion > 65_535) {
 }
 const distribution = process.env.PONLET_UPDATE_DISTRIBUTION || "web";
 const target = process.env.PONLET_UPDATE_TARGET || "browser";
-if (!distribution || !target) {
-  throw new Error("PONLET_UPDATE_DISTRIBUTION and PONLET_UPDATE_TARGET must not be empty");
-}
 const maxFileBytes = nonNegativeInteger("PONLET_UPDATE_MAX_FILE_BYTES", String(25 * 1024 * 1024));
 const excluded = new Set(
   [manifestRelativePath, signatureRelativePath]
@@ -169,7 +162,7 @@ for (const entry of await collectFiles(root)) {
   });
 }
 
-if (files.length === 0 || !files.some((file) => file.path === "index.html")) {
+if (!files.some((file) => file.path === "index.html")) {
   throw new Error("release directory must contain index.html and at least one file");
 }
 for (const file of files) {

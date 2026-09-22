@@ -20,7 +20,6 @@ WebView の画面は [`web-ui/`](web-ui/) に集約しています。VanJS Core�
 ```text
 tailcatsend/
 ├── apps/
-│   ├── desktop/              # 既存の製品コマンド名を保つ薄い Tauri 起動入口
 │   ├── tauri/                # Tauri desktop/mobile shell と native adapter
 │   └── web/                  # Rust WASM service
 ├── crates/
@@ -30,7 +29,6 @@ tailcatsend/
 │   ├── tailsend-platform-api/# ファイル source/sink と保存確定の型
 │   ├── tailsend-transport-api# stream/listener と経路表示
 │   ├── tailsend-qr/          # 軽量な RGBA QR 生成
-│   ├── tailsend-updates/     # 署名付き更新の検証関数
 │   └── tailsend-native-bridge# Go C ABI の宣言
 ├── tailcat/                  # Go Tailcat submodule と native/WASM bridge
 ├── web-ui/                   # 共通 VanJS UI と Vite/Oxlint/Vitest 構成
@@ -51,13 +49,15 @@ cd tailcatsend
 
 # Go archive と Tauri desktop
 ./scripts/build_tauri.sh
-./target/debug/tailsend
+./target/release/tailsend
 
 # Rust workspace の unit test
 cargo test --workspace
 ```
 
 Web 配布物は `scripts/build_web_ui.sh` で生成した `web-ui/dist/web` に、Go Tailcat WASM と Rust service WASM を加えて作ります。Cloudflare Pages workflow はリリースごとに WASM を生成し、サイズと配布構成を検査してから Pages へ送ります。
+
+Tauri の権限設定は `apps/tauri/capabilities/` で管理します。`apps/tauri/gen/schemas/` はビルドで再生成されるため管理対象外です。
 
 ## モバイル
 
