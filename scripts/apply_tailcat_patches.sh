@@ -49,7 +49,5 @@ apply_one() {
 tailcat_dir="${repo_dir}/tailcat"
 apply_one "${tailcat_dir}/pkg/tailcat" \
   "${tailcat_dir}/patches/0001-android-selinux-netmon-fallback.patch"
-apply_one "${tailcat_dir}/pkg/tailcat" \
-  "${tailcat_dir}/patches/0003-tailcat-status-peer-report.patch"
 apply_one "${tailcat_dir}/pkg/tailscale.com" \
   "${tailcat_dir}/patches/0002-tailscale-webrtc-transport.patch"

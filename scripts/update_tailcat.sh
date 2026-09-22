@@ -54,7 +54,7 @@ fi
 # Update upstream.lock
 LOCK_FILE="$TAILCAT_DIR/upstream.lock"
 if [[ -f "$LOCK_FILE" ]]; then
-    sed -i.bak -E "s/commit=[0-9a-f]+/commit=${FULL_COMMIT}/" "$LOCK_FILE"
+    sed -i.bak -E "s/^commit=[0-9a-f]+/commit=${FULL_COMMIT}/" "$LOCK_FILE"
     rm -f "${LOCK_FILE}.bak"
     echo -e "\033[0;32m✓ Updated upstream.lock to commit: ${COMMIT_HASH}\033[0m"
 fi

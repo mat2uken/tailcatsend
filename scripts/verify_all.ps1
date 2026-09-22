@@ -29,7 +29,6 @@ function Apply-Patch {
 }
 
 Apply-Patch "tailcat\pkg\tailcat" "tailcat\patches\0001-android-selinux-netmon-fallback.patch"
-Apply-Patch "tailcat\pkg\tailcat" "tailcat\patches\0003-tailcat-status-peer-report.patch"
 Apply-Patch "tailcat\pkg\tailscale.com" "tailcat\patches\0002-tailscale-webrtc-transport.patch"
 
 Write-Host "==========================================================" -ForegroundColor Cyan

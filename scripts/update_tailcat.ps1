@@ -28,7 +28,6 @@ if (Test-Path "C:\Program Files\Go\bin\go.exe") {
 Write-Host "`n[1/5] Updating Tailcat git submodule..." -ForegroundColor Yellow
 $submoduleDir = Join-Path $TailcatDir "pkg\tailcat"
 $patchFile = Join-Path $TailcatDir "patches\0001-android-selinux-netmon-fallback.patch"
-$statusPatchFile = Join-Path $TailcatDir "patches\0003-tailcat-status-peer-report.patch"
 $webrtcPatchFile = Join-Path $TailcatDir "patches\0002-tailscale-webrtc-transport.patch"
 
 git submodule sync --quiet
@@ -75,7 +74,6 @@ function Apply-Patch {
 }
 
 Apply-Patch (Join-Path $TailcatDir "pkg\tailcat") $patchFile
-Apply-Patch (Join-Path $TailcatDir "pkg\tailcat") $statusPatchFile
 Apply-Patch (Join-Path $TailcatDir "pkg\tailscale.com") $webrtcPatchFile
 
 # 3. Update Go Module and Metadata
@@ -97,7 +95,7 @@ try {
     $lockFile = Join-Path $TailcatDir "upstream.lock"
     if (Test-Path $lockFile) {
         $content = Get-Content $lockFile -Raw -Encoding UTF8
-        $newContent = $content -replace 'commit=[0-9a-f]+', "commit=$fullCommit"
+        $newContent = $content -replace '(?m)^commit=[0-9a-f]+', "commit=$fullCommit"
         [System.IO.File]::WriteAllText($lockFile, $newContent, [System.Text.Encoding]::UTF8)
         Write-Host "✓ Updated upstream.lock to commit: $commitHash" -ForegroundColor Green
     }
