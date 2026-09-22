@@ -1,4 +1,4 @@
-//go:build windows && !tailcat_daemon
+//go:build windows
 
 package main
 

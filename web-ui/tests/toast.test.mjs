@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { showAnchorToast, showToast } from "../src/lib/toast.ts";
+import { showToast } from "../src/lib/toast.ts";
 
 describe("Lightweight Toast Notification System", () => {
   beforeEach(() => {
@@ -86,17 +86,6 @@ describe("Lightweight Toast Notification System", () => {
 
     // Fast-forward past duration
     vi.advanceTimersByTime(1200);
-    expect(document.querySelector(".toast-anchor")).toBeNull();
-  });
-
-  it("supports showAnchorToast helper", () => {
-    const link = document.createElement("a");
-    document.body.append(link);
-
-    const dismiss = showAnchorToast(link, "Anchor Helper", 1000);
-    expect(document.querySelector(".toast-anchor")?.textContent).toBe("Anchor Helper");
-
-    dismiss();
     expect(document.querySelector(".toast-anchor")).toBeNull();
   });
 

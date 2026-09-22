@@ -3,8 +3,9 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use log::debug;
-use rand::RngCore;
 use tailsend_telemetry::TelemetryBackend;
+
+use crate::model::{hex_id, new_id};
 
 const COLLECT_URL: &str = "https://www.google-analytics.com/mp/collect";
 const STORE_FILE: &str = "telemetry.json";
@@ -39,8 +40,7 @@ struct Ga4Backend {
 struct NoopBackend;
 
 /// Installs the telemetry backend and restores the persisted enabled state.
-/// Returns the restored state so the UI toggle can be initialized with it.
-pub fn init(language: &str) -> bool {
+pub fn init(language: &str) {
     let store = load_or_create_store();
 
     let backend: Box<dyn TelemetryBackend> = match (
@@ -66,7 +66,6 @@ pub fn init(language: &str) -> bool {
     };
 
     tailsend_telemetry::init(backend, store.enabled);
-    store.enabled
 }
 
 impl TelemetryBackend for Ga4Backend {
@@ -153,27 +152,22 @@ fn store_path() -> PathBuf {
 
 fn load_or_create_store() -> ClientStore {
     let path = store_path();
-    if let Ok(content) = fs::read_to_string(&path) {
-        if let Ok(store) = serde_json::from_str::<ClientStore>(&content) {
-            if !store.client_id.is_empty() {
-                return store;
-            }
-        }
-    }
+    let existing = fs::read_to_string(&path)
+        .ok()
+        .and_then(|content| serde_json::from_str::<ClientStore>(&content).ok());
+    let enabled = match existing {
+        Some(store) if !store.client_id.is_empty() => return store,
+        // Preserve an existing opt-out when only the identity needs repair.
+        Some(store) => store.enabled,
+        None => true,
+    };
 
     let session_date = chrono_date_today();
-    let mut store = ClientStore {
+    let store = ClientStore {
         client_id: new_uuid_v4(),
-        session_id: format!("{}-{}", new_random_hex(16), session_date),
-        enabled: true,
+        session_id: format!("{}-{}", hex_id(new_id()), session_date),
+        enabled,
     };
-    if let Ok(existing) = fs::read_to_string(&path) {
-        // Keep previously persisted opt-out state when only the identity is
-        // missing (e.g. older single-purpose files).
-        if let Ok(old) = serde_json::from_str::<ClientStore>(&existing) {
-            store.enabled = old.enabled;
-        }
-    }
     save_store(&store);
     store
 }
@@ -185,7 +179,7 @@ fn persist_enabled(enabled: bool) {
         .and_then(|c| serde_json::from_str::<ClientStore>(&c).ok())
         .unwrap_or_else(|| ClientStore {
             client_id: new_uuid_v4(),
-            session_id: format!("{}-{}", new_random_hex(16), chrono_date_today()),
+            session_id: format!("{}-{}", hex_id(new_id()), chrono_date_today()),
             enabled,
         });
     store.enabled = enabled;
@@ -227,25 +221,18 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
-fn new_random_hex(len: usize) -> String {
-    let mut bytes = vec![0u8; len];
-    rand::thread_rng().fill_bytes(&mut bytes);
-    bytes.iter().map(|b| format!("{:02x}", b)).collect()
-}
-
 fn new_uuid_v4() -> String {
-    let mut bytes = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut bytes);
+    let mut bytes = new_id();
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    let hex: Vec<String> = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+    let hex = hex_id(bytes);
     format!(
         "{}-{}-{}-{}-{}",
-        hex[0..4].concat(),
-        hex[4..6].concat(),
-        hex[6..8].concat(),
-        hex[8..10].concat(),
-        hex[10..16].concat()
+        &hex[0..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..32]
     )
 }
 
@@ -263,6 +250,8 @@ mod tests {
             vec![8, 4, 4, 4, 12]
         );
         assert!(id.chars().all(|c| c.is_ascii_hexdigit() || c == '-'));
+        assert_eq!(&id[14..15], "4");
+        assert!(matches!(id.as_bytes()[19], b'8' | b'9' | b'a' | b'b'));
     }
 
     #[test]

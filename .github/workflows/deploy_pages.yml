@@ -15,9 +15,9 @@ on:
       - 'vendor/**'
       - 'dist/**'
       - 'functions/**'
-      - 'cloudflare/**'
       - 'web-ui/**'
       - 'scripts/build_web_ui.sh'
+      - 'scripts/apply_tailcat_patches.sh'
       - 'scripts/write_web_update_config.mjs'
       - 'scripts/write_web_update_manifest.mjs'
       - 'Cargo.toml'
@@ -86,7 +86,7 @@ jobs:
 
       - name: Build Go Tailcat WASM Bridge
         run: |
-          # Shared with the local Bash and PowerShell builds.
+          # Shared with the local update script.
           WASM_TAGS=$(tr -d '\r\n' < tailcat/wasm-build-tags.txt)
           echo "Using WASM_TAGS: $WASM_TAGS"
           mkdir -p dist/assets

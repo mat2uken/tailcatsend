@@ -4,8 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tailsend-protocol = { workspace = true }
 async-trait = { workspace = true }
 thiserror = { workspace = true }
-bytes = { workspace = true }
 serde = { workspace = true }

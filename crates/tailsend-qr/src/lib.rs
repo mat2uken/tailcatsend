@@ -25,16 +25,6 @@ pub fn generate_qr_rgba(url: &str, target_size_px: u32) -> Result<QrRgbaImage, Q
 
     let mut rgba_pixels = vec![255u8; (final_size * final_size * 4) as usize];
 
-    let dark_r = 0x1a;
-    let dark_g = 0x1a;
-    let dark_b = 0x1a;
-    let dark_a = 0xff;
-
-    let light_r = 0xff;
-    let light_g = 0xff;
-    let light_b = 0xff;
-    let light_a = 0xff;
-
     let colors = code.to_colors();
 
     for y in 0..final_size {
@@ -50,17 +40,10 @@ pub fn generate_qr_rgba(url: &str, target_size_px: u32) -> Result<QrRgbaImage, Q
                     false
                 };
 
-            let pixel_offset = ((y * final_size + x) * 4) as usize;
             if is_dark {
-                rgba_pixels[pixel_offset] = dark_r;
-                rgba_pixels[pixel_offset + 1] = dark_g;
-                rgba_pixels[pixel_offset + 2] = dark_b;
-                rgba_pixels[pixel_offset + 3] = dark_a;
-            } else {
-                rgba_pixels[pixel_offset] = light_r;
-                rgba_pixels[pixel_offset + 1] = light_g;
-                rgba_pixels[pixel_offset + 2] = light_b;
-                rgba_pixels[pixel_offset + 3] = light_a;
+                let pixel_offset = ((y * final_size + x) * 4) as usize;
+                rgba_pixels[pixel_offset..pixel_offset + 4]
+                    .copy_from_slice(&[0x1a, 0x1a, 0x1a, 0xff]);
             }
         }
     }

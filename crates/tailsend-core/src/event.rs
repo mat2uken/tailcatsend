@@ -22,6 +22,19 @@ pub fn format_transfer_id(id: [u8; 16]) -> String {
     output
 }
 
+/// Parse the transfer identifier accepted by the native and browser APIs.
+pub fn parse_transfer_id(value: &str) -> Option<[u8; 16]> {
+    if value.len() != 32 {
+        return None;
+    }
+    let mut id = [0; 16];
+    for (index, chunk) in value.as_bytes().chunks_exact(2).enumerate() {
+        let text = std::str::from_utf8(chunk).ok()?;
+        id[index] = u8::from_str_radix(text, 16).ok()?;
+    }
+    Some(id)
+}
+
 pub fn transfer_status_for_reason(reason: &str) -> &'static str {
     if matches!(
         reason,
@@ -81,5 +94,28 @@ mod tests {
             ]),
             "00010a102233445566778899aabbccff",
         );
+    }
+    #[test]
+    fn transfer_identifier_parsing_preserves_accepted_input() {
+        let id = [0x0a; 16];
+        assert_eq!(
+            super::parse_transfer_id(&super::format_transfer_id(id)),
+            Some(id)
+        );
+        assert_eq!(
+            super::parse_transfer_id("000102030405060708090A0B0C0D0E0F"),
+            Some([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+        );
+        // The existing radix parser also accepts a leading '+' in each pair.
+        assert_eq!(super::parse_transfer_id(&"+1".repeat(16)), Some([1; 16]));
+        for invalid in [
+            "",
+            &"0".repeat(31),
+            &"0".repeat(33),
+            &"é".repeat(16),
+            &"gg".repeat(16),
+        ] {
+            assert_eq!(super::parse_transfer_id(invalid), None, "{invalid:?}");
+        }
     }
 }

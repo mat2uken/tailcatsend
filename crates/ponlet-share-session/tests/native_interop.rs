@@ -25,7 +25,7 @@ use tailsend_platform_api::{IncomingFileSink, ReceivedItem, StorageError};
 use tailsend_protocol::control::{Capabilities, PeerInfo, PlatformKind};
 use tailsend_protocol::invitation::InvitationV1;
 use tailsend_protocol::limits::{FILE_PORT, TEXT_PORT};
-use tailsend_transfer::{receive_live_text_stream, receive_named_file_stream};
+use tailsend_transfer::{receive_live_text_message_stream, receive_named_file_stream};
 use tailsend_transport_api::{ListenOptions, TailcatTransport};
 
 #[link(name = "tailcat", kind = "static")]
@@ -149,7 +149,7 @@ async fn receive_items(
     assert_eq!(text_incoming.port, TEXT_PORT);
     let messages = Arc::new(Mutex::new(Vec::new()));
     let received_messages = messages.clone();
-    receive_live_text_stream(
+    receive_live_text_message_stream(
         &mut text_incoming.stream,
         Arc::new(AtomicBool::new(false)),
         move |message| received_messages.lock().unwrap().push(message),

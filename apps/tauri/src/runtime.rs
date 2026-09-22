@@ -21,7 +21,7 @@ use tailsend_protocol::control::{
     Capabilities, ControlMessage, ErrorBody, MessageBody, MessageType, PeerInfo, PlatformKind,
 };
 use tailsend_protocol::invitation::InvitationV1;
-use tailsend_protocol::limits::{CONTROL_PORT, FILE_PORT, TEXT_PORT};
+use tailsend_protocol::limits::{CONTROL_PORT, DEFAULT_INVITE_LIFETIME_SECS, FILE_PORT, TEXT_PORT};
 use tailsend_transfer::{
     receive_live_text_message_stream, receive_named_file_stream_with_factory,
     send_live_text_stream, send_named_file_stream, ProgressCallback, ProgressUpdate, TransferError,
@@ -31,8 +31,8 @@ use tailsend_transport_api::{
 };
 
 use crate::model::{
-    id_string, new_id, parse_id, FileRequest, SharedImportSummary, UiQrBitmap, UiReceivedItem,
-    UiSnapshot, UiTransfer, DERP_MAP_URL, INVITE_BASE_URL, INVITE_LIFETIME_SECS, QUEUE_LIMIT,
+    new_id, parse_id, FileRequest, SharedImportSummary, UiQrBitmap, UiReceivedItem, UiSnapshot,
+    DERP_MAP_URL, INVITE_BASE_URL, QUEUE_LIMIT,
 };
 #[cfg(target_os = "ios")]
 use crate::model::{SharedPendingItem, SHARED_QUEUE_LIMIT, SHARED_TEXT_MAX_BYTES};
@@ -207,117 +207,7 @@ impl TauriRuntime {
             .lock()
             .expect("received item mutex poisoned")
             .clone();
-        let app = snapshot.app;
-        let (state, peer_name, invite_url, expires, can_send, can_disconnect, transfer, error) =
-            match app.state {
-                SessionState::Booting => (
-                    "booting",
-                    app.peer_display_name,
-                    None,
-                    0,
-                    false,
-                    false,
-                    None,
-                    None,
-                ),
-                SessionState::AwaitingPeer { invite_url, .. } => (
-                    "awaiting-peer",
-                    app.peer_display_name,
-                    Some(invite_url),
-                    app.invite_expires_in_secs,
-                    false,
-                    app.can_disconnect,
-                    None,
-                    None,
-                ),
-                SessionState::ConnectedIdle { .. } => (
-                    "connected",
-                    app.peer_display_name,
-                    None,
-                    0,
-                    app.can_send,
-                    app.can_disconnect,
-                    None,
-                    None,
-                ),
-                SessionState::Transferring {
-                    transfer_id,
-                    is_incoming,
-                    bytes_done,
-                    bytes_total,
-                    current_item_name,
-                    ..
-                } => (
-                    "transferring",
-                    app.peer_display_name,
-                    None,
-                    0,
-                    false,
-                    app.can_disconnect,
-                    Some(UiTransfer {
-                        id: id_string(transfer_id),
-                        name: current_item_name,
-                        done: bytes_done,
-                        total: bytes_total,
-                        incoming: is_incoming,
-                        status: "transferring",
-                    }),
-                    None,
-                ),
-                SessionState::Error { message, .. } => (
-                    "error",
-                    app.peer_display_name,
-                    None,
-                    0,
-                    false,
-                    app.can_disconnect,
-                    None,
-                    Some(message),
-                ),
-                SessionState::Disconnected { .. } => (
-                    "ready",
-                    app.peer_display_name,
-                    None,
-                    0,
-                    false,
-                    false,
-                    None,
-                    None,
-                ),
-                SessionState::DialingHost { .. }
-                | SessionState::Authenticating
-                | SessionState::AwaitingAcceptance { .. }
-                | SessionState::AwaitingUserDecision { .. } => (
-                    "booting",
-                    app.peer_display_name,
-                    None,
-                    0,
-                    false,
-                    app.can_disconnect,
-                    None,
-                    None,
-                ),
-            };
-        UiSnapshot {
-            api_version: snapshot.api_version,
-            sequence: snapshot.sequence,
-            state,
-            peer_name,
-            invite_url,
-            invite_expires_in_secs: expires,
-            can_send,
-            can_disconnect,
-            transfer,
-            error,
-            transport: app.transport_path,
-            received,
-            received_messages: snapshot.received_messages,
-            last_transfer: snapshot.last_transfer,
-        }
-    }
-
-    pub fn publish(&self, event: AppEvent) {
-        self.backend.emit(event);
+        UiSnapshot::from_backend(snapshot, received)
     }
 
     pub fn set_state(&self, state: SessionState) {
@@ -996,10 +886,6 @@ pub fn ponlet_qr_code_impl(url: String) -> Result<UiQrBitmap, String> {
     })
 }
 
-pub async fn ponlet_snapshot_impl(runtime: &TauriRuntime) -> Result<UiSnapshot, String> {
-    Ok(runtime.snapshot())
-}
-
 pub async fn ponlet_create_invite_impl(runtime: &TauriRuntime) -> Result<(), String> {
     let scope = runtime.backend.begin_session();
     runtime.close_session().await?;
@@ -1034,7 +920,7 @@ pub async fn ponlet_create_invite_impl(runtime: &TauriRuntime) -> Result<(), Str
         session_id,
         invite_secret,
         now,
-        INVITE_LIFETIME_SECS,
+        DEFAULT_INVITE_LIFETIME_SECS,
     );
     let invite_url = invitation
         .to_qr_url(&invite_base_url())
@@ -1054,7 +940,7 @@ pub async fn ponlet_create_invite_impl(runtime: &TauriRuntime) -> Result<(), Str
     runtime.set_session(session.clone());
     scope.set_state(SessionState::AwaitingPeer {
         invite_url,
-        expires_at: now + INVITE_LIFETIME_SECS,
+        expires_at: now + DEFAULT_INVITE_LIFETIME_SECS,
         host_address,
     });
 
@@ -1272,8 +1158,6 @@ pub async fn ponlet_send_files_impl(
         }
         let source = NativeFileSource::open(&app, request).await?;
         if !scope.is_current() {
-            let mut source = source;
-            source.close().await;
             return Ok(());
         }
         send_file_source_impl(runtime, session.clone(), Box::new(source)).await?;
@@ -1291,7 +1175,6 @@ async fn send_file_source_impl(
 ) -> Result<(), String> {
     let scope = &session.scope;
     if !scope.is_current() {
-        source.close().await;
         return Ok(());
     }
     let transfer_id = new_id();
@@ -1317,7 +1200,6 @@ async fn send_file_source_impl(
     {
         Ok(stream) => stream,
         Err(error) => {
-            source.close().await;
             return finish_outgoing(
                 runtime,
                 scope,
@@ -1344,7 +1226,7 @@ async fn send_file_source_impl(
     )
     .await;
     let remotely_cancelled = matches!(&result, Err(error) if error.is_peer_cancelled());
-    source.close().await;
+
     let _ = stream.close().await;
     finish_outgoing(
         runtime,
@@ -1452,7 +1334,6 @@ async fn drain_pending_shares(app: &AppHandle, runtime: &TauriRuntime) -> usize 
                     PathBuf::from(&request.path),
                     request.name.clone(),
                     request.size,
-                    request.mime.clone(),
                 )
                 .await
                 {
@@ -1466,8 +1347,6 @@ async fn drain_pending_shares(app: &AppHandle, runtime: &TauriRuntime) -> usize 
                 let session = match runtime.session() {
                     Ok(session) => session,
                     Err(error) => {
-                        let mut source = source;
-                        source.close().await;
                         runtime.requeue_pending_share(item);
                         log::debug!("shared file waits for a peer: {error}");
                         break;

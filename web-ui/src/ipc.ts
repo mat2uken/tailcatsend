@@ -1,9 +1,9 @@
 import type { BackendEvent, BackendSnapshot, QrBitmap } from "./api/application-api";
 
-export const IPC_MAGIC = new Uint8Array([0x50, 0x4e, 0x4c, 0x54]);
-export const IPC_VERSION = 2;
-export const IPC_HEADER_SIZE = 32;
-export const IPC_MAX_PAYLOAD = 8 * 1024 * 1024;
+const IPC_MAGIC = new Uint8Array([0x50, 0x4e, 0x4c, 0x54]);
+const IPC_VERSION = 2;
+const IPC_HEADER_SIZE = 32;
+const IPC_MAX_PAYLOAD = 8 * 1024 * 1024;
 
 export const enum MessageKind {
   Request = 1,
@@ -259,7 +259,6 @@ export class PortBinaryTransport implements RawBinaryTransport {
 /** Tauri custom-scheme POST transport. One request carries one complete frame. */
 export class SchemeBinaryTransport implements RawBinaryTransport {
   readonly supportsPushEvents = false;
-  private readonly listeners = new Set<(frame: Uint8Array) => void>();
   private readonly controller = new AbortController();
 
   constructor(private readonly baseUrl = "ponletbin://localhost") {}
@@ -281,14 +280,13 @@ export class SchemeBinaryTransport implements RawBinaryTransport {
     return new Uint8Array(await response.arrayBuffer());
   }
 
-  subscribe(listener: (frame: Uint8Array) => void): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
+  subscribe(): () => void {
+    // Custom-scheme notifications arrive as responses to WaitEvent requests.
+    return () => undefined;
   }
 
   close(): void {
     this.controller.abort();
-    this.listeners.clear();
   }
 }
 

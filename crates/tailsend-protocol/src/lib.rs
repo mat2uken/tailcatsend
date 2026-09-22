@@ -1,13 +1,11 @@
 pub mod auth;
 pub mod control;
-pub mod data_header;
 pub mod filename;
 pub mod invitation;
 pub mod limits;
 
 pub use auth::*;
 pub use control::*;
-pub use data_header::*;
 pub use filename::*;
 pub use invitation::*;
 pub use limits::*;
@@ -257,51 +255,6 @@ mod tests {
         let oversized = vec![0u8; MAX_CONTROL_FRAME_SIZE + 1];
         let res = ControlMessage::decode_payload(&oversized);
         assert!(matches!(res, Err(ControlCodecError::FrameTooLarge(_))));
-    }
-
-    #[test]
-    fn test_data_headers_validation() {
-        let session_id = [7u8; 16];
-        let transfer_id = [8u8; 16];
-
-        // Text header
-        let text_hdr = TextDataHeader::new(session_id, transfer_id, 1024).expect("text header");
-        let encoded_text = text_hdr.encode();
-        assert_eq!(encoded_text.len(), TEXT_HEADER_LEN);
-        let decoded_text = TextDataHeader::decode(&encoded_text).expect("decode text header");
-        assert_eq!(text_hdr, decoded_text);
-
-        // Text header bad magic
-        let mut bad_text = encoded_text;
-        bad_text[0..4].copy_from_slice(b"BAD1");
-        assert!(matches!(
-            TextDataHeader::decode(&bad_text),
-            Err(data_header::DataHeaderError::InvalidMagic { .. })
-        ));
-
-        // Text header payload size exceeding limit (> 1 MiB)
-        let oversized_text =
-            TextDataHeader::new(session_id, transfer_id, MAX_TEXT_PAYLOAD_SIZE + 1);
-        assert!(matches!(
-            oversized_text,
-            Err(data_header::DataHeaderError::TextSizeTooLarge(_))
-        ));
-
-        // File header
-        let file_hdr =
-            FileDataHeader::new(session_id, transfer_id, 1, 0, 1048576).expect("file header");
-        let encoded_file = file_hdr.encode();
-        assert_eq!(encoded_file.len(), FILE_HEADER_LEN);
-        let decoded_file = FileDataHeader::decode(&encoded_file).expect("decode file header");
-        assert_eq!(file_hdr, decoded_file);
-
-        // File header bad magic
-        let mut bad_file = encoded_file;
-        bad_file[0..4].copy_from_slice(b"BAD2");
-        assert!(matches!(
-            FileDataHeader::decode(&bad_file),
-            Err(data_header::DataHeaderError::InvalidMagic { .. })
-        ));
     }
 
     #[test]

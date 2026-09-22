@@ -1,21 +1,22 @@
 pub mod event;
-pub mod mock_transport;
+#[cfg(test)]
+mod mock_transport;
 pub mod service;
 pub mod session;
 pub mod snapshot;
 pub mod state;
+mod ui;
 
 pub use event::*;
-pub use mock_transport::*;
 pub use service::*;
 pub use session::*;
 pub use snapshot::*;
 pub use state::*;
+pub use ui::*;
 
 #[cfg(test)]
 mod tests {
     use async_trait::async_trait;
-    use bytes::Bytes;
     use rand::RngCore;
     use std::sync::atomic::AtomicBool;
     use std::sync::{Arc, Mutex};
@@ -26,7 +27,8 @@ mod tests {
     use tailsend_protocol::invitation::InvitationV1;
     use tailsend_protocol::limits::*;
     use tailsend_transfer::{
-        receive_file_item_stream, receive_text_stream, send_file_item_stream, send_text_stream,
+        receive_live_text_message_stream, receive_named_file_stream, send_live_text_stream,
+        send_named_file_stream,
     };
     use tailsend_transport_api::TransportPath;
     use tailsend_transport_api::{ListenOptions, TailcatTransport};
@@ -47,21 +49,22 @@ mod tests {
             FileMetadata {
                 name: self.name.clone(),
                 size: self.data.len() as u64,
-                mime: Some("application/octet-stream".to_string()),
-                modified_unix_ms: None,
             }
         }
 
-        async fn read_at(&mut self, offset: u64, max_len: usize) -> Result<Bytes, StorageError> {
+        async fn read_into(
+            &mut self,
+            offset: u64,
+            destination: &mut [u8],
+        ) -> Result<usize, StorageError> {
             let start = offset as usize;
             if start >= self.data.len() {
-                return Ok(Bytes::new());
+                return Ok(0);
             }
-            let end = (start + max_len).min(self.data.len());
-            Ok(Bytes::copy_from_slice(&self.data[start..end]))
+            let count = destination.len().min(self.data.len() - start);
+            destination[..count].copy_from_slice(&self.data[start..start + count]);
+            Ok(count)
         }
-
-        async fn close(&mut self) {}
     }
 
     struct TestFileSink {
@@ -177,9 +180,6 @@ mod tests {
         assert_eq!(joiner_handshake.transport_path, TransportPath::DirectUdp);
 
         // Test text data stream on TEXT_PORT (101)
-        let mut transfer_id = [0u8; 16];
-        rand::thread_rng().fill_bytes(&mut transfer_id);
-
         let host_data_listener = hub.listen(host_opts.clone()).await.unwrap();
 
         let mut client_stream = hub
@@ -203,28 +203,26 @@ mod tests {
         let send_task = {
             let cancel = cancel.clone();
             tokio::spawn(async move {
-                send_text_stream(
-                    &mut client_stream,
-                    session_id,
-                    transfer_id,
-                    text_to_send,
-                    cancel,
-                )
-                .await
+                send_live_text_stream(&mut client_stream, text_to_send, cancel).await
             })
         };
 
         let recv_task = {
             let cancel = cancel.clone();
             tokio::spawn(async move {
-                receive_text_stream(&mut incoming.stream, session_id, transfer_id, cancel).await
+                let mut messages = Vec::new();
+                receive_live_text_message_stream(&mut incoming.stream, cancel, |text| {
+                    messages.push(text)
+                })
+                .await?;
+                Ok::<_, tailsend_transfer::TransferError>(messages)
             })
         };
 
         let (send_res, recv_res) = tokio::join!(send_task, recv_task);
         send_res.unwrap().expect("send text");
         let received_text = recv_res.unwrap().expect("receive text");
-        assert_eq!(received_text, text_to_send);
+        assert_eq!(received_text, vec![text_to_send]);
     }
 
     #[tokio::test]
@@ -235,7 +233,6 @@ mod tests {
             verbose: false,
         };
 
-        let session_id = [20u8; 16];
         let transfer_id = [21u8; 16];
 
         let file1_data = vec![0x41u8; 1024]; // 1 KiB
@@ -252,7 +249,7 @@ mod tests {
 
         let sink1_data = Arc::new(Mutex::new(Vec::new()));
         let sink1_committed = Arc::new(Mutex::new(false));
-        let mut sink1: Box<dyn IncomingFileSink> = Box::new(TestFileSink {
+        let sink1: Box<dyn IncomingFileSink> = Box::new(TestFileSink {
             data: sink1_data.clone(),
             committed: sink1_committed.clone(),
             name: "item1.txt".to_string(),
@@ -260,7 +257,7 @@ mod tests {
 
         let sink2_data = Arc::new(Mutex::new(Vec::new()));
         let sink2_committed = Arc::new(Mutex::new(false));
-        let mut sink2: Box<dyn IncomingFileSink> = Box::new(TestFileSink {
+        let sink2: Box<dyn IncomingFileSink> = Box::new(TestFileSink {
             data: sink2_data.clone(),
             committed: sink2_committed.clone(),
             name: "item2.bin".to_string(),
@@ -280,12 +277,10 @@ mod tests {
                 .dial(&host_addr, FILE_PORT, host_opts.clone())
                 .await
                 .unwrap();
-            send_file_item_stream(
+            send_named_file_stream(
                 &mut stream1,
-                session_id,
-                transfer_id,
-                1,
                 &mut source1,
+                transfer_id,
                 s_cancel.clone(),
                 None,
             )
@@ -296,17 +291,9 @@ mod tests {
                 .dial(&host_addr, FILE_PORT, host_opts.clone())
                 .await
                 .unwrap();
-            send_file_item_stream(
-                &mut stream2,
-                session_id,
-                transfer_id,
-                2,
-                &mut source2,
-                s_cancel,
-                None,
-            )
-            .await
-            .unwrap();
+            send_named_file_stream(&mut stream2, &mut source2, transfer_id, s_cancel, None)
+                .await
+                .unwrap();
         });
 
         // Receiver Task
@@ -314,13 +301,11 @@ mod tests {
         let receiver_task = tokio::spawn(async move {
             let mut incoming1 = host_listener.accept().await.unwrap();
             assert_eq!(incoming1.port, FILE_PORT);
-            receive_file_item_stream(
+            receive_named_file_stream(
                 &mut incoming1.stream,
-                session_id,
+                sink1,
                 transfer_id,
-                1,
-                1024,
-                &mut sink1,
+                Some(1024),
                 r_cancel.clone(),
                 None,
             )
@@ -329,13 +314,11 @@ mod tests {
 
             let mut incoming2 = host_listener.accept().await.unwrap();
             assert_eq!(incoming2.port, FILE_PORT);
-            receive_file_item_stream(
+            receive_named_file_stream(
                 &mut incoming2.stream,
-                session_id,
+                sink2,
                 transfer_id,
-                2,
-                70000,
-                &mut sink2,
+                Some(70000),
                 r_cancel,
                 None,
             )
@@ -349,6 +332,8 @@ mod tests {
 
         assert_eq!(*sink1_data.lock().unwrap(), file1_data);
         assert_eq!(*sink2_data.lock().unwrap(), file2_data);
+        assert!(*sink1_committed.lock().unwrap());
+        assert!(*sink2_committed.lock().unwrap());
     }
 
     #[tokio::test]

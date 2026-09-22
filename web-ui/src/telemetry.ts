@@ -2,7 +2,6 @@ import type { BackendEvent, BackendSnapshot } from "./api/application-api";
 import { resolvePublicUrl } from "./lib/public-url";
 
 interface TelemetryBridge {
-  isEnabled(): boolean;
   logEvent(name: string, params: Record<string, string | number>): void;
   setEnabled(enabled: boolean): void;
 }
@@ -13,7 +12,7 @@ declare global {
   }
 }
 
-export function readTelemetryPreference(): boolean {
+function readTelemetryPreference(): boolean {
   try {
     // The interim WebView checkbox and the Slint website used different keys.
     // Preserve either existing opt-out until the user changes the setting.

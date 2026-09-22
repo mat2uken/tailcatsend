@@ -119,14 +119,4 @@ impl<R: Runtime> TelemetryBackend for MobileTelemetry<R> {
             serde_json::json!({"enabled": enabled}),
         );
     }
-    fn remote_config_string(&self, key: &str) -> Option<String> {
-        #[derive(Deserialize)]
-        struct Reply {
-            value: Option<String>,
-        }
-        self.0
-            .run_mobile_plugin::<Reply>("telemetryRemoteString", serde_json::json!({"key": key}))
-            .ok()
-            .and_then(|reply| reply.value)
-    }
 }

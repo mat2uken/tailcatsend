@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use tailsend_protocol::control::{Capabilities, FileOffer, PeerInfo, TextOffer};
+use tailsend_protocol::control::{Capabilities, PeerInfo};
 use tailsend_transport_api::TransportPath;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -20,14 +20,6 @@ pub enum SessionState {
         peer_address: String,
         transport_path: TransportPath,
     },
-    AwaitingAcceptance {
-        transfer_id: [u8; 16],
-        is_files: bool,
-    },
-    AwaitingUserDecision {
-        transfer_id: [u8; 16],
-        offer: PendingOffer,
-    },
     Transferring {
         transfer_id: [u8; 16],
         is_incoming: bool,
@@ -43,10 +35,4 @@ pub enum SessionState {
         code: u32,
         message: String,
     },
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum PendingOffer {
-    Text(TextOffer),
-    Files(FileOffer),
 }

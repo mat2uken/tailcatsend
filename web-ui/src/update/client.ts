@@ -8,14 +8,14 @@ import {
 } from "./manifest";
 import { decodeBase64, sha256Hex, verifyManifestSignature } from "./crypto";
 
-export const UPDATE_TIMEOUT_MS = 1_500;
+const UPDATE_TIMEOUT_MS = 1_500;
 export const CONTROL_CACHE_NAME = "ponlet-control-v1";
 export const RELEASE_CACHE_PREFIX = "ponlet-release-";
 
 const PENDING_RELEASE_KEY = "/pending-release";
 const MAX_SIGNATURE_BYTES = 512;
 
-export interface UpdateConfig {
+interface UpdateConfig {
   apiVersion: number;
   currentRevision: number;
   distribution: string;
@@ -27,7 +27,7 @@ export interface UpdateConfig {
   timeoutMs?: number;
 }
 
-export type UpdateResult =
+type UpdateResult =
   | { status: "disabled" | "no-update" | "unsupported" }
   | { status: "failed" | "timeout"; error: string }
   | { releaseId: string; status: "staged" };

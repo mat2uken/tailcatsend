@@ -1,10 +1,11 @@
 use super::*;
 use async_trait::async_trait;
-use bytes::Bytes;
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::StreamExt;
-use std::sync::Mutex;
-use tailsend_platform_api::{FileMetadata, ReceivedItem};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use tailsend_platform_api::{FileMetadata, FileSource, IncomingFileSink, ReceivedItem};
+use tailsend_transport_api::DuplexStream;
 
 struct InMemDuplex {
     tx: UnboundedSender<Vec<u8>>,
@@ -113,26 +114,8 @@ fn receiver_futures_fit_mobile_thread_stack() {
         sizes.push(("named_file", std::mem::size_of_val(&receiver)));
     }
     {
-        let receiver = receive_live_text_stream(&mut stream, cancel.clone(), |_| {});
-        sizes.push(("live_text", std::mem::size_of_val(&receiver)));
-    }
-    {
         let receiver = receive_live_text_message_stream(&mut stream, cancel.clone(), |_| {});
         sizes.push(("live_text_message", std::mem::size_of_val(&receiver)));
-    }
-    {
-        let receiver = receive_text_stream(&mut stream, [0; 16], [0; 16], cancel.clone());
-        sizes.push(("framed_text", std::mem::size_of_val(&receiver)));
-    }
-    {
-        let mut sink: Box<dyn IncomingFileSink> = Box::new(InMemSink {
-            data: Arc::default(),
-            committed: Arc::default(),
-            name: "file".into(),
-        });
-        let receiver =
-            receive_file_item_stream(&mut stream, [0; 16], [0; 16], 0, 0, &mut sink, cancel, None);
-        sizes.push(("framed_file", std::mem::size_of_val(&receiver)));
     }
     eprintln!("receiver future sizes: {sizes:?}");
     // Like the sender, these futures can be nested in mobile adapters. Keep
@@ -146,27 +129,96 @@ impl FileSource for InMemSource {
         FileMetadata {
             name: self.name.clone(),
             size: self.data.len() as u64,
-            mime: Some("application/octet-stream".to_string()),
-            modified_unix_ms: None,
         }
     }
 
-    async fn read_at(&mut self, offset: u64, max_len: usize) -> Result<Bytes, StorageError> {
+    async fn read_into(
+        &mut self,
+        offset: u64,
+        destination: &mut [u8],
+    ) -> Result<usize, StorageError> {
         let start = offset as usize;
         if start >= self.data.len() {
-            return Ok(Bytes::new());
+            return Ok(0);
         }
-        let end = (start + max_len).min(self.data.len());
-        Ok(Bytes::copy_from_slice(&self.data[start..end]))
+        let count = destination.len().min(self.data.len() - start);
+        destination[..count].copy_from_slice(&self.data[start..start + count]);
+        Ok(count)
     }
-
-    async fn close(&mut self) {}
 }
 
 struct InMemSink {
     data: Arc<Mutex<Vec<u8>>>,
     committed: Arc<Mutex<bool>>,
     name: String,
+}
+
+struct InterruptedSink {
+    data: Arc<Mutex<Vec<u8>>>,
+    aborted: Arc<AtomicBool>,
+    cancel_on_write: Option<Arc<AtomicBool>>,
+}
+
+#[async_trait]
+impl IncomingFileSink for InterruptedSink {
+    async fn write(&mut self, bytes: &[u8]) -> Result<(), StorageError> {
+        if let Some(cancel) = &self.cancel_on_write {
+            self.data.lock().unwrap().extend_from_slice(bytes);
+            cancel.store(true, Ordering::Release);
+            Ok(())
+        } else {
+            // A disk can accept part of the write before reporting failure.
+            self.data
+                .lock()
+                .unwrap()
+                .extend_from_slice(&bytes[..bytes.len().min(2)]);
+            Err(StorageError::Io("disk write failed".into()))
+        }
+    }
+
+    async fn commit(self: Box<Self>) -> Result<ReceivedItem, StorageError> {
+        panic!("failed or cancelled output must not be committed")
+    }
+
+    async fn abort(self: Box<Self>) -> Result<(), StorageError> {
+        self.data.lock().unwrap().clear();
+        self.aborted.store(true, Ordering::Release);
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn named_receiver_aborts_partial_output_after_sink_error_or_cancellation() {
+    for cancel_during_write in [false, true] {
+        let data = Arc::new(Mutex::new(Vec::new()));
+        let aborted = Arc::new(AtomicBool::new(false));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let sink = Box::new(InterruptedSink {
+            data: data.clone(),
+            aborted: aborted.clone(),
+            cancel_on_write: cancel_during_write.then(|| cancel.clone()),
+        });
+        let result = receive_named_file_stream(
+            &mut scripted_stream(b"NAME:file:4\nabcd", 64),
+            sink,
+            [1; 16],
+            None,
+            cancel,
+            None,
+        )
+        .await;
+        if cancel_during_write {
+            assert!(matches!(result, Err(TransferError::Cancelled)));
+        } else {
+            assert!(matches!(
+                result,
+                Err(TransferError::Storage(StorageError::Io(message)))
+                    if message == "disk write failed"
+            ));
+        }
+        assert!(aborted.load(Ordering::Acquire));
+        assert!(data.lock().unwrap().is_empty());
+    }
 }
 
 #[async_trait]
@@ -195,8 +247,6 @@ impl IncomingFileSink for InMemSink {
 #[tokio::test]
 async fn test_text_stream_large_multichunk() {
     let (mut sender_stream, mut receiver_stream) = InMemDuplex::pair();
-    let session_id = [1u8; 16];
-    let transfer_id = [2u8; 16];
 
     // 150 KiB text (exceeds 2 chunks of 64 KiB)
     let large_text = "TailSend-chunked-data-".repeat(7000);
@@ -205,50 +255,45 @@ async fn test_text_stream_large_multichunk() {
     let text_to_send = large_text.clone();
     let s_cancel = cancel.clone();
     let send_task = tokio::spawn(async move {
-        send_text_stream(
-            &mut sender_stream,
-            session_id,
-            transfer_id,
-            &text_to_send,
-            s_cancel,
-        )
-        .await
+        send_live_text_stream(&mut sender_stream, &text_to_send, s_cancel).await
     });
 
     let r_cancel = cancel.clone();
     let recv_task = tokio::spawn(async move {
-        receive_text_stream(&mut receiver_stream, session_id, transfer_id, r_cancel).await
+        let mut messages = Vec::new();
+        receive_live_text_message_stream(&mut receiver_stream, r_cancel, |text| {
+            messages.push(text)
+        })
+        .await?;
+        Ok::<_, TransferError>(messages)
     });
 
     let (send_res, recv_res) = tokio::join!(send_task, recv_task);
     send_res.unwrap().expect("send text");
     let received = recv_res.unwrap().expect("recv text");
-    assert_eq!(received, large_text);
+    assert_eq!(received, vec![large_text]);
 }
 
 #[tokio::test]
 async fn test_text_stream_cancellation() {
     let (mut sender_stream, mut receiver_stream) = InMemDuplex::pair();
-    let session_id = [1u8; 16];
-    let transfer_id = [2u8; 16];
 
     let cancel = Arc::new(AtomicBool::new(true)); // Pre-cancelled
 
     let s_cancel = cancel.clone();
-    let send_task = tokio::spawn(async move {
-        send_text_stream(
-            &mut sender_stream,
-            session_id,
-            transfer_id,
-            "Hello",
-            s_cancel,
-        )
-        .await
-    });
+    let send_task =
+        tokio::spawn(
+            async move { send_live_text_stream(&mut sender_stream, "Hello", s_cancel).await },
+        );
 
     let r_cancel = cancel.clone();
     let recv_task = tokio::spawn(async move {
-        receive_text_stream(&mut receiver_stream, session_id, transfer_id, r_cancel).await
+        let mut messages = Vec::new();
+        receive_live_text_message_stream(&mut receiver_stream, r_cancel, |text| {
+            messages.push(text)
+        })
+        .await?;
+        Ok::<_, TransferError>(messages)
     });
 
     let (send_res, recv_res) = tokio::join!(send_task, recv_task);
@@ -265,9 +310,7 @@ async fn test_file_stream_various_sizes_and_progress() {
 
     for size in test_sizes {
         let (mut sender_stream, mut receiver_stream) = InMemDuplex::pair();
-        let session_id = [3u8; 16];
         let transfer_id = [4u8; 16];
-        let item_id = 42;
 
         let test_data = (0..size).map(|i| (i % 256) as u8).collect::<Vec<u8>>();
         let mut source: Box<dyn FileSource> = Box::new(InMemSource {
@@ -277,7 +320,7 @@ async fn test_file_stream_various_sizes_and_progress() {
 
         let sink_data = Arc::new(Mutex::new(Vec::new()));
         let sink_committed = Arc::new(Mutex::new(false));
-        let mut sink: Box<dyn IncomingFileSink> = Box::new(InMemSink {
+        let sink: Box<dyn IncomingFileSink> = Box::new(InMemSink {
             data: sink_data.clone(),
             committed: sink_committed.clone(),
             name: format!("file_{}.bin", size),
@@ -292,12 +335,10 @@ async fn test_file_stream_various_sizes_and_progress() {
 
         let s_cancel = cancel.clone();
         let send_task = tokio::spawn(async move {
-            send_file_item_stream(
+            send_named_file_stream(
                 &mut sender_stream,
-                session_id,
-                transfer_id,
-                item_id,
                 &mut source,
+                transfer_id,
                 s_cancel,
                 Some(&progress_cb),
             )
@@ -306,13 +347,11 @@ async fn test_file_stream_various_sizes_and_progress() {
 
         let r_cancel = cancel.clone();
         let recv_task = tokio::spawn(async move {
-            receive_file_item_stream(
+            receive_named_file_stream(
                 &mut receiver_stream,
-                session_id,
+                sink,
                 transfer_id,
-                item_id,
-                size as u64,
-                &mut sink,
+                Some(size as u64),
                 r_cancel,
                 None,
             )
@@ -322,7 +361,9 @@ async fn test_file_stream_various_sizes_and_progress() {
         let (send_res, recv_res) = tokio::join!(send_task, recv_task);
         send_res.unwrap().expect("send file");
         let total_recv = recv_res.unwrap().expect("recv file");
-        assert_eq!(total_recv, size as u64);
+        assert_eq!(total_recv.item.size, size as u64);
+        assert!(*sink_committed.lock().unwrap());
+        assert_eq!(*progress_bytes.lock().unwrap(), size as u64);
         assert_eq!(*sink_data.lock().unwrap(), test_data);
     }
 }
@@ -336,8 +377,6 @@ fn test_live_name_header_uses_last_colon_and_sanitizes_name() {
     let encoded = encode_name_header(&FileMetadata {
         name: "folder/file.txt".to_string(),
         size: 42,
-        mime: None,
-        modified_unix_ms: None,
     })
     .unwrap();
     assert_eq!(encoded, b"NAME:file.txt:42\n");
@@ -354,23 +393,6 @@ fn test_live_name_header_rejects_unbounded_input() {
     assert!(matches!(
         parse_name_header(b"NAME:missing-size\n"),
         Err(TransferError::InvalidNameHeader(_))
-    ));
-}
-
-#[test]
-fn test_text_message_decoder_handles_fragmented_lines_and_limit() {
-    let mut decoder = TextMessageDecoder::new();
-    assert!(decoder
-        .push(b"first\nsec")
-        .unwrap()
-        .contains(&"first".to_string()));
-    assert_eq!(decoder.push(b"ond\n").unwrap(), vec!["second"]);
-    assert_eq!(decoder.finish().unwrap(), Vec::<String>::new());
-
-    let oversized = vec![b'x'; MAX_TEXT_PAYLOAD_SIZE as usize + 1];
-    assert!(matches!(
-        decoder.push(&oversized),
-        Err(TransferError::TextTooLarge)
     ));
 }
 
@@ -770,19 +792,6 @@ async fn named_header_rejects_invalid_adapter_count_without_panicking() {
     assert!(matches!(result, Err(TransferError::ReadOverrun { .. })));
 }
 
-#[test]
-fn decoder_rejects_large_fragment_before_retaining_it_and_handles_many_lines() {
-    let mut decoder = TextMessageDecoder::new();
-    let huge = vec![b'a'; MAX_TEXT_PAYLOAD_SIZE as usize + 1];
-    assert!(matches!(
-        decoder.push(&huge),
-        Err(TransferError::TextTooLarge)
-    ));
-    assert!(decoder.finish().unwrap().is_empty());
-    let many = b"ok\n".repeat(10_000);
-    assert_eq!(decoder.push(&many).unwrap(), vec!["ok"; 10_000]);
-}
-
 #[tokio::test]
 async fn oversized_body_is_rejected_independently_of_packet_splits() {
     // The excess bytes must be visible in the same transport read as the
@@ -813,30 +822,6 @@ async fn oversized_body_is_rejected_independently_of_packet_splits() {
         assert!(data.lock().unwrap().is_empty());
         assert!(!*committed.lock().unwrap());
     }
-}
-
-#[tokio::test]
-async fn live_text_is_delivered_before_the_connection_closes() {
-    let (mut sender, mut receiver) = InMemDuplex::pair();
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    let task = tokio::spawn(async move {
-        receive_live_text_stream(&mut receiver, Arc::new(AtomicBool::new(false)), |message| {
-            tx.send(message).unwrap();
-        })
-        .await
-    });
-    sender.write_all(b"first\n").await.unwrap();
-    assert_eq!(
-        tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
-            .await
-            .unwrap()
-            .unwrap(),
-        "first"
-    );
-    sender.write_all(b"last").await.unwrap();
-    sender.close_write().await.unwrap();
-    task.await.unwrap().unwrap();
-    assert_eq!(rx.recv().await.unwrap(), "last");
 }
 
 #[tokio::test]
@@ -882,4 +867,16 @@ async fn live_text_message_keeps_empty_lines_when_grouping() {
 
     assert_eq!(rx.recv().await.unwrap(), "first\n\nthird");
     assert!(rx.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn live_text_message_rejects_oversized_payload() {
+    let oversized = vec![b'x'; MAX_TEXT_PAYLOAD_SIZE as usize + 2];
+    let mut stream = scripted_stream(&oversized, 65536);
+    let result =
+        receive_live_text_message_stream(&mut stream, Arc::new(AtomicBool::new(false)), |_| {
+            panic!("oversized message must not be published")
+        })
+        .await;
+    assert!(matches!(result, Err(TransferError::TextTooLarge)));
 }

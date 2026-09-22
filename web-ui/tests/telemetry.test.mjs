@@ -37,7 +37,7 @@ it("preserves either Slint or interim WebView opt-out before SDK initialization"
 it("connects the setting to collection and sends only coarse event fields", async () => {
   const logEvent = vi.fn();
   const setEnabled = vi.fn();
-  window.__tailcatTelemetry = { isEnabled: () => true, setEnabled, logEvent };
+  window.__tailcatTelemetry = { setEnabled, logEvent };
   const telemetry = await import("../src/telemetry");
   const observer = telemetry.telemetryObserver();
   observer({
@@ -90,7 +90,7 @@ for (const [length, bucket] of [
 ]) {
   it(`uses the same code point bucket for ${length} sent and received characters`, async () => {
     const logEvent = vi.fn();
-    window.__tailcatTelemetry = { isEnabled: () => true, setEnabled: vi.fn(), logEvent };
+    window.__tailcatTelemetry = { setEnabled: vi.fn(), logEvent };
     const telemetry = await import("../src/telemetry");
     const text = "😀".repeat(length);
     telemetry.textSent(text);

@@ -6,14 +6,11 @@ use tailsend_platform_api::{
     FileSource, IncomingFileSink, ReceivedItem, StorageError, MAX_FILE_NAME_HEADER_BYTES,
 };
 use tailsend_protocol::filename::sanitize_filename;
-use tailsend_protocol::limits::{CHUNK_SIZE_BYTES, MAX_FILENAME_BYTES, MAX_TEXT_PAYLOAD_SIZE};
+use tailsend_protocol::limits::{CHUNK_SIZE_BYTES, MAX_TEXT_PAYLOAD_SIZE};
 use tailsend_transport_api::DuplexStream;
 
 use crate::io::{check_cancelled, read_checked, write_fully, write_sink_fully};
 use crate::{ProgressCallback, ProgressUpdate, TransferError};
-
-/// The live file stream used by the existing mobile and browser clients.
-pub const FILE_NAME_HEADER_PREFIX: &[u8] = b"NAME:";
 
 /// A parsed `NAME:<filename>:<size>\n` header.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,12 +54,6 @@ pub fn parse_name_header(bytes: &[u8]) -> Result<NamedFileHeader, TransferError>
         .map_err(|_| TransferError::InvalidNameHeader("invalid file size".to_string()))?;
     let name = sanitize_filename(raw_name)
         .map_err(|error| TransferError::InvalidNameHeader(error.to_string()))?;
-    if name.len() > MAX_FILENAME_BYTES {
-        return Err(TransferError::InvalidNameHeader(
-            "sanitized filename is too long".to_string(),
-        ));
-    }
-
     Ok(NamedFileHeader { name, size })
 }
 
@@ -73,70 +64,7 @@ pub fn encode_name_header(
     let name = sanitize_filename(&metadata.name)
         .map_err(|error| TransferError::InvalidNameHeader(error.to_string()))?;
     let header = format!("NAME:{}:{}\n", name, metadata.size);
-    if header.len() > MAX_FILE_NAME_HEADER_BYTES {
-        return Err(TransferError::NameHeaderTooLarge);
-    }
     Ok(header.into_bytes())
-}
-
-/// Decoder for the persistent text stream on port 101.  A caller can feed it
-/// whatever chunks its transport returns; newline-delimited messages are
-/// emitted immediately and a final unterminated message is emitted by
-/// `finish`.
-#[derive(Debug, Default)]
-pub struct TextMessageDecoder {
-    pending: Vec<u8>,
-}
-
-impl TextMessageDecoder {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn push(&mut self, bytes: &[u8]) -> Result<Vec<String>, TransferError> {
-        let mut messages = Vec::new();
-        // Scan the input once and enforce the limit before allocating. The
-        // old split_off loop copied the entire remainder for every newline.
-        for part in bytes.split_inclusive(|byte| *byte == b'\n') {
-            let complete = part.last() == Some(&b'\n');
-            let content = if complete {
-                &part[..part.len() - 1]
-            } else {
-                part
-            };
-            if content.len() > MAX_TEXT_PAYLOAD_SIZE as usize - self.pending.len() {
-                self.pending.clear();
-                return Err(TransferError::TextTooLarge);
-            }
-            self.pending.extend_from_slice(content);
-            if complete {
-                if self.pending.last() == Some(&b'\r') {
-                    self.pending.pop();
-                }
-                messages.push(
-                    String::from_utf8(std::mem::take(&mut self.pending))
-                        .map_err(|_| TransferError::InvalidUtf8)?,
-                );
-            }
-        }
-        Ok(messages)
-    }
-
-    pub fn finish(&mut self) -> Result<Vec<String>, TransferError> {
-        if self.pending.is_empty() {
-            return Ok(Vec::new());
-        }
-        if self.pending.len() > MAX_TEXT_PAYLOAD_SIZE as usize {
-            return Err(TransferError::TextTooLarge);
-        }
-        let mut line = std::mem::take(&mut self.pending);
-        if line.last() == Some(&b'\r') {
-            line.pop();
-        }
-        Ok(vec![
-            String::from_utf8(line).map_err(|_| TransferError::InvalidUtf8)?
-        ])
-    }
 }
 
 struct BufferedStream<'a> {
@@ -162,7 +90,7 @@ impl<'a> BufferedStream<'a> {
         if destination.is_empty() {
             return Ok(0);
         }
-        let available = self.pending.len().saturating_sub(self.pending_offset);
+        let available = self.pending_len();
         if available > 0 {
             let count = available.min(destination.len());
             destination[..count]
@@ -229,19 +157,11 @@ async fn receive_named_body(
         if count == 0 {
             return Err(TransferError::UnexpectedEof);
         }
-        if count > needed {
-            return Err(TransferError::ReadOverrun {
-                requested: needed,
-                actual: count,
-            });
-        }
-
         write_sink_fully(sink, &buffer[..count], cancel_flag).await?;
         total += count as u64;
         if let Some(callback) = on_progress {
             callback(ProgressUpdate {
                 transfer_id,
-                item_id: None,
                 bytes_transferred: total,
                 total_bytes: header.size,
             });
@@ -252,8 +172,7 @@ async fn receive_named_body(
 }
 
 /// Send one live file using `NAME:<filename>:<size>\n` followed by the body.
-/// The source's `read_into` hook lets native adapters fill the reusable
-/// transfer buffer directly while retaining compatibility with old sources.
+/// The source fills the reusable transfer buffer directly with `read_into`.
 /// The returned count confirms transport writes, not the receiver's save.
 pub async fn send_named_file_stream(
     stream: &mut Box<dyn DuplexStream>,
@@ -290,7 +209,6 @@ pub async fn send_named_file_stream(
         if let Some(callback) = on_progress {
             callback(ProgressUpdate {
                 transfer_id,
-                item_id: None,
                 bytes_transferred: offset,
                 total_bytes: metadata.size,
             });
@@ -303,7 +221,7 @@ pub async fn send_named_file_stream(
 
 /// Receive a live file and let the caller create a platform sink after its
 /// sanitized header is known.  The sink is committed only after exactly the
-/// declared number of bytes and EOF have arrived. Receive failures abort the
+/// declared number of bytes have arrived. Receive failures abort the
 /// prepared sink; a consuming `commit` must clean up its own storage errors.
 pub async fn receive_named_file_stream_with_factory<Prepare, PrepareFuture>(
     stream: &mut Box<dyn DuplexStream>,
@@ -420,46 +338,10 @@ pub async fn send_live_text_stream(
     Ok(())
 }
 
-/// Deliver each newline-delimited message as soon as it arrives. Persistent
-/// connections must not retain every message or wait for EOF to update the UI.
-/// Adapters with transient read timeouts can drive `TextMessageDecoder` directly.
-pub async fn receive_live_text_stream<OnMessage>(
-    stream: &mut Box<dyn DuplexStream>,
-    cancel_flag: Arc<AtomicBool>,
-    mut on_message: OnMessage,
-) -> Result<(), TransferError>
-where
-    OnMessage: FnMut(String),
-{
-    let mut decoder = TextMessageDecoder::new();
-    let mut buffer = vec![0u8; CHUNK_SIZE_BYTES];
-    loop {
-        if cancel_flag.load(Ordering::Relaxed) {
-            return Err(TransferError::Cancelled);
-        }
-        let count = read_checked(stream, &mut buffer).await?;
-        if count == 0 {
-            break;
-        }
-        for message in decoder.push(&buffer[..count])? {
-            on_message(message);
-        }
-    }
-    check_cancelled(&cancel_flag)?;
-    for message in decoder.finish()? {
-        on_message(message);
-    }
-    Ok(())
-}
-
 /// Receive one text transfer as a single message while preserving its line
 /// breaks.  The current send path opens one stream per text submission and
 /// terminates it after writing one framing newline, so splitting the stream at
 /// every newline would turn a pasted multi-line message into several messages.
-///
-/// `receive_live_text_stream` remains available for the older persistent
-/// newline-delimited stream used by legacy adapters.  This variant is for the
-/// per-submission streams used by the Web and Tauri runtimes.
 pub async fn receive_live_text_message_stream<OnMessage>(
     stream: &mut Box<dyn DuplexStream>,
     cancel_flag: Arc<AtomicBool>,
@@ -500,7 +382,7 @@ where
     }
     if payload.last() == Some(&b'\n') {
         payload.pop();
-        // Match TextMessageDecoder's CRLF normalization for the framing line.
+        // Normalize CRLF on the framing line.
         if payload.last() == Some(&b'\r') {
             payload.pop();
         }

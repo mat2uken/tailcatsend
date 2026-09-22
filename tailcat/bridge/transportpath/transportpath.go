@@ -4,9 +4,13 @@
 package transportpath
 
 import (
+	"context"
 	"net"
 	"net/netip"
 	"strings"
+	"time"
+
+	"github.com/tailscale/tailcat"
 
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tailcfg"
@@ -69,4 +73,26 @@ func FromPeer(status *ipnstate.Status, remote net.Addr) uint8 {
 		}
 	}
 	return Unknown
+}
+
+// FromServer looks up only the established connection's remote peer.
+func FromServer(server *tailcat.Server, remote net.Addr) uint8 {
+	if server == nil || remote == nil {
+		return Unknown
+	}
+	return FromPeer(server.Status(), remote)
+}
+
+// FromClient probes the selected path with a bounded discovery ping.
+func FromClient(client *tailcat.Client) uint8 {
+	if client == nil {
+		return Unknown
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	result, err := client.DiscoPing(ctx)
+	if err != nil || result == nil {
+		return Unknown
+	}
+	return FromPing(result.Endpoint, result.PeerRelay, result.DERPRegionID != 0)
 }

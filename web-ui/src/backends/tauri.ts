@@ -26,20 +26,9 @@ interface NativeFileRequest {
   size: number;
 }
 
-interface BinaryPort {
-  addEventListener?(type: "message", listener: (event: MessageEvent<unknown>) => void): void;
-  close?(): void;
-  onmessage?: ((event: MessageEvent<unknown>) => void) | null;
-  postMessage(message: ArrayBuffer | Uint8Array): void;
-  removeEventListener?(type: "message", listener: (event: MessageEvent<unknown>) => void): void;
-  start?(): void;
-}
+type BinaryPort = ConstructorParameters<typeof PortBinaryTransport>[0];
 
-type SelectedTransport =
-  | { client: BinaryRpcClient; kind: "port" | "scheme"; transport: RawBinaryTransport }
-  | { kind: "json" };
-
-let selection: Promise<SelectedTransport> | undefined;
+let selection: Promise<BinaryRpcClient | undefined> | undefined;
 let nativePlatform = "";
 let scanGeneration = 0;
 
@@ -157,179 +146,88 @@ function injectedPort(): BinaryPort | undefined {
   return value as BinaryPort;
 }
 
-async function probePort(): Promise<SelectedTransport | undefined> {
+async function probeTransport(transport: RawBinaryTransport): Promise<BinaryRpcClient | undefined> {
+  const client = new BinaryRpcClient(transport);
+  try {
+    validateSnapshot(await withTimeout(client.call<BackendSnapshot>(Opcode.Snapshot), 1500));
+    return client;
+  } catch {
+    client.close();
+    return undefined;
+  }
+}
+
+async function selectTransport(): Promise<BinaryRpcClient | undefined> {
   if (typeof BigInt !== "function") {
     return undefined;
   }
+  // Select once at startup. Never replay accepted operations through JSON.
   const port = injectedPort();
-  if (!port) {
-    return undefined;
-  }
-  // The Android listener replies to a request on this same ArrayBuffer port.
-  // Keeping a single WaitEvent request outstanding gives notifications the
-  // same binary path without a second event channel.
-  const transport = new PortBinaryTransport(port);
-  const client = new BinaryRpcClient(transport);
-  try {
-    validateSnapshot(await withTimeout(client.call<BackendSnapshot>(Opcode.Snapshot), 1500));
-    return { client, kind: "port", transport };
-  } catch {
-    client.close();
-    return undefined;
-  }
+  return (
+    (port ? await probeTransport(new PortBinaryTransport(port)) : undefined) ??
+    (await probeTransport(new SchemeBinaryTransport()))
+  );
 }
 
-async function probeScheme(): Promise<SelectedTransport | undefined> {
-  if (typeof BigInt !== "function") {
-    return undefined;
-  }
-  const transport = new SchemeBinaryTransport();
-  const client = new BinaryRpcClient(transport);
-  try {
-    validateSnapshot(await withTimeout(client.call<BackendSnapshot>(Opcode.Snapshot), 1500));
-    return { client, kind: "scheme", transport };
-  } catch {
-    client.close();
-    return undefined;
-  }
-}
-
-async function selectTransport(): Promise<SelectedTransport> {
-  // The injected Android port is preferred, then the binary custom scheme.
-  // JSON invoke is selected once at startup and is never used as an automatic
-  // retry after an operation has already been accepted by a fast path.
-  return (await probePort()) ?? (await probeScheme()) ?? { kind: "json" };
-}
-
-function prepareSelection(): Promise<SelectedTransport> {
-  selection ??= selectTransport();
-  return selection;
-}
-
-function createJsonFallback(listeners: Set<(event: BackendEvent) => void>): {
-  backend: Omit<PonletBackend, "subscribe">;
-  start: () => () => void;
-} {
-  return {
-    backend: {
-      snapshot: async () => validateSnapshot(await invoke<BackendSnapshot>("ponlet_snapshot")),
-      createInvite: () => invoke("ponlet_create_invite"),
-      join: (invite) => invoke("ponlet_join", { invite }),
-      sendText: (text) => invoke("ponlet_send_text", { text }),
-      sendFiles: (files) => invoke("ponlet_send_files", { files: files.map(toFileRequest) }),
-      pickAndSendFiles: () => invoke("ponlet_pick_and_send_files"),
-      importShared: () => invoke<SharedImportSummary>("ponlet_import_shared"),
-      qrCode: async (url) => normalizeQr(await invoke<QrBitmap>("ponlet_qr_code", { url })),
-      cancelTransfer: (id) => invoke("ponlet_cancel_transfer", { id }),
-      disconnect: () => invoke("ponlet_disconnect"),
-      openReceivedItem: (item: ReceivedItem) =>
-        invoke("ponlet_open_received", { localPathOrHandle: item.localPathOrHandle }),
-      shareReceivedItem: (item: ReceivedItem) =>
-        invoke("ponlet_share_received", { localPathOrHandle: item.localPathOrHandle }),
-      copyText,
-      shareText,
-      saveText: (text) => invoke("ponlet_save_text", { text }),
-      dispose: () => invoke("ponlet_disconnect"),
-    },
-    start: () => startJsonNotifications(invoke, listeners),
-  };
+function prepareSelection(): Promise<BinaryRpcClient | undefined> {
+  return (selection ??= selectTransport());
 }
 
 /** Tauri adapter. Fast binary IPC is selected once; JSON invoke remains the fallback. */
 export function createBackend(): PonletBackend {
   const mobile = nativePlatform === "ios" || nativePlatform === "android";
   const listeners = new Set<(event: BackendEvent) => void>();
-  const fallback = createJsonFallback(listeners);
-  let selected: SelectedTransport | undefined;
-  let cleanupFallback: (() => void) | undefined;
-  let cleanupFast: (() => void) | undefined;
+  let cleanup: (() => void) | undefined;
   let disposed = false;
 
-  const ready = prepareSelection().then((value) => {
-    selected = value;
+  const ready = prepareSelection().then((client) => {
     if (disposed) {
-      if (value.kind !== "json") {
-        value.client.close();
-      }
-      return value;
+      client?.close();
+      return client;
     }
-    if (value.kind === "json") {
-      cleanupFallback = fallback.start();
-    } else {
-      cleanupFast = value.client.subscribe((event) => {
-        for (const listener of listeners) {
-          listener(event);
-        }
-      });
-    }
-    return value;
+    cleanup = client
+      ? client.subscribe((event) => {
+          for (const listener of listeners) {
+            listener(event);
+          }
+        })
+      : startJsonNotifications(invoke, listeners);
+    return client;
   });
-  const fastCall = async <T>(opcode: Opcode, payload?: unknown): Promise<T> => {
-    const value = selected ?? (await ready);
-    if (value.kind === "json") {
-      throw new Error("Fast IPC is unavailable");
-    }
-    return value.client.call<T>(opcode, payload);
-  };
-  const jsonOrFast = async <T>(
-    fast: () => Promise<T>,
-    fallbackCall: () => Promise<T>,
+  const call = async <T>(
+    opcode: Opcode,
+    command: string,
+    payload?: unknown,
+    args?: Record<string, unknown>,
   ): Promise<T> => {
-    const value = selected ?? (await ready);
-    return value.kind === "json" ? fallbackCall() : fast();
+    const client = await ready;
+    return client ? client.call<T>(opcode, payload) : invoke<T>(command, args);
   };
 
   return {
-    snapshot: () =>
-      jsonOrFast(
-        async () => validateSnapshot(await fastCall<BackendSnapshot>(Opcode.Snapshot)),
-        fallback.backend.snapshot,
-      ),
+    snapshot: async () =>
+      validateSnapshot(await call<BackendSnapshot>(Opcode.Snapshot, "ponlet_snapshot")),
     subscribe: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
-    createInvite: () =>
-      jsonOrFast(() => fastCall(Opcode.CreateInvite), fallback.backend.createInvite),
-    join: (invite) =>
-      jsonOrFast(
-        () => fastCall(Opcode.Join, invite),
-        () => fallback.backend.join(invite),
-      ),
-    sendText: (text) =>
-      jsonOrFast(
-        () => fastCall(Opcode.SendText, text),
-        () => fallback.backend.sendText(text),
-      ),
+    createInvite: () => call(Opcode.CreateInvite, "ponlet_create_invite"),
+    join: (invite) => call(Opcode.Join, "ponlet_join", invite, { invite }),
+    sendText: (text) => call(Opcode.SendText, "ponlet_send_text", text, { text }),
     sendFiles: (files) => {
       const requests = files.map(toFileRequest);
-      return jsonOrFast(
-        () => fastCall(Opcode.SendFiles, requests),
-        () => fallback.backend.sendFiles(files),
-      );
+      return call(Opcode.SendFiles, "ponlet_send_files", requests, { files: requests });
     },
-    pickAndSendFiles: () =>
-      jsonOrFast(
-        () => fastCall(Opcode.PickAndSendFiles),
-        () => fallback.backend.pickAndSendFiles!(),
-      ),
-    importShared: () => fallback.backend.importShared!(),
-    qrCode: (url) =>
-      jsonOrFast(
-        async () => normalizeQr(await fastCall<QrBitmap>(Opcode.QrCode, url)),
-        () => fallback.backend.qrCode(url),
-      ),
-    cancelTransfer: (id) =>
-      jsonOrFast(
-        () => fastCall(Opcode.CancelTransfer, id),
-        () => fallback.backend.cancelTransfer(id),
-      ),
-    disconnect: () => jsonOrFast(() => fastCall(Opcode.Disconnect), fallback.backend.disconnect),
-    openReceivedItem: (item) =>
-      jsonOrFast(
-        () => fastCall(Opcode.OpenReceived, { localPathOrHandle: item.localPathOrHandle }),
-        () => fallback.backend.openReceivedItem(item),
-      ),
+    pickAndSendFiles: () => call(Opcode.PickAndSendFiles, "ponlet_pick_and_send_files"),
+    importShared: () => invoke<SharedImportSummary>("ponlet_import_shared"),
+    qrCode: async (url) =>
+      normalizeQr(await call<QrBitmap>(Opcode.QrCode, "ponlet_qr_code", url, { url })),
+    cancelTransfer: (id) => call(Opcode.CancelTransfer, "ponlet_cancel_transfer", id, { id }),
+    disconnect: () => call(Opcode.Disconnect, "ponlet_disconnect"),
+    openReceivedItem: (item) => {
+      const request = { localPathOrHandle: item.localPathOrHandle };
+      return call(Opcode.OpenReceived, "ponlet_open_received", request, request);
+    },
     copyText,
     shareText,
     readClipboard: () => invoke<string>("ponlet_read_clipboard"),
@@ -350,34 +248,29 @@ export function createBackend(): PonletBackend {
     openExternal: (url) => invoke("ponlet_open_external", { url }),
     getTelemetryEnabled: () => invoke<boolean>("ponlet_get_telemetry_enabled"),
     setTelemetryEnabled: (enabled) => invoke("ponlet_set_telemetry_enabled", { enabled }),
-    saveText: (text) =>
-      jsonOrFast(
-        () => fastCall(Opcode.SaveText, text),
-        () => fallback.backend.saveText(text),
-      ),
+    saveText: (text) => call(Opcode.SaveText, "ponlet_save_text", text, { text }),
     dispose: async () => {
       if (disposed) {
         return;
       }
       disposed = true;
-      cleanupFallback?.();
-      cleanupFast?.();
+      cleanup?.();
       listeners.clear();
       if (mobile) {
         await cancelScan().catch(() => undefined);
       }
-      const value = selected ?? (await ready);
-      if (value.kind === "json") {
-        await fallback.backend.dispose();
-      } else {
+      const client = await ready;
+      if (client) {
         try {
-          await value.client.call(Opcode.Disconnect);
+          await client.call(Opcode.Disconnect);
         } catch {
           // The native process may already be exiting. Closing the transport
           // still cancels the notification wait and rejects pending calls.
         } finally {
-          value.client.close();
+          client.close();
         }
+      } else {
+        await invoke("ponlet_disconnect");
       }
       selection = undefined;
     },

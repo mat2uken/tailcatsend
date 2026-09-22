@@ -3,13 +3,13 @@ import { language, setLanguage, uiText, type Language } from "../i18n";
 
 const { button, h2, input, label, p, select, option } = van.tags;
 
-export interface SettingsDialogOptions {
+interface SettingsDialogOptions {
   canConfigureTelemetry?: () => boolean;
   getTelemetryEnabled?: () => Promise<boolean>;
   onError?: (error: unknown) => void;
   setTelemetryEnabled?: (enabled: boolean) => Promise<void>;
 }
-export interface SettingsDialogComponent {
+interface SettingsDialogComponent {
   closeSettings(): void;
   dialog: HTMLDialogElement;
   openSettings(triggerElement?: HTMLElement | null): void;

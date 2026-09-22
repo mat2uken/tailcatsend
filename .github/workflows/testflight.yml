@@ -24,9 +24,6 @@ jobs:
           fetch-depth: 0
           submodules: true
 
-      - name: Apply Tailcat patches
-        run: ./scripts/apply_tailcat_patches.sh
-
       - name: Setup Go and Rust
         uses: actions/setup-go@v5
         with:
@@ -43,7 +40,7 @@ jobs:
 
       - name: Select Xcode 26 and install XcodeGen
         run: |
-          XCODE_APP=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n 1 || true)
+          XCODE_APP=$(find /Applications -maxdepth 1 -name 'Xcode_26*.app' | sort -V | tail -n 1 || true)
           test -n "$XCODE_APP"
           sudo xcode-select -s "$XCODE_APP/Contents/Developer"
           xcodebuild -version
@@ -52,17 +49,7 @@ jobs:
         run: cargo install tauri-cli --version 2.10.0 --locked
 
       - name: Set monotonic iOS build number
-        run: |
-          today_ymd=$(TZ='Asia/Tokyo' date +%Y%m%d)
-          run_slot=$((GITHUB_RUN_NUMBER % 100))
-          if [ "$run_slot" -eq 0 ]; then
-            run_slot=1
-          fi
-          printf 'PONLET_IOS_BUILD_NUMBER=%s%02d\n' "$today_ymd" "$run_slot" >> "$GITHUB_ENV"
-          echo "Using iOS build number ${today_ymd}$(printf '%02d' "$run_slot")"
-
-      # Certificate/profile installation is kept in the CI secret store. The
-      # Tauri CLI consumes APPLE_* signing variables when creating the IPA.
+        run: ./scripts/set_ci_build_number.sh PONLET_IOS_BUILD_NUMBER
       - name: Install Apple signing material
         env:
           BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
@@ -70,38 +57,7 @@ jobs:
           BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_BASE64 }}
           BUILD_PROVISION_PROFILE_SHARE_BASE64: ${{ secrets.BUILD_PROVISION_PROFILE_SHARE_BASE64 }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD || 'temporary-ci-keychain-pass' }}
-        run: |
-          test -n "$BUILD_CERTIFICATE_BASE64"
-          test -n "$BUILD_PROVISION_PROFILE_BASE64"
-          test -n "$BUILD_PROVISION_PROFILE_SHARE_BASE64"
-          KEYCHAIN_PATH=$RUNNER_TEMP/build.keychain
-          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
-          echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
-          security import "$RUNNER_TEMP/certificate.p12" -k "$KEYCHAIN_PATH" -P "$P12_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH" > /dev/null
-          security list-keychains -d user -s "$KEYCHAIN_PATH"
-          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
-          echo "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/profile.mobileprovision"
-          APP_UUID=$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" | plutil -extract UUID raw -)
-          APP_TEAM_ID=$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" | plutil -extract TeamIdentifier.0 raw -)
-          APP_PROFILE_NAME=$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" | plutil -extract Name raw -)
-          cp "$RUNNER_TEMP/profile.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/${APP_UUID}.mobileprovision"
-          echo "$BUILD_PROVISION_PROFILE_SHARE_BASE64" | base64 --decode > "$RUNNER_TEMP/share-profile.mobileprovision"
-          SHARE_UUID=$(security cms -D -i "$RUNNER_TEMP/share-profile.mobileprovision" | plutil -extract UUID raw -)
-          SHARE_TEAM_ID=$(security cms -D -i "$RUNNER_TEMP/share-profile.mobileprovision" | plutil -extract TeamIdentifier.0 raw -)
-          SHARE_PROFILE_NAME=$(security cms -D -i "$RUNNER_TEMP/share-profile.mobileprovision" | plutil -extract Name raw -)
-          test "$APP_TEAM_ID" = "$SHARE_TEAM_ID"
-          cp "$RUNNER_TEMP/share-profile.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/${SHARE_UUID}.mobileprovision"
-          echo "APPLE_DEVELOPMENT_TEAM=$APP_TEAM_ID" >> "$GITHUB_ENV"
-          echo "DEVELOPMENT_TEAM=$APP_TEAM_ID" >> "$GITHUB_ENV"
-          echo "CODE_SIGN_STYLE=Manual" >> "$GITHUB_ENV"
-          echo "CODE_SIGN_IDENTITY=Apple Distribution" >> "$GITHUB_ENV"
-          echo "PROVISIONING_PROFILE_SPECIFIER=$APP_PROFILE_NAME" >> "$GITHUB_ENV"
-          echo "PROVISIONING_PROFILE_SPECIFIER_SHARE=$SHARE_PROFILE_NAME" >> "$GITHUB_ENV"
-          # build_tauri_mobile.sh supplies both app and extension export profiles.
-          # Tauri's IOS_* signing variables replace that map with the app alone.
+        run: ./scripts/setup_ios_signing.sh
 
       - name: Build IPA with Tauri
         env:

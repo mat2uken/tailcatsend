@@ -24,13 +24,9 @@ if [[ "${android_artifact}" != "apk" && "${android_artifact}" != "aab" ]]; then
   exit 2
 fi
 
-"${repo_dir}/scripts/build_web_ui.sh"
+"${repo_dir}/scripts/build_web_ui.sh" --check
 
 "${repo_dir}/scripts/apply_tailcat_patches.sh"
-
-mobile_target=""
-lib_dir=""
-lib_name="tailcat"
 
 if [[ "${platform}" == "ios" || "${platform}" == "ios-sim" ]]; then
   # Swift package dependencies must use the same deployment target as the app.
@@ -150,7 +146,7 @@ PY
 fi
 
 export PONLET_TAILCAT_LIB_DIR="${lib_dir}"
-export PONLET_TAILCAT_LIB_NAME="${lib_name}"
+export PONLET_TAILCAT_LIB_NAME=tailcat
 
 tauri_args=(--ci)
 if [[ "${mode}" == "debug" ]]; then
@@ -212,31 +208,24 @@ import sys
 
 source, target, team, style, identity, profile, share_profile = sys.argv[1:]
 text = Path(source).read_text()
-app_needle = "      PRODUCT_BUNDLE_IDENTIFIER: jp.yasagure.ponlet\n"
-if app_needle not in text:
-    raise SystemExit("iOS project spec is missing the Ponlet bundle identifier")
-settings = {
+base_settings = {
     "DEVELOPMENT_TEAM": team,
     "CODE_SIGN_STYLE": style,
     "CODE_SIGN_IDENTITY": identity,
 }
-if profile:
-    settings["PROVISIONING_PROFILE_SPECIFIER"] = profile
-overlay = "".join(f"      {key}: {json.dumps(value)}\n" for key, value in settings.items())
-text = text.replace(app_needle, app_needle + overlay, 1)
-
-share_needle = "        PRODUCT_BUNDLE_IDENTIFIER: jp.yasagure.ponlet.sharek7vnga9k78\n"
-if share_needle not in text:
-    raise SystemExit("iOS project spec is missing the Ponlet Share Extension bundle identifier")
-share_settings = {
-    "DEVELOPMENT_TEAM": team,
-    "CODE_SIGN_STYLE": style,
-    "CODE_SIGN_IDENTITY": identity,
-}
-if share_profile:
-    share_settings["PROVISIONING_PROFILE_SPECIFIER"] = share_profile
-share_overlay = "".join(f"        {key}: {json.dumps(value)}\n" for key, value in share_settings.items())
-Path(target).write_text(text.replace(share_needle, share_needle + share_overlay, 1))
+for bundle, indent, label, selected_profile in (
+    ("jp.yasagure.ponlet", "      ", "Ponlet", profile),
+    ("jp.yasagure.ponlet.sharek7vnga9k78", "        ", "Ponlet Share Extension", share_profile),
+):
+    needle = f"{indent}PRODUCT_BUNDLE_IDENTIFIER: {bundle}\n"
+    if needle not in text:
+        raise SystemExit(f"iOS project spec is missing the {label} bundle identifier")
+    settings = dict(base_settings)
+    if selected_profile:
+        settings["PROVISIONING_PROFILE_SPECIFIER"] = selected_profile
+    overlay = "".join(f"{indent}{key}: {json.dumps(value)}\n" for key, value in settings.items())
+    text = text.replace(needle, needle + overlay, 1)
+Path(target).write_text(text)
 PY
     apple_project_spec="${signed_project_spec}"
 

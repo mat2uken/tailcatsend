@@ -76,10 +76,8 @@ class BarcodeScannerPlugin: Plugin, AVCaptureMetadataOutputObjectsDelegate {
   var webView: WKWebView!
   var cameraView: CameraView!
   var captureSession: AVCaptureSession?
-  var captureVideoPreviewLayer: AVCaptureVideoPreviewLayer?
   var metaOutput: AVCaptureMetadataOutput?
 
-  var currentCamera = 0
   var frontCamera: AVCaptureDevice?
   var backCamera: AVCaptureDevice?
 
@@ -166,8 +164,7 @@ class BarcodeScannerPlugin: Plugin, AVCaptureMetadataOutputObjectsDelegate {
       metaOutput = AVCaptureMetadataOutput()
       captureSession!.addOutput(metaOutput!)
       metaOutput!.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
-      captureVideoPreviewLayer = AVCaptureVideoPreviewLayer(session: captureSession!)
-      cameraView.addPreviewLayer(captureVideoPreviewLayer)
+      cameraView.addPreviewLayer(AVCaptureVideoPreviewLayer(session: captureSession!))
 
       self.windowed = windowed
       if windowed {
@@ -187,7 +184,6 @@ class BarcodeScannerPlugin: Plugin, AVCaptureMetadataOutputObjectsDelegate {
     // Preview creation can precede a failed/cancelled capture-session setup.
     self.cameraView?.removePreviewLayer()
     self.cameraView?.removeFromSuperview()
-    self.captureVideoPreviewLayer = nil
     self.metaOutput = nil
     self.captureSession = nil
     self.frontCamera = nil

@@ -200,47 +200,14 @@ func generateIOSAppIcon(from src: CGImage, targetSize: Int = 1024) -> NSData? {
 }
 
 // ==============================================================================
-// Helper 4: Generate Circle Clipped Icon for Android (ic_launcher_round)
-// ==============================================================================
-func generateRoundIcon(from src: CGImage, targetSize: Int) -> CGImage? {
-    let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
-    guard let context = CGContext(
-        data: nil,
-        width: targetSize,
-        height: targetSize,
-        bitsPerComponent: 8,
-        bytesPerRow: targetSize * 4,
-        space: colorSpace,
-        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-    ) else { return nil }
-
-    // Clip to circle
-    let circleRect = CGRect(x: 0, y: 0, width: targetSize, height: targetSize)
-    context.addEllipse(in: circleRect)
-    context.clip()
-
-    // Crop square inscribed inside the rounded rect [627-550, 625.5-550, 1100, 1100]
-    let cropRect = CGRect(x: 627 - 550, y: 625.5 - 550, width: 1100, height: 1100)
-    if let cropped = src.cropping(to: cropRect) {
-        context.interpolationQuality = .high
-        context.draw(cropped, in: CGRect(x: 0, y: 0, width: targetSize, height: targetSize))
-    }
-
-    return context.makeImage()
-}
-
-// ==============================================================================
 // 1. Generate iOS Icons
 // ==============================================================================
 print("\n📱 [1/5] Generating iOS AppIcon (1024x1024 opaque square)...")
 if let iosPngData = generateIOSAppIcon(from: srcCgImage, targetSize: 1024) {
 let dest1 = repoRoot.appendingPathComponent("apps/tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png")
-let dest2 = repoRoot.appendingPathComponent("apps/tauri/gen/apple/AppIcon_1024.png")
     try FileManager.default.createDirectory(at: dest1.deletingLastPathComponent(), withIntermediateDirectories: true)
     try (iosPngData as Data).write(to: dest1)
-    try (iosPngData as Data).write(to: dest2)
     print("  ✓ Saved iOS icon (1024x1024 no alpha): \(dest1.path)")
-    print("  ✓ Saved iOS icon (1024x1024 no alpha): \(dest2.path)")
 } else {
     print("❌ Failed to generate iOS AppIcon")
     exit(1)
@@ -249,7 +216,7 @@ let dest2 = repoRoot.appendingPathComponent("apps/tauri/gen/apple/AppIcon_1024.p
 // ==============================================================================
 // 2. Generate Android Icons
 // ==============================================================================
-print("\n🤖 [2/5] Generating Android Icons (Square & Round for all densities)...")
+print("\n🤖 [2/5] Generating Android Icons (all densities)...")
 let androidDensities: [(name: String, size: Int)] = [
     ("mipmap-mdpi", 48),
     ("mipmap-hdpi", 72),
@@ -268,79 +235,24 @@ for density in androidDensities {
         let squareUrl = folder.appendingPathComponent("ic_launcher.png")
         try savePNG(squareCg, to: squareUrl)
     }
-
-    // Round ic_launcher_round.png
-    if let roundCg = generateRoundIcon(from: srcCgImage, targetSize: density.size) {
-        let roundUrl = folder.appendingPathComponent("ic_launcher_round.png")
-        try savePNG(roundCg, to: roundUrl)
-    }
 }
 
 // ==============================================================================
 // 3. Generate Desktop / macOS Icons
 // ==============================================================================
 print("\n💻 [3/5] Generating macOS / Desktop Icons...")
-let desktopIconDir = repoRoot.appendingPathComponent("apps/desktop")
 let tauriIconDir = repoRoot.appendingPathComponent("apps/tauri/icons")
 
 // apps/tauri/icons/icon.png (for the Tauri WebView shell)
 if let icon512 = resizeCGImage(srcCgImage, width: 512, height: 512) {
     try savePNG(icon512, to: tauriIconDir.appendingPathComponent("icon.png"))
-    try savePNG(icon512, to: desktopIconDir.appendingPathComponent("icon.png"))
 }
-
-// macOS .icns generation via iconutil
-let tempIconset = FileManager.default.temporaryDirectory.appendingPathComponent("TailSendApp.iconset")
-try? FileManager.default.removeItem(at: tempIconset)
-try FileManager.default.createDirectory(at: tempIconset, withIntermediateDirectories: true)
-
-let icnsSizes: [(file: String, size: Int)] = [
-    ("icon_16x16.png", 16),
-    ("icon_16x16@2x.png", 32),
-    ("icon_32x32.png", 32),
-    ("icon_32x32@2x.png", 64),
-    ("icon_128x128.png", 128),
-    ("icon_128x128@2x.png", 256),
-    ("icon_256x256.png", 256),
-    ("icon_256x256@2x.png", 512),
-    ("icon_512x512.png", 512),
-    ("icon_512x512@2x.png", 1024),
-]
-
-for item in icnsSizes {
-    if let img = resizeCGImage(srcCgImage, width: item.size, height: item.size) {
-        try savePNG(img, to: tempIconset.appendingPathComponent(item.file))
-    }
-}
-
-let icnsDest = desktopIconDir.appendingPathComponent("AppIcon.icns")
-let process = Process()
-process.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")
-process.arguments = ["-c", "icns", tempIconset.path, "-o", icnsDest.path]
-try process.run()
-process.waitUntilExit()
-
-if process.terminationStatus == 0 {
-    print("  ✓ Created macOS AppIcon.icns: \(icnsDest.path)")
-} else {
-    print("  ⚠️ Warning: iconutil failed with status \(process.terminationStatus)")
-}
-try? FileManager.default.removeItem(at: tempIconset)
 
 // ==============================================================================
 // 4. Generate Web Icons
 // ==============================================================================
 print("\n🌐 [4/5] Generating Web Favicons and Assets...")
 let distDir = repoRoot.appendingPathComponent("dist")
-let distAssetsDir = distDir.appendingPathComponent("assets")
-try FileManager.default.createDirectory(at: distAssetsDir, withIntermediateDirectories: true)
-
-// 512x512 web icon
-if let icon512 = resizeCGImage(srcCgImage, width: 512, height: 512) {
-    try savePNG(icon512, to: distAssetsDir.appendingPathComponent("icon_512.png"))
-    try savePNG(icon512, to: distAssetsDir.appendingPathComponent("icon.png"))
-}
-
 // 180x180 apple-touch-icon
 if let icon180 = resizeCGImage(srcCgImage, width: 180, height: 180) {
     try savePNG(icon180, to: distDir.appendingPathComponent("apple-touch-icon.png"))

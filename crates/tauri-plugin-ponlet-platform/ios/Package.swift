@@ -11,7 +11,6 @@ let package = Package(
     targets: [.target(name: "tauri-plugin-ponlet-platform", dependencies: [
         .byName(name: "Tauri"),
         .product(name: "FirebaseAnalytics", package: "firebase-ios-sdk"),
-        .product(name: "FirebaseCrashlytics", package: "firebase-ios-sdk"),
-        .product(name: "FirebaseRemoteConfig", package: "firebase-ios-sdk")
+        .product(name: "FirebaseCrashlytics", package: "firebase-ios-sdk")
     ], path: "Sources")]
 )

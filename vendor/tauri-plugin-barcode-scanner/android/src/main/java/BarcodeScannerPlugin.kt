@@ -22,7 +22,6 @@ import android.view.ViewGroup
 import android.webkit.WebView
 import android.widget.FrameLayout
 import androidx.activity.result.ActivityResult
-import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
@@ -69,11 +68,8 @@ class BarcodeScannerPlugin(private val activity: Activity) : Plugin(activity) {
     private var previewView: PreviewView? = null
     private var cameraProviderFuture: ListenableFuture<ProcessCameraProvider>? = null
     private var cameraProvider: ProcessCameraProvider? = null
-    private var graphicOverlay: GraphicOverlay? = null
-    private var camera: Camera? = null
     private var vibrator: Vibrator? = null
 
-    private var scannerOptions: BarcodeScannerOptions? = null
     private var scanner: com.google.mlkit.vision.barcode.BarcodeScanner? = null
 
     private var requestPermissionResponse: JSObject? = null
@@ -124,16 +120,8 @@ class BarcodeScannerPlugin(private val activity: Activity) : Plugin(activity) {
                 )
                 this.previewView = previewView
 
-                val graphicOverlay = GraphicOverlay(activity)
-                graphicOverlay.layoutParams = FrameLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT
-                )
-                this.graphicOverlay = graphicOverlay
-
                 val parent = webView.parent as ViewGroup
                 parent.addView(previewView)
-                parent.addView(graphicOverlay)
 
                 this.windowed = windowed
                 if (windowed) {
@@ -186,7 +174,7 @@ class BarcodeScannerPlugin(private val activity: Activity) : Plugin(activity) {
                 )
 
                 try {
-                    camera = cameraProvider.bindToLifecycle(
+                    cameraProvider.bindToLifecycle(
                         activity as LifecycleOwner,
                         cameraSelector,
                         preview,
@@ -204,12 +192,9 @@ class BarcodeScannerPlugin(private val activity: Activity) : Plugin(activity) {
                 cameraProvider?.unbindAll()
                 // Views exist before the provider is ready and must always be removed.
                 previewView?.let { (it.parent as? ViewGroup)?.removeView(it) }
-                graphicOverlay?.let { (it.parent as? ViewGroup)?.removeView(it) }
                 cameraProviderFuture = null
                 cameraProvider = null
-                camera = null
                 previewView = null
-                graphicOverlay = null
             }
     }
 
@@ -230,7 +215,6 @@ class BarcodeScannerPlugin(private val activity: Activity) : Plugin(activity) {
         dismantleCamera()
         scanner?.close()
         scanner = null
-        scannerOptions = null
         if (windowed) {
             if (webViewBackground != null) {
                 webView.background = webViewBackground
@@ -260,12 +244,10 @@ class BarcodeScannerPlugin(private val activity: Activity) : Plugin(activity) {
                     val options =
                         BarcodeScannerOptions.Builder()
                             .setBarcodeFormats(Barcode.FORMAT_QR_CODE, *mappedFormats).build()
-                    scannerOptions = options
                     scanner = BarcodeScanning.getClient(options)
                 } else {
                     val options = BarcodeScannerOptions.Builder()
                         .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS).build()
-                    scannerOptions = options
                     scanner = BarcodeScanning.getClient(options)
                 }
             }
@@ -371,7 +353,6 @@ class BarcodeScannerPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
-    @SuppressLint("ObsoleteSdkInt")
     @PermissionCallback
     fun cameraPermissionCallback(invoke: Invoke) {
         if (requestPermissionResponse == null) {
@@ -385,18 +366,13 @@ class BarcodeScannerPlugin(private val activity: Activity) : Plugin(activity) {
         if (granted) {
             requestPermissionResponse.put(PERMISSION_ALIAS_CAMERA, PermissionState.GRANTED)
         } else {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                requestPermissionResponse.put(PERMISSION_ALIAS_CAMERA, PermissionState.DENIED)
-            } else {
-                requestPermissionResponse.put(PERMISSION_ALIAS_CAMERA, PermissionState.GRANTED)
-            }
+            requestPermissionResponse.put(PERMISSION_ALIAS_CAMERA, PermissionState.DENIED)
         }
 
         invoke.resolve(requestPermissionResponse)
         this.requestPermissionResponse = null
     }
 
-    @SuppressLint("ObsoleteSdkInt")
     @Command
     override fun requestPermissions(invoke: Invoke) {
         val requestPermissionResponse = JSObject()
@@ -404,16 +380,12 @@ class BarcodeScannerPlugin(private val activity: Activity) : Plugin(activity) {
         if (getPermissionState(PERMISSION_ALIAS_CAMERA) === PermissionState.GRANTED) {
             requestPermissionResponse.put(PERMISSION_ALIAS_CAMERA, PermissionState.GRANTED)
         } else {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                requestPermissionForAlias(
-                    PERMISSION_ALIAS_CAMERA,
-                    invoke,
-                    "cameraPermissionCallback"
-                )
-                return
-            } else {
-                requestPermissionResponse.put(PERMISSION_ALIAS_CAMERA, PermissionState.GRANTED)
-            }
+            requestPermissionForAlias(
+                PERMISSION_ALIAS_CAMERA,
+                invoke,
+                "cameraPermissionCallback"
+            )
+            return
         }
         invoke.resolve(requestPermissionResponse)
     }

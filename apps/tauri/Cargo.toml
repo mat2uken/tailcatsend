@@ -1,6 +1,6 @@
 [package]
 name = "tailsend-tauri"
-version = "1.0.16"
+version = "1.0.17"
 description = "Ponlet WebView application shell"
 authors = ["Ponlet"]
 edition = "2021"
@@ -14,12 +14,10 @@ tauri-build = { version = "=2.6.3", features = [] }
 
 [dependencies]
 async-trait = { workspace = true }
-base64 = { workspace = true }
-bytes = { workspace = true }
 futures = { workspace = true }
 log = { workspace = true }
 rand = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
+serde = { workspace = true }
 serde_json = { workspace = true }
 tailsend-core = { workspace = true }
 tailsend-native-transport = { workspace = true }
@@ -27,7 +25,7 @@ tailsend-ipc = { workspace = true }
 tailsend-platform-api = { workspace = true }
 tailsend-protocol = { workspace = true }
 tailsend-qr = { workspace = true }
-tailsend-transfer = { workspace = true, features = ["tokio-runtime"] }
+tailsend-transfer = { workspace = true }
 tailsend-telemetry = { workspace = true }
 tailsend-transport-api = { workspace = true }
 tauri = { version = "=2.11.5", features = [] }
@@ -36,7 +34,7 @@ tauri-plugin-fs = "=2.4.5"
 tauri-plugin-opener = "=2.5.5"
 tauri-plugin-clipboard-manager = "=2.3.3"
 tauri-plugin-ponlet-platform = { path = "../../crates/tauri-plugin-ponlet-platform" }
-tokio = { workspace = true, features = ["rt-multi-thread", "sync", "time", "macros", "io-util"] }
+tokio = { workspace = true }
 
 [target.'cfg(target_vendor = "apple")'.dependencies]
 libc = "0.2"

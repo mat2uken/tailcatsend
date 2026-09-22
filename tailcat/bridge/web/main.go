@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -24,14 +23,10 @@ var (
 	clientsMu        sync.Mutex
 	cachedClients    = make(map[string]*tailcat.Client)
 	clientTransports = make(map[string]uint8)
-	currentServer    *tailcat.Server
 )
 
 const (
-	transportDirectUDP = transportpath.DirectUDP
-	transportWebRTC    = transportpath.WebRTC
-	transportDERP      = transportpath.DERP
-	transportUnknown   = transportpath.Unknown
+	transportUnknown = transportpath.Unknown
 
 	streamOK      = 0
 	streamEOF     = 1
@@ -44,17 +39,9 @@ func main() {
 		"bridgeVersion": "1.0.0-tailcat-c03c524",
 		"listen":        js.FuncOf(tailcatListen),
 		"dial":          js.FuncOf(tailcatDial),
-		"getTransport":  js.FuncOf(tailcatGetTransport),
 	})
 
 	js.Global().Set("tailSendTailcat", bridge)
-	js.Global().Set("tailcatListen", js.FuncOf(tailcatListen))
-	js.Global().Set("tailcatDial", js.FuncOf(tailcatDial))
-	js.Global().Set("tailcatGetTransport", js.FuncOf(tailcatGetTransport))
-
-	if f := js.Global().Get("onTailcatReady"); f.Type() == js.TypeFunction {
-		f.Invoke()
-	}
 	select {}
 }
 
@@ -91,13 +78,6 @@ func tailcatListen(this js.Value, args []js.Value) any {
 	opts := args[0]
 	onConnection := opts.Get("onConnection")
 	derpMapURL := optString(opts, "derpMapURL")
-	if derpMapURL == "" {
-		derpMapURL = optString(opts, "derpMapUrl")
-	}
-	keyJSON := optString(opts, "privateKey")
-	if keyJSON == "" {
-		keyJSON = optString(opts, "privateKeyJson")
-	}
 	logf := optLogf(opts)
 
 	return makePromise(func() (any, error) {
@@ -107,15 +87,8 @@ func tailcatListen(this js.Value, args []js.Value) any {
 		if derpMapURL == "" {
 			derpMapURL = "https://tailcat.dev/derpmap.json"
 		}
-		pk := &tailcat.PrivateKey{}
-		if keyJSON != "" {
-			if err := json.Unmarshal([]byte(keyJSON), pk); err != nil {
-				return nil, fmt.Errorf("parsing privateKey: %w", err)
-			}
-		} else {
-			pk = tailcat.NewPrivateKey()
-			pk.Public.RegionID = -1 // auto-select
-		}
+		pk := tailcat.NewPrivateKey()
+		pk.Public.RegionID = -1 // auto-select
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -127,14 +100,8 @@ func tailcatListen(this js.Value, args []js.Value) any {
 			pk.Public.PresharedKey = tailcat.NewPresharedKey()
 		}
 		reg := ci.Region[0]
-		if keyJSON == "" {
-			pk.Public.RegionID = reg.RegionID
-		}
+		pk.Public.RegionID = reg.RegionID
 		addr := pk.Public.Addr()
-		keyOut, err := json.Marshal(pk)
-		if err != nil {
-			return nil, err
-		}
 
 		srv := &tailcat.Server{
 			Key:          pk.Private,
@@ -146,9 +113,9 @@ func tailcatListen(this js.Value, args []js.Value) any {
 		srv.OnTCP = func(port uint16) (handler func(net.Conn)) {
 			return func(c net.Conn) {
 				callbacks.deliver(c, func(c net.Conn) {
-					onConnection.Invoke(makeJSConn(c, port, transportFromServer(srv, c.RemoteAddr()), func() uint8 {
-						return transportFromServer(srv, c.RemoteAddr())
-					}, nil))
+					onConnection.Invoke(makeJSConn(c, port, transportpath.FromServer(srv, c.RemoteAddr()), func() uint8 {
+						return transportpath.FromServer(srv, c.RemoteAddr())
+					}))
 				})
 			}
 		}
@@ -157,33 +124,12 @@ func tailcatListen(this js.Value, args []js.Value) any {
 			srv.Close()
 			return nil, fmt.Errorf("Server.Start: %w", err)
 		}
-		clientsMu.Lock()
-		currentServer = srv
-		clientsMu.Unlock()
-
-		var closeOnce sync.Once
-		var closeErr error
-		return map[string]any{
-			"addr":           string(addr),
-			"address":        string(addr),
-			"privateKeyJSON": string(keyOut),
-			"close": js.FuncOf(func(this js.Value, args []js.Value) any {
-				// Close can wait for network callbacks. Never block the JavaScript
-				// event loop while those callbacks are needed to finish shutdown.
-				return makePromise(func() (any, error) {
-					closeOnce.Do(func() {
-						callbacks.stop()
-						clientsMu.Lock()
-						if currentServer == srv {
-							currentServer = nil
-						}
-						clientsMu.Unlock()
-						closeErr = srv.Close()
-					})
-					return js.Undefined(), closeErr
-				})
-			}),
-		}, nil
+		return makeJSListener(string(addr), func() error {
+			// Stop waits for an in-flight accept before its JS owner can release
+			// onConnection. This runs asynchronously, including reentrant close.
+			callbacks.stop()
+			return srv.Close()
+		}), nil
 	})
 }
 
@@ -193,19 +139,9 @@ func tailcatDial(this js.Value, args []js.Value) any {
 	}
 	opts := args[0]
 	addr := optString(opts, "addr")
-	if addr == "" {
-		addr = optString(opts, "address")
-	}
 	derpMapURL := optString(opts, "derpMapURL")
 	if derpMapURL == "" {
-		derpMapURL = optString(opts, "derpMapUrl")
-	}
-	if derpMapURL == "" {
 		derpMapURL = "https://tailcat.dev/derpmap.json"
-	}
-	keyJSON := optString(opts, "privateKey")
-	if keyJSON == "" {
-		keyJSON = optString(opts, "privateKeyJson")
 	}
 	logf := optLogf(opts)
 	port := uint16(100)
@@ -217,20 +153,13 @@ func tailcatDial(this js.Value, args []js.Value) any {
 		if addr == "" {
 			return nil, errors.New("addr is required")
 		}
-		priv := key.NewNode()
-		if keyJSON != "" {
-			var pk tailcat.PrivateKey
-			if err := json.Unmarshal([]byte(keyJSON), &pk); err != nil {
-				return nil, fmt.Errorf("parsing privateKey: %w", err)
-			}
-			priv = pk.Private
-		}
+
 		clientsMu.Lock()
 		cl, ok := cachedClients[addr]
 		if !ok {
 			cl = &tailcat.Client{
 				Server:     tailcat.Addr(addr),
-				Key:        priv,
+				Key:        key.NewNode(),
 				Logf:       logf,
 				DERPMapURL: derpMapURL,
 			}
@@ -259,10 +188,10 @@ func tailcatDial(this js.Value, args []js.Value) any {
 			cl.Close()
 			return nil, fmt.Errorf("DialTCPPort: %w", err)
 		}
-		path := rememberClientTransport(addr, transportFromClient(cl))
+		path := rememberClientTransport(addr, transportpath.FromClient(cl))
 		return makeJSConn(c, port, path, func() uint8 {
 			return rememberClientTransport(addr, transportUnknown)
-		}, nil), nil
+		}), nil
 	})
 }
 
@@ -299,104 +228,176 @@ func pingUntil(ctx context.Context, cl *tailcat.Client) error {
 	}
 }
 
-func makeJSConn(c net.Conn, port uint16, transport uint8, currentTransport func() uint8, onClose func()) js.Value {
-	buf := make([]byte, 64<<10)
-	writeBuf := make([]byte, 64<<10)
-	var closeOnce sync.Once
-	var closeErr error
-	return js.ValueOf(map[string]any{
-		"port":          int(port),
-		"transportType": int(transport),
-		"getTransport": js.FuncOf(func(this js.Value, args []js.Value) any {
-			if currentTransport == nil {
-				return int(transport)
-			}
-			return int(currentTransport())
-		}),
-		"readInto": js.FuncOf(func(this js.Value, args []js.Value) any {
-			if len(args) < 1 || args[0].Type() != js.TypeObject {
-				return rejectedPromise(errors.New("readInto requires a Uint8Array"))
-			}
-			return makePromise(func() (any, error) {
-				limit := len(buf)
-				byteLength := args[0].Get("byteLength")
-				if byteLength.Type() != js.TypeNumber {
-					return nil, errors.New("readInto requires a Uint8Array")
-				}
-				targetLength := byteLength.Int()
-				if targetLength <= 0 {
-					return map[string]any{"count": 0, "code": streamOK}, nil
-				}
-				if targetLength < limit {
-					limit = targetLength
-				}
-				if len(args) > 1 && args[1].Type() == js.TypeNumber {
-					requested := args[1].Int()
-					if requested > 0 && requested < limit {
-						limit = requested
-					}
-				}
-				n, err := c.Read(buf[:limit])
-				result := map[string]any{"count": n, "code": streamStatus(err)}
-				if err != nil && !errors.Is(err, io.EOF) {
-					result["error"] = err.Error()
-				}
-				if n > 0 {
-					js.CopyBytesToJS(args[0], buf[:n])
-				}
-				return result, nil
-			})
-		}),
-		"write": js.FuncOf(func(this js.Value, args []js.Value) any {
-			if len(args) != 1 {
-				return rejectedPromise(errors.New("write requires a Uint8Array"))
-			}
-			length := args[0].Get("length").Int()
-			return makePromise(func() (any, error) {
-				b := writeBuf
-				if length > len(b) {
-					b = make([]byte, length)
-				} else {
-					b = b[:length]
-				}
-				js.CopyBytesToGo(b, args[0])
-				written, err := c.Write(b)
-				if err != nil {
-					return map[string]any{
-						"code":    streamStatus(err),
-						"error":   err.Error(),
-						"written": written,
-					}, nil
-				}
-				// A short write without an error is a valid partial-I/O result.
-				// Returning the count lets the Rust loop retry the remainder.
-				return written, nil
-			})
-		}),
-		"closeWrite": js.FuncOf(func(this js.Value, args []js.Value) any {
-			return makePromise(func() (any, error) {
-				cw, ok := c.(interface{ CloseWrite() error })
-				if !ok {
-					return nil, errors.New("connection does not support half-close")
-				}
-				if err := cw.CloseWrite(); err != nil {
-					return nil, err
-				}
-				return js.Undefined(), nil
-			})
-		}),
-		"close": js.FuncOf(func(this js.Value, args []js.Value) any {
-			return makePromise(func() (any, error) {
-				closeOnce.Do(func() {
-					closeErr = c.Close()
-					if onClose != nil {
-						onClose()
-					}
-				})
-				return js.Undefined(), closeErr
-			})
-		}),
+// Only this dispatcher is registered with syscall/js for handle methods.
+// Per-object methods are JS-bound functions, so cached methods do not keep
+// closed connections, buffers, or listener callbacks in Go's function registry.
+var jsHandles = struct {
+	sync.Mutex
+	next   int
+	live   map[int]*jsHandleState
+	once   sync.Once
+	call   js.Func
+	closed js.Value // WeakMap<object, Promise>; keys do not retain JS objects.
+}{live: make(map[int]*jsHandleState)}
+
+type jsHandleState struct {
+	conn             net.Conn
+	close            func() error
+	currentTransport func() uint8
+	readBuf          []byte
+	writeBuf         []byte
+}
+
+func bindJSHandle(object js.Value, state *jsHandleState, methods ...string) js.Value {
+	jsHandles.once.Do(func() {
+		jsHandles.call = js.FuncOf(dispatchJSHandle)
+		jsHandles.closed = js.Global().Get("WeakMap").New()
 	})
+	jsHandles.Lock()
+	jsHandles.next++
+	handle := jsHandles.next
+	jsHandles.live[handle] = state
+	jsHandles.Unlock()
+	for _, method := range methods {
+		if method == "closeWrite" {
+			_, supported := state.conn.(interface{ CloseWrite() error })
+			object.Set(method, jsHandles.call.Value.Call("bind", object, handle, method, supported))
+			continue
+		}
+		object.Set(method, jsHandles.call.Value.Call("bind", object, handle, method))
+	}
+	return object
+}
+
+func makeJSListener(addr string, close func() error) js.Value {
+	return bindJSHandle(js.ValueOf(map[string]any{"addr": addr}), &jsHandleState{close: close}, "close")
+}
+
+func makeJSConn(c net.Conn, port uint16, transport uint8, currentTransport func() uint8) js.Value {
+	return bindJSHandle(js.ValueOf(map[string]any{
+		"port": int(port), "transportType": int(transport),
+	}), &jsHandleState{
+		conn: c, close: c.Close, currentTransport: currentTransport,
+		readBuf: make([]byte, 64<<10), writeBuf: make([]byte, 64<<10),
+	}, "getTransport", "readInto", "write", "closeWrite", "close")
+}
+
+func dispatchJSHandle(object js.Value, args []js.Value) any {
+	handle, method := args[0].Int(), args[1].String()
+	args = args[2:]
+	if method == "close" {
+		if promise := jsHandles.closed.Call("get", object); !promise.IsUndefined() {
+			return promise
+		}
+	}
+	jsHandles.Lock()
+	state := jsHandles.live[handle]
+	if method == "close" {
+		delete(jsHandles.live, handle)
+	}
+	jsHandles.Unlock()
+
+	switch method {
+	case "close":
+		if state != nil && state.currentTransport != nil {
+			if path := state.currentTransport(); path != transportUnknown {
+				object.Set("transportType", int(path))
+			}
+		}
+		// Publish the Promise before shutdown can invoke another JS callback.
+		// A reentrant/cached close observes this same pending result.
+		ready := make(chan struct{})
+		promise := makePromise(func() (any, error) {
+			<-ready
+			if state == nil {
+				return js.Undefined(), nil
+			}
+			return js.Undefined(), state.close()
+		})
+		jsHandles.closed.Call("set", object, promise)
+		close(ready)
+		return promise
+	case "getTransport":
+		if state == nil {
+			return object.Get("transportType")
+		}
+		path := state.currentTransport()
+		if path != transportUnknown {
+			object.Set("transportType", int(path))
+		}
+		return int(path)
+	case "readInto":
+		if len(args) < 1 || args[0].Type() != js.TypeObject {
+			return rejectedPromise(errors.New("readInto requires a Uint8Array"))
+		}
+		return makePromise(func() (any, error) { return state.readInto(args) })
+	case "write":
+		if len(args) != 1 {
+			return rejectedPromise(errors.New("write requires a Uint8Array"))
+		}
+		return makePromise(func() (any, error) { return state.write(args[0]) })
+	case "closeWrite":
+		return makePromise(func() (any, error) {
+			if !args[0].Bool() {
+				return nil, errors.New("connection does not support half-close")
+			}
+			if state == nil {
+				return nil, net.ErrClosed
+			}
+			return js.Undefined(), state.conn.(interface{ CloseWrite() error }).CloseWrite()
+		})
+	default:
+		return rejectedPromise(errors.New("unknown connection method"))
+	}
+}
+
+func (state *jsHandleState) readInto(args []js.Value) (any, error) {
+	byteLength := args[0].Get("byteLength")
+	if byteLength.Type() != js.TypeNumber {
+		return nil, errors.New("readInto requires a Uint8Array")
+	}
+	targetLength := byteLength.Int()
+	if targetLength <= 0 {
+		return map[string]any{"count": 0, "code": streamOK}, nil
+	}
+	if state == nil {
+		return map[string]any{"count": 0, "code": streamNetwork, "error": net.ErrClosed.Error()}, nil
+	}
+	limit := min(len(state.readBuf), targetLength)
+	if len(args) > 1 && args[1].Type() == js.TypeNumber {
+		if requested := args[1].Int(); requested > 0 && requested < limit {
+			limit = requested
+		}
+	}
+	n, err := state.conn.Read(state.readBuf[:limit])
+	result := map[string]any{"count": n, "code": streamStatus(err)}
+	if err != nil && !errors.Is(err, io.EOF) {
+		result["error"] = err.Error()
+	}
+	if n > 0 {
+		js.CopyBytesToJS(args[0], state.readBuf[:n])
+	}
+	return result, nil
+}
+
+func (state *jsHandleState) write(bytes js.Value) (any, error) {
+	length := bytes.Get("length").Int()
+	if state == nil {
+		return map[string]any{"written": 0, "code": streamNetwork, "error": net.ErrClosed.Error()}, nil
+	}
+	b := state.writeBuf
+	if length > len(b) {
+		b = make([]byte, length)
+	} else {
+		b = b[:length]
+	}
+	js.CopyBytesToGo(b, bytes)
+	written, err := state.conn.Write(b)
+	if err != nil {
+		return map[string]any{"code": streamStatus(err), "error": err.Error(), "written": written}, nil
+	}
+	// Keep partial-I/O counts; the Rust loop retries any unwritten remainder.
+	return written, nil
 }
 
 func streamStatus(err error) int {
@@ -446,56 +447,4 @@ func makePromise(f func() (any, error)) js.Value {
 
 func rejectedPromise(err error) js.Value {
 	return js.Global().Get("Promise").Call("reject", js.Global().Get("Error").New(err.Error()))
-}
-
-func transportFromEndpoint(endpoint string) uint8 {
-	return transportpath.FromEndpoint(endpoint)
-}
-
-func transportFromPing(endpoint, peerRelay string, usedDERP bool) uint8 {
-	return transportpath.FromPing(endpoint, peerRelay, usedDERP)
-}
-
-func transportFromClient(client *tailcat.Client) uint8 {
-	if client == nil {
-		return transportUnknown
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	result, err := client.DiscoPing(ctx)
-	if err != nil || result == nil {
-		return transportUnknown
-	}
-	return transportFromPing(result.Endpoint, result.PeerRelay, result.DERPRegionID != 0)
-}
-
-func transportFromServer(server *tailcat.Server, remote net.Addr) uint8 {
-	if server == nil || remote == nil {
-		return transportUnknown
-	}
-	return transportpath.FromPeer(server.Status(), remote)
-}
-
-func tailcatGetTransport(this js.Value, args []js.Value) any {
-	addr := ""
-	if len(args) > 0 && args[0].Type() == js.TypeString {
-		addr = args[0].String()
-	}
-
-	return makePromise(func() (any, error) {
-		clientsMu.Lock()
-		cl, hasClient := cachedClients[addr]
-		srv := currentServer
-		clientsMu.Unlock()
-
-		if hasClient && cl != nil {
-			return int(rememberClientTransport(addr, transportFromClient(cl))), nil
-		}
-
-		if srv != nil {
-			return int(transportFromServer(srv, nil)), nil
-		}
-
-		return int(transportUnknown), nil
-	})
 }

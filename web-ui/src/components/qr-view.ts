@@ -1,16 +1,15 @@
 import van from "vanjs-core";
-import isPresent from "@nkzw/core/isPresent";
 import type { PonletBackend } from "../api/application-api";
 import { uiText } from "../i18n";
 
 const { canvas, div, p } = van.tags;
 
-export interface QrViewOptions {
+interface QrViewOptions {
   getBackend: () => PonletBackend;
   onError?: (error: unknown) => void;
 }
 
-export interface QrViewComponent {
+interface QrViewComponent {
   canvas: HTMLCanvasElement;
   container: HTMLDivElement;
   label: HTMLParagraphElement;
@@ -34,7 +33,7 @@ export function createQrView(options: QrViewOptions): QrViewComponent {
   let qrUrl = "";
 
   async function renderInviteQr(url: string | null, force?: boolean): Promise<void> {
-    const nextUrl = isPresent(url) ? url : "";
+    const nextUrl = url ?? "";
     // State updates can repeat the URL while the worker is still rendering it.
     // Only a different invitation should invalidate that pending response.
     if (!force && nextUrl === qrUrl) {

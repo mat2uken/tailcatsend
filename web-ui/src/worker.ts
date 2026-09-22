@@ -18,9 +18,9 @@ import { disposeReceivedFiles, prepareReceivedFile } from "./worker-storage";
  * ArrayBuffers through the small protocol below.
  */
 
-export const CHUNK_SIZE = 64 * 1024;
+const CHUNK_SIZE = 64 * 1024;
 
-export interface WorkerInitMessage {
+interface WorkerInitMessage {
   goPort: MessagePort;
   rpcPort: MessagePort;
   type: "init";
@@ -74,7 +74,7 @@ export type GoCommand =
   | { type: "stream-close-write"; requestId: number; connectionId: string }
   | { type: "stream-close"; requestId: number; connectionId: string };
 
-export type GoResponse = {
+type GoResponse = {
   type: "response";
   requestId: number;
   ok: boolean;
@@ -82,7 +82,7 @@ export type GoResponse = {
   error?: string;
 };
 
-export type GoIncoming = {
+type GoIncoming = {
   type: "incoming";
   listenerId: string;
   connectionId: string;
@@ -113,9 +113,7 @@ interface GoReadResult {
 
 interface GoTransportProxy {
   dial(options: Record<string, unknown>): Promise<GoConnectionProxy>;
-  listen(
-    options: Record<string, unknown>,
-  ): Promise<{ addr: string; address: string; close(): Promise<void> }>;
+  listen(options: Record<string, unknown>): Promise<{ addr: string; close(): Promise<void> }>;
 }
 
 interface GoConnectionProxy {
@@ -435,7 +433,6 @@ function installGoProxy(port: MessagePort): void {
         })) as GoListenerDescriptor;
         return {
           addr: value.address,
-          address: value.address,
           close: async () => {
             listeners.delete(id);
             await postGo({

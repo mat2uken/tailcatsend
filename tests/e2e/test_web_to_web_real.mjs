@@ -1,10 +1,11 @@
-import { createHash } from "node:crypto";
+import { sha256, assertTransport, waitFor } from "./test-support.mjs";
 import { serveStatic } from "./static-server.mjs";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import playwright from "../../web-ui/node_modules/playwright/index.js";
 
+const waitForSnapshot = (page, predicate, description) => waitFor(() => snapshot(page), predicate, description, 60_000, 100);
 const browserName = process.env.PONLET_TEST_BROWSER ?? "chromium";
 const persistent = process.env.PONLET_TEST_PERSISTENT === "1";
 if (!["chromium", "firefox", "webkit"].includes(browserName)) {
@@ -15,24 +16,9 @@ const root = resolve(new URL("../..", import.meta.url).pathname);
 const dist = resolve(process.env.PONLET_TEST_DIST ?? resolve(root, "dist"));
 const uiDist = resolve(process.env.PONLET_TEST_UI_DIST ?? resolve(root, "web-ui/dist/web"));
 const transportOverride = process.env.PONLET_TEST_TRANSPORT;
-const knownTransportPaths = new Set(["direct-udp", "webrtc", "derp"]);
 
 if (transportOverride && !["webrtc", "derp"].includes(transportOverride)) {
   throw new Error(`unsupported PONLET_TEST_TRANSPORT: ${transportOverride}`);
-}
-
-
-async function waitForSnapshot(page, predicate, description) {
-  const deadline = Date.now() + 60_000;
-  let last;
-  while (Date.now() < deadline) {
-    last = await snapshot(page);
-    if (last && predicate(last)) {
-      return last;
-    }
-    await page.waitForTimeout(100);
-  }
-  throw new Error(`${description}: timed out; last snapshot=${JSON.stringify(last)}`);
 }
 
 async function snapshot(page) {
@@ -46,19 +32,6 @@ async function snapshot(page) {
     ]);
   } finally {
     clearTimeout(timer);
-  }
-}
-
-function sha256(bytes) {
-  return createHash("sha256").update(bytes).digest("hex");
-}
-
-function assertTransport(snapshotValue, label) {
-  if (!knownTransportPaths.has(snapshotValue.transport)) {
-    throw new Error(`${label} reported an unknown transport: ${snapshotValue.transport}`);
-  }
-  if (transportOverride === "derp" && snapshotValue.transport !== "derp") {
-    throw new Error(`${label} did not use DERP: ${snapshotValue.transport}`);
   }
 }
 

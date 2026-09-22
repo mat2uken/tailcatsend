@@ -5,12 +5,6 @@ use crate::limits::MAX_FILENAME_BYTES;
 
 #[derive(Debug, Error)]
 pub enum FilenameError {
-    #[error("Filename is empty or only whitespace")]
-    EmptyFilename,
-    #[error("Filename contains invalid characters (NUL or path separators)")]
-    InvalidCharacters,
-    #[error("Filename is a reserved name")]
-    ReservedName,
     #[error("Filename byte length exceeds maximum ({0} > {MAX_FILENAME_BYTES})")]
     FilenameTooLong(usize),
 }

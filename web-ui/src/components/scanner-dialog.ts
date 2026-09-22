@@ -10,7 +10,7 @@ type BarcodeDetectorConstructorLike = new (options?: {
 }) => BarcodeDetectorLike;
 type QrDecoder = typeof import("jsqr").default;
 
-export interface ScannerDialogComponent {
+interface ScannerDialogComponent {
   closeScanner(): void;
   dialog: HTMLDialogElement;
   openNativeScanner(

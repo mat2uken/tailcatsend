@@ -243,7 +243,7 @@ it("text events advance the cursor and duplicate delivery is ignored", async () 
   });
   expect(session.view.snapshot.sequence).toBe(5);
   expect(session.view.messages.length).toBe(1);
-  expect(session.view.lastReceivedText).toBe("hello");
+  expect(session.view.messages.find((message) => message.incoming)?.text).toBe("hello");
 });
 
 it("keeps received file metadata in the UI snapshot", async () => {

@@ -11,21 +11,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use bytes::Bytes;
 use futures::channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures::StreamExt;
 use js_sys::{Function, Object, Promise, Reflect, Uint8Array};
-use serde::Serialize;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
-use wasm_bindgen_futures::{future_to_promise, JsFuture};
+use wasm_bindgen_futures::{future_to_promise, spawn_local, JsFuture};
 
 use tailsend_core::{
     format_transfer_id as id_string, read_framed_control, run_host_handshake,
     run_host_handshake_stream, run_joiner_handshake, transfer_status_for_reason,
     write_framed_control, AppEvent, BackendEvent, BackendService, BackendSession,
-    HostHandshakeError, SessionState, TRANSFER_CANCELLED_BY_PEER, TRANSFER_CANCELLED_BY_USER,
+    HostHandshakeError, SessionState, UiEvent, UiQrBitmap, UiReceivedItem, UiSnapshot,
+    TRANSFER_CANCELLED_BY_PEER, TRANSFER_CANCELLED_BY_USER,
 };
 use tailsend_platform_api::{
     FileMetadata, FileSource, IncomingFileSink, ReceivedItem, StorageError,
@@ -36,7 +35,7 @@ use tailsend_protocol::control::{
 };
 use tailsend_protocol::filename::sanitize_filename;
 use tailsend_protocol::invitation::InvitationV1;
-use tailsend_protocol::limits::{CONTROL_PORT, FILE_PORT, TEXT_PORT};
+use tailsend_protocol::limits::{CONTROL_PORT, DEFAULT_INVITE_LIFETIME_SECS, FILE_PORT, TEXT_PORT};
 use tailsend_qr::generate_qr_rgba;
 use tailsend_transfer::{
     receive_live_text_message_stream, receive_named_file_stream_with_factory,
@@ -49,83 +48,6 @@ use tailsend_transport_api::{
 
 const DERP_MAP_URL: &str = "https://tailcat.dev/derpmap.json";
 const INVITE_BASE_URL: &str = "https://ponlet.mat2uken.app";
-const INVITE_LIFETIME_SECS: u64 = 600;
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct UiSnapshot {
-    api_version: u16,
-    sequence: u64,
-    state: &'static str,
-    peer_name: String,
-    invite_url: Option<String>,
-    invite_expires_in_secs: u64,
-    can_send: bool,
-    can_disconnect: bool,
-    transfer: Option<UiTransfer>,
-    error: Option<String>,
-    transport: TransportPath,
-    received: Vec<UiReceivedItem>,
-    received_messages: Vec<tailsend_core::ReceivedMessage>,
-    last_transfer: Option<tailsend_core::TransferOutcome>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct UiTransfer {
-    id: String,
-    name: String,
-    done: u64,
-    total: u64,
-    incoming: bool,
-    status: &'static str,
-}
-
-#[derive(Debug, Clone, Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct UiReceivedItem {
-    name: String,
-    size: u64,
-    local_path_or_handle: String,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct UiQrBitmap {
-    width: u32,
-    height: u32,
-    rgba_pixels: Vec<u8>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase", tag = "type")]
-enum UiEvent {
-    Snapshot {
-        sequence: u64,
-        snapshot: UiSnapshot,
-    },
-    Progress {
-        sequence: u64,
-        id: String,
-        done: u64,
-        total: u64,
-    },
-    Text {
-        sequence: u64,
-        text: String,
-        incoming: bool,
-    },
-    Files {
-        sequence: u64,
-        items: Vec<UiReceivedItem>,
-    },
-    Terminal {
-        sequence: u64,
-        id: String,
-        status: &'static str,
-        message: Option<String>,
-    },
-}
 
 fn js_error(value: JsValue) -> TransportError {
     TransportError::Io(value.as_string().unwrap_or_else(|| format!("{value:?}")))
@@ -410,7 +332,7 @@ impl TailcatTransport for WebTransport {
                 let connection = error.into_inner();
                 if let Ok(close) = function(&connection, "close") {
                     if let Ok(closing) = close.call0(&connection) {
-                        wasm_bindgen_futures::spawn_local(async move {
+                        spawn_local(async move {
                             let _ = promise(closing).await;
                         });
                     }
@@ -442,7 +364,6 @@ impl TailcatTransport for WebTransport {
         let listener = promise(listen).await?;
         let address = property(&listener, "addr")?
             .as_string()
-            .or_else(|| property(&listener, "address").ok()?.as_string())
             .ok_or_else(|| TransportError::Protocol("Tailcat listener has no address".into()))?;
         let close = property(&listener, "close")?;
         Ok(Box::new(WebListener {
@@ -537,15 +458,6 @@ fn decode_read_into_result(
 }
 
 fn decode_write_result(value: &JsValue, buffer_len: usize) -> Result<usize, TransportError> {
-    if let Some(written) = value.as_f64() {
-        let written = written as usize;
-        if written > buffer_len {
-            return Err(TransportError::Internal(format!(
-                "Tailcat write overrun: {written} > {buffer_len}"
-            )));
-        }
-        return Ok(written);
-    }
     let written = property(value, "written")?
         .as_f64()
         .ok_or_else(|| TransportError::Protocol("Tailcat write result has no count".into()))?
@@ -600,9 +512,21 @@ struct WebFileSource {
     metadata: FileMetadata,
 }
 
-impl WebFileSource {
-    async fn read_chunk(&self, offset: u64, max_len: usize) -> Result<Uint8Array, StorageError> {
-        let end = offset.saturating_add(max_len as u64);
+#[async_trait(?Send)]
+impl FileSource for WebFileSource {
+    fn metadata(&self) -> FileMetadata {
+        self.metadata.clone()
+    }
+
+    async fn read_into(
+        &mut self,
+        offset: u64,
+        destination: &mut [u8],
+    ) -> Result<usize, StorageError> {
+        if destination.is_empty() {
+            return Ok(0);
+        }
+        let end = offset.saturating_add(destination.len() as u64);
         let slice = function(&self.file, "slice")
             .map_err(|error| StorageError::Io(error.to_string()))?
             .call2(
@@ -618,25 +542,7 @@ impl WebFileSource {
         let buffer = promise(buffer)
             .await
             .map_err(|error| StorageError::Io(error.to_string()))?;
-        Ok(Uint8Array::new(&buffer))
-    }
-}
-
-#[async_trait(?Send)]
-impl FileSource for WebFileSource {
-    fn metadata(&self) -> FileMetadata {
-        self.metadata.clone()
-    }
-
-    async fn read_into(
-        &mut self,
-        offset: u64,
-        destination: &mut [u8],
-    ) -> Result<usize, StorageError> {
-        if destination.is_empty() {
-            return Ok(0);
-        }
-        let bytes = self.read_chunk(offset, destination.len()).await?;
+        let bytes = Uint8Array::new(&buffer);
         let count = bytes.length() as usize;
         if count > destination.len() {
             return Err(StorageError::Io(format!(
@@ -647,13 +553,6 @@ impl FileSource for WebFileSource {
         bytes.copy_to(&mut destination[..count]);
         Ok(count)
     }
-
-    async fn read_at(&mut self, offset: u64, max_len: usize) -> Result<Bytes, StorageError> {
-        let bytes = self.read_chunk(offset, max_len).await?;
-        Ok(Bytes::from(bytes.to_vec()))
-    }
-
-    async fn close(&mut self) {}
 }
 
 struct WebFileSink {
@@ -769,7 +668,7 @@ impl WebBackend {
     }
 
     fn snapshot(&self) -> UiSnapshot {
-        snapshot_from_service(&self.service, &self.received.borrow())
+        UiSnapshot::from_backend(self.service.snapshot(), self.received.borrow().clone())
     }
 
     fn notify(&self, event: UiEvent) {
@@ -902,7 +801,7 @@ impl WebBackend {
             session_id,
             invite_secret,
             now,
-            INVITE_LIFETIME_SECS,
+            DEFAULT_INVITE_LIFETIME_SECS,
         );
         let invite_url = invitation
             .to_qr_url(INVITE_BASE_URL)
@@ -923,7 +822,7 @@ impl WebBackend {
             &scope,
             SessionState::AwaitingPeer {
                 invite_url,
-                expires_at: now + INVITE_LIFETIME_SECS,
+                expires_at: now + DEFAULT_INVITE_LIFETIME_SECS,
                 host_address,
             },
         );
@@ -1133,14 +1032,11 @@ impl WebBackend {
                 .as_f64()
                 .ok_or_else(|| JsValue::from_str("File has no size"))?
                 as u64;
-            let mime = property(&file, "type").map_err(to_js)?.as_string();
             let source = WebFileSource {
                 file,
                 metadata: FileMetadata {
                     name: name.clone(),
                     size,
-                    mime,
-                    modified_unix_ms: None,
                 },
             };
             let id = new_id();
@@ -1188,7 +1084,7 @@ impl WebBackend {
             )
             .await;
             let remotely_cancelled = matches!(&result, Err(error) if error.is_peer_cancelled());
-            source.close().await;
+
             let _ = stream.close().await;
             self.finish(&session, id, result.map(|_| ()))?;
             if cancel.load(Ordering::Acquire) || remotely_cancelled || !session.scope.is_current() {
@@ -1646,117 +1542,6 @@ pub fn install_backend() -> Result<(), JsValue> {
     Reflect::set(&global, &JsValue::from_str("__ponletBackend"), &object).map(|_| ())
 }
 
-fn snapshot_from_service(service: &BackendService, received: &[UiReceivedItem]) -> UiSnapshot {
-    let snapshot = service.snapshot();
-    let app = snapshot.app;
-    let (state, peer_name, invite_url, expires, can_send, can_disconnect, transfer, error) =
-        match app.state {
-            SessionState::Booting => (
-                "booting",
-                app.peer_display_name,
-                None,
-                0,
-                false,
-                false,
-                None,
-                None,
-            ),
-            SessionState::AwaitingPeer { invite_url, .. } => (
-                "awaiting-peer",
-                app.peer_display_name,
-                Some(invite_url),
-                app.invite_expires_in_secs,
-                false,
-                app.can_disconnect,
-                None,
-                None,
-            ),
-            SessionState::ConnectedIdle { .. } => (
-                "connected",
-                app.peer_display_name,
-                None,
-                0,
-                app.can_send,
-                app.can_disconnect,
-                None,
-                None,
-            ),
-            SessionState::Transferring {
-                transfer_id,
-                is_incoming,
-                bytes_done,
-                bytes_total,
-                current_item_name,
-                ..
-            } => (
-                "transferring",
-                app.peer_display_name,
-                None,
-                0,
-                false,
-                app.can_disconnect,
-                Some(UiTransfer {
-                    id: id_string(transfer_id),
-                    name: current_item_name,
-                    done: bytes_done,
-                    total: bytes_total,
-                    incoming: is_incoming,
-                    status: "transferring",
-                }),
-                None,
-            ),
-            SessionState::Error { message, .. } => (
-                "error",
-                app.peer_display_name,
-                None,
-                0,
-                false,
-                app.can_disconnect,
-                None,
-                Some(message),
-            ),
-            SessionState::Disconnected { .. } => (
-                "ready",
-                app.peer_display_name,
-                None,
-                0,
-                false,
-                false,
-                None,
-                None,
-            ),
-            SessionState::DialingHost { .. }
-            | SessionState::Authenticating
-            | SessionState::AwaitingAcceptance { .. }
-            | SessionState::AwaitingUserDecision { .. } => (
-                "booting",
-                app.peer_display_name,
-                None,
-                0,
-                false,
-                app.can_disconnect,
-                None,
-                None,
-            ),
-        };
-    UiSnapshot {
-        api_version: snapshot.api_version,
-        sequence: snapshot.sequence,
-        state,
-        peer_name,
-        invite_url,
-        invite_expires_in_secs: expires,
-        can_send,
-        can_disconnect,
-        transfer,
-        error,
-        transport: app.transport_path,
-        received: received.to_vec(),
-        received_messages: snapshot.received_messages,
-        last_transfer: snapshot.last_transfer,
-    }
-}
-
 fn listen_options() -> ListenOptions {
     ListenOptions {
         derp_map_url: DERP_MAP_URL.to_string(),
@@ -1774,12 +1559,6 @@ fn local_peer_info() -> PeerInfo {
 fn to_js(error: impl std::fmt::Display) -> JsValue {
     JsValue::from_str(&error.to_string())
 }
-fn spawn_local<F>(future: F)
-where
-    F: std::future::Future<Output = ()> + 'static,
-{
-    wasm_bindgen_futures::spawn_local(future);
-}
 fn unix_seconds() -> u64 {
     (js_sys::Date::now() / 1_000.0).max(0.0) as u64
 }
@@ -1794,15 +1573,5 @@ fn new_secret() -> [u8; 32] {
     secret
 }
 fn parse_id(value: &str) -> Result<[u8; 16], JsValue> {
-    if value.len() != 32 {
-        return Err(JsValue::from_str("Invalid transfer id"));
-    }
-    let mut id = [0; 16];
-    for (index, chunk) in value.as_bytes().chunks_exact(2).enumerate() {
-        let text =
-            std::str::from_utf8(chunk).map_err(|_| JsValue::from_str("Invalid transfer id"))?;
-        id[index] =
-            u8::from_str_radix(text, 16).map_err(|_| JsValue::from_str("Invalid transfer id"))?;
-    }
-    Ok(id)
+    tailsend_core::parse_transfer_id(value).ok_or_else(|| JsValue::from_str("Invalid transfer id"))
 }
