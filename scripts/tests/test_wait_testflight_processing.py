@@ -1,9 +1,13 @@
 import copy
 import importlib.util
+import json
 from pathlib import Path
+import plistlib
+import tempfile
 import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError, URLError
+from zipfile import ZipFile
 
 SPEC = importlib.util.spec_from_file_location(
     "processing", Path(__file__).resolve().parents[1] / "wait_testflight_processing.py"
@@ -112,6 +116,63 @@ class ProcessingTests(unittest.TestCase):
             self.assertEqual(claims["iss"], "test-issuer")
             self.assertEqual(claims["exp"] - claims["iat"], 120)
             self.assertEqual(jwt.get_unverified_header(token)["kid"], "test-key")
+
+
+class IpaIdentityTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.ipa = Path(self.directory.name) / "ponlet.ipa"
+        self.config = Path(self.directory.name) / "tauri.conf.json"
+        self.config.write_text(json.dumps({"identifier": "jp.yasagure.ponlet", "version": "1.0.16"}))
+        self.info = {
+            "CFBundleIdentifier": "jp.yasagure.ponlet",
+            "CFBundleShortVersionString": "1.0.16",
+            "CFBundleVersion": "1.0.16.2026092249",
+        }
+
+    def archive(self, extra_app=False):
+        with ZipFile(self.ipa, "w") as ipa:
+            ipa.writestr("Payload/Ponlet.app/Info.plist", plistlib.dumps(self.info, fmt=plistlib.FMT_BINARY))
+            ipa.writestr("Payload/Ponlet.app/PlugIns/Share.appex/Info.plist", plistlib.dumps({
+                "CFBundleIdentifier": "jp.yasagure.ponlet.sharek7vnga9k78",
+                "CFBundleShortVersionString": "different", "CFBundleVersion": "extension-build",
+            }))
+            if extra_app:
+                ipa.writestr("Payload/Other.app/Info.plist", plistlib.dumps(self.info))
+
+    def test_main_uses_ipa_build_with_version_prefix_and_ignores_extension(self):
+        self.archive()
+        with patch.object(processing.sys, "argv", ["wait", "--version-config", str(self.config), "--ipa", str(self.ipa)]), \
+                patch.object(processing, "AppStoreConnect") as api, \
+                patch.object(processing, "wait_for_processing") as wait:
+            self.assertEqual(processing.main(), 0)
+            wait.assert_called_once_with(api.return_value, "jp.yasagure.ponlet", "1.0.16", "1.0.16.2026092249")
+
+    def test_rejects_different_bundle_or_version(self):
+        for key, value in (("CFBundleIdentifier", "wrong.app"), ("CFBundleShortVersionString", "1.0.15")):
+            with self.subTest(key=key), patch.dict(self.info, {key: value}):
+                self.archive()
+                with self.assertRaisesRegex(processing.ProcessingError, "does not match"):
+                    processing.ipa_identity(self.ipa, "jp.yasagure.ponlet", "1.0.16")
+
+    def test_rejects_multiple_top_level_apps(self):
+        self.archive(extra_app=True)
+        with self.assertRaisesRegex(processing.ProcessingError, "exactly one"):
+            processing.ipa_identity(self.ipa, "jp.yasagure.ponlet", "1.0.16")
+
+    def test_rejects_missing_build_number(self):
+        del self.info["CFBundleVersion"]
+        self.archive()
+        with self.assertRaisesRegex(processing.ProcessingError, "nonempty"):
+            processing.ipa_identity(self.ipa, "jp.yasagure.ponlet", "1.0.16")
+
+    def test_keeps_explicit_build_number_for_verification_only(self):
+        with patch.object(processing.sys, "argv", ["wait", "--version-config", str(self.config), "--build-number", "1.0.16.2026092249"]), \
+                patch.object(processing, "AppStoreConnect") as api, \
+                patch.object(processing, "wait_for_processing") as wait:
+            self.assertEqual(processing.main(), 0)
+            wait.assert_called_once_with(api.return_value, "jp.yasagure.ponlet", "1.0.16", "1.0.16.2026092249")
 
 
 if __name__ == "__main__":

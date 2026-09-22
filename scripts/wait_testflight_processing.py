@@ -11,11 +11,13 @@ import argparse
 import json
 import os
 from pathlib import Path
+import plistlib
 import sys
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from zipfile import BadZipFile, ZipFile
 
 
 class ProcessingError(Exception):
@@ -134,16 +136,48 @@ def wait_for_processing(api, bundle_id, version, build_number, *, timeout=1200,
     raise ProcessingError(f"TestFlight processing did not reach VALID within {timeout}s (last state: {last_state})")
 
 
+def ipa_identity(path, expected_bundle_id, expected_version):
+    try:
+        with ZipFile(path) as ipa:
+            # Only Payload/<main>.app/Info.plist, never PlugIns/*.appex or frameworks.
+            entries = [entry for entry in ipa.infolist()
+                       if len(parts := entry.filename.split("/")) == 3
+                       and parts[0] == "Payload" and parts[1].endswith(".app")
+                       and parts[2] == "Info.plist"]
+            if len(entries) != 1:
+                raise ProcessingError("IPA must contain exactly one top-level app Info.plist")
+            info = plistlib.loads(ipa.read(entries[0]))
+    except (BadZipFile, plistlib.InvalidFileException, ValueError):
+        raise ProcessingError("Cannot read IPA app Info.plist") from None
+    identity = tuple(info.get(key) for key in (
+        "CFBundleIdentifier", "CFBundleShortVersionString", "CFBundleVersion"
+    )) if isinstance(info, dict) else ()
+    if len(identity) != 3 or any(not isinstance(value, str) or not value for value in identity):
+        raise ProcessingError("IPA app must have nonempty bundle ID, marketing version, and build number")
+    if identity[:2] != (expected_bundle_id, expected_version):
+        raise ProcessingError("IPA app bundle ID or marketing version does not match version config")
+    return identity
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--version-config", type=Path, required=True)
-    parser.add_argument("--build-number", required=True)
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument("--ipa", type=Path, help="Read the uploaded app's actual CFBundleVersion")
+    source.add_argument("--build-number", help="Exact App Store Connect build number for verification only")
     args = parser.parse_args()
     try:
-        version = json.loads(args.version_config.read_text())["version"]
-        if not version or not args.build_number:
+        config = json.loads(args.version_config.read_text())
+        version = config["version"]
+        bundle_id = config["identifier"]
+        build_number = args.build_number
+        if bundle_id != "jp.yasagure.ponlet":
+            raise ProcessingError("Version config must identify jp.yasagure.ponlet")
+        if args.ipa:
+            bundle_id, version, build_number = ipa_identity(args.ipa, bundle_id, version)
+        if not version or not build_number:
             raise ProcessingError("Marketing version and build number must be nonempty")
-        wait_for_processing(AppStoreConnect(), "jp.yasagure.ponlet", version, args.build_number)
+        wait_for_processing(AppStoreConnect(), bundle_id, version, build_number)
     except (ProcessingError, OSError, ValueError, KeyError) as error:
         print(f"::error::Processing verification failed: {error}", file=sys.stderr)
         return 1

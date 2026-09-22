@@ -2,11 +2,18 @@ name: iOS TestFlight Deployment
 
 on:
   workflow_dispatch:
+    inputs:
+      verify_build:
+        description: Existing CFBundleVersion to verify without building or uploading
+        type: string
+        required: false
+        default: ""
   push:
     tags: ["v*"]
 
 jobs:
   testflight:
+    if: github.event_name != 'workflow_dispatch' || inputs.verify_build == ''
     name: Build and upload Tauri iOS app
     runs-on: macos-26
     timeout-minutes: 90
@@ -136,7 +143,7 @@ jobs:
         run: |
           "$RUNNER_TEMP/asc-processing/bin/python" scripts/wait_testflight_processing.py \
             --version-config apps/tauri/tauri.conf.json \
-            --build-number "$PONLET_IOS_BUILD_NUMBER"
+            --ipa ponlet.ipa
 
       - name: Upload IPA artifact
         if: always()
@@ -145,3 +152,27 @@ jobs:
           name: Ponlet-iOS-IPA
           path: ponlet.ipa
           retention-days: 14
+
+  verify-existing-build:
+    if: github.event_name == 'workflow_dispatch' && inputs.verify_build != ''
+    name: Verify existing TestFlight build processing
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare processing verification
+        run: |
+          python3 -m venv "$RUNNER_TEMP/asc-processing"
+          "$RUNNER_TEMP/asc-processing/bin/python" -m pip install 'PyJWT==2.10.1' 'cryptography==46.0.5'
+          "$RUNNER_TEMP/asc-processing/bin/python" -m unittest discover -s scripts/tests -p 'test_wait_testflight_processing.py'
+      - name: Verify TestFlight processing reaches VALID
+        timeout-minutes: 21
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+          VERIFY_BUILD: ${{ inputs.verify_build }}
+        run: |
+          "$RUNNER_TEMP/asc-processing/bin/python" scripts/wait_testflight_processing.py \
+            --version-config apps/tauri/tauri.conf.json \
+            --build-number "$VERIFY_BUILD"
