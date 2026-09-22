@@ -83,7 +83,7 @@ echo ""
 echo "2b. Share Extension 用 Provisioning Profile (.mobileprovision)"
 echo "--------------------------------------------------------"
 echo "Apple Developer ポータルからダウンロードした"
-echo "Extension App ID (jp.yasagure.ponlet.share.k7vnga9k78) 用の App Store 配布プロファイルのパスを入力してください："
+echo "Extension App ID (jp.yasagure.ponlet.sharek7vnga9k78) 用の App Store 配布プロファイルのパスを入力してください："
 read -r -p "Share Extension profile path: " SHARE_PROF_PATH
 
 if [ -f "$SHARE_PROF_PATH" ]; then

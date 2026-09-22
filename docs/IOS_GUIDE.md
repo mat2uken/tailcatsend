@@ -34,7 +34,7 @@ Extension は `ponlet-share-session` の Rust ライブラリと既存の Go 通
 
 送信が終わるまでは共有シートを開いたままにしてください。共有元がバックグラウンドに移った場合は中断し、復帰後に再接続します。接続・送信エラー時は、送信済みと判定していない項目を再送できます。「共有を終了」で終了した項目は自動再送されませんが、元のファイルは残ります。現行の転送方式には受信先の保存完了応答がないため、切断直前に届いた項目を再送すると重複する場合があります。
 
-Apple Developer で本体の App ID と `jp.yasagure.ponlet.share.k7vnga9k78` の Extension App ID に同じ App Group を追加し、それぞれの実機用署名プロファイルを作成します。CI では本体を `BUILD_PROVISION_PROFILE_BASE64`、Extension を `BUILD_PROVISION_PROFILE_SHARE_BASE64` に登録します。ローカルの配布ビルドでは `PROVISIONING_PROFILE_SPECIFIER` と `PROVISIONING_PROFILE_SPECIFIER_SHARE` を指定してください。
+Apple Developer で本体の App ID と `jp.yasagure.ponlet.sharek7vnga9k78` の Extension App ID に同じ App Group を追加し、それぞれの実機用署名プロファイルを作成します。CI では本体を `BUILD_PROVISION_PROFILE_BASE64`、Extension を `BUILD_PROVISION_PROFILE_SHARE_BASE64` に登録します。ローカルの配布ビルドでは `PROVISIONING_PROFILE_SPECIFIER` と `PROVISIONING_PROFILE_SPECIFIER_SHARE` を指定してください。
 
 確認手順は、Files からファイル、別アプリからテキストを Ponlet に共有し、シートが閉じずに内容とQRコードを表示すること、接続後に進捗・完了を表示すること、相手側の受信内容が一致することです。QRコード側と招待URL貼り付け側の両方、送信中の終了、バックグラウンド移行、接続失敗後の再試行も確認します。ビルド成功、端末へのインストール、シート表示、受信側の内容確認は別々に記録します。
 

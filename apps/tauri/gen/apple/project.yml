@@ -48,7 +48,7 @@ targets:
         UILaunchStoryboardName: LaunchScreen
         CFBundleURLTypes:
           - CFBundleTypeRole: Editor
-            CFBundleURLName: jp.yasagure.ponlet.share.k7vnga9k78
+            CFBundleURLName: jp.yasagure.ponlet.sharek7vnga9k78
             CFBundleURLSchemes: [ponlet]
         UIRequiredDeviceCapabilities: [arm64, metal]
         UISupportedInterfaceOrientations:
@@ -138,7 +138,7 @@ targets:
           - group.jp.yasagure.ponlet.k7vnga9k78
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: jp.yasagure.ponlet.share.k7vnga9k78
+        PRODUCT_BUNDLE_IDENTIFIER: jp.yasagure.ponlet.sharek7vnga9k78
         PRODUCT_NAME: PonletShareExtension
         SWIFT_VERSION: 5.0
         APPLICATION_EXTENSION_API_ONLY: YES
