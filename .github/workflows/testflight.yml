@@ -9,7 +9,7 @@ jobs:
   testflight:
     name: Build and upload Tauri iOS app
     runs-on: macos-26
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -111,6 +111,12 @@ jobs:
           cp "$IPA" ponlet.ipa
           ls -lh ponlet.ipa
 
+      - name: Prepare App Store Connect processing verification
+        run: |
+          python3 -m venv "$RUNNER_TEMP/asc-processing"
+          "$RUNNER_TEMP/asc-processing/bin/python" -m pip install 'PyJWT==2.10.1' 'cryptography==46.0.5'
+          "$RUNNER_TEMP/asc-processing/bin/python" -m unittest discover -s scripts/tests -p 'test_wait_testflight_processing.py'
+
       - name: Upload to TestFlight
         env:
           APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
@@ -120,6 +126,17 @@ jobs:
           mkdir -p "$HOME/.appstoreconnect/private_keys"
           echo "$APP_STORE_CONNECT_PRIVATE_KEY" > "$HOME/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8"
           xcrun altool --upload-app --type ios --file ponlet.ipa --apiKey "$APP_STORE_CONNECT_KEY_ID" --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
+
+      - name: Verify TestFlight processing reaches VALID
+        timeout-minutes: 21
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+        run: |
+          "$RUNNER_TEMP/asc-processing/bin/python" scripts/wait_testflight_processing.py \
+            --version-config apps/tauri/tauri.conf.json \
+            --build-number "$PONLET_IOS_BUILD_NUMBER"
 
       - name: Upload IPA artifact
         if: always()
