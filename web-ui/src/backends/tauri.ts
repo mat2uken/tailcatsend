@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type {
   BackendEvent,
   BackendSnapshot,
@@ -42,6 +43,8 @@ type SelectedTransport =
 let selection: Promise<SelectedTransport> | undefined;
 let nativePlatform = "";
 let scanGeneration = 0;
+let macScanId: number | undefined;
+let macPreviewUnlisten: (() => void) | undefined;
 
 async function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
   let timer: number | undefined;
@@ -112,6 +115,60 @@ async function scanQr(): Promise<string | null> {
       scanGeneration++;
       await invoke("plugin:barcode-scanner|cancel").catch(() => undefined);
     }
+  }
+}
+
+async function scanMacQr(onPreview?: (image: string) => void): Promise<string | null> {
+  const scanId = ++scanGeneration;
+  macScanId = scanId;
+  let unlisten: (() => void) | undefined;
+  const stopPreview = (): void => {
+    unlisten?.();
+    unlisten = undefined;
+  };
+  try {
+    if (onPreview) {
+      unlisten = await listen<{ scanId: number; image: string }>("ponlet-qr-preview", (event) => {
+        const { scanId: eventScanId, image } = event.payload;
+        if (
+          scanGeneration === scanId &&
+          eventScanId === scanId &&
+          typeof image === "string" &&
+          image.startsWith("data:image/jpeg;base64,")
+        ) {
+          onPreview(image);
+        }
+      });
+      if (scanGeneration !== scanId) {
+        return null;
+      }
+      macPreviewUnlisten = stopPreview;
+    }
+    const result = await invoke<string | null>("ponlet_scan_qr", { scanId });
+    return scanGeneration === scanId ? result : null;
+  } catch (error) {
+    if (scanGeneration !== scanId) {
+      return null;
+    }
+    throw error;
+  } finally {
+    stopPreview();
+    if (macScanId === scanId) {
+      macScanId = undefined;
+      macPreviewUnlisten = undefined;
+      scanGeneration++;
+    }
+  }
+}
+
+async function cancelMacScan(): Promise<void> {
+  const scanId = macScanId;
+  if (scanId !== undefined) {
+    macScanId = undefined;
+    scanGeneration++;
+    macPreviewUnlisten?.();
+    macPreviewUnlisten = undefined;
+    await invoke("ponlet_cancel_scan", { scanId });
   }
 }
 
@@ -236,6 +293,7 @@ function createJsonFallback(listeners: Set<(event: BackendEvent) => void>): {
 /** Tauri adapter. Fast binary IPC is selected once; JSON invoke remains the fallback. */
 export function createBackend(): PonletBackend {
   const mobile = nativePlatform === "ios" || nativePlatform === "android";
+  const mac = nativePlatform === "macos";
   const listeners = new Set<(event: BackendEvent) => void>();
   const fallback = createJsonFallback(listeners);
   let selected: SelectedTransport | undefined;
@@ -331,9 +389,12 @@ export function createBackend(): PonletBackend {
     copyText,
     shareText,
     readClipboard: () => invoke<string>("ponlet_read_clipboard"),
-    ...(mobile
-      ? { scanQr, cancelScan }
-      : { openDownloads: () => invoke<void>("ponlet_open_downloads") }),
+    ...(mobile ? { scanQr, cancelScan } : {}),
+    ...(mac ? { scanQr: scanMacQr, cancelScan: cancelMacScan } : {}),
+    ...(mac
+      ? { scanQrWithPreview: (onPreview: (image: string) => void) => scanMacQr(onPreview) }
+      : {}),
+    ...(!mobile ? { openDownloads: () => invoke<void>("ponlet_open_downloads") } : {}),
     openExternal: (url) => invoke("ponlet_open_external", { url }),
     getTelemetryEnabled: () => invoke<boolean>("ponlet_get_telemetry_enabled"),
     setTelemetryEnabled: (enabled) => invoke("ponlet_set_telemetry_enabled", { enabled }),
@@ -352,6 +413,8 @@ export function createBackend(): PonletBackend {
       listeners.clear();
       if (mobile) {
         await cancelScan().catch(() => undefined);
+      } else if (mac) {
+        await cancelMacScan().catch(() => undefined);
       }
       const value = selected ?? (await ready);
       if (value.kind === "json") {

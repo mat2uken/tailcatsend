@@ -1,4 +1,12 @@
 #!/usr/bin/env swift
+// 注意（入力パスの扱い）:
+//   このスクリプトは 1254x1254 のマスター原画を入力に想定した切り抜き座標
+//   （Helper 3 / Helper 4 の cropRect）を使います。現在の apps/tauri/icons/icon.png
+//   （二重リング・角丸マスク済みの 512x512）を入力にすると切り抜きが合いません。
+//   また実行すると iOS 用アイコン一式（apps/tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/）
+//   を含む既存ファイルを上書きします。この一式は二重リング図柄が正なので上書きしないでください。
+//   desktop / Windows 用アイコン（apps/tauri/icons/icon.png, icon.ico）の再生成は
+//   scripts/generate_desktop_icons.swift を使います（元絵は iOS 用 AppIcon の 1024x1024）。
 import Foundation
 import AppKit
 import CoreGraphics

@@ -1,0 +1,38 @@
+Ponlet is a transfer app that sends files and text straight from your iPhone or iPad to another device. There's no account to create and nothing to log in to—just connect with a QR code or an invitation link, and everything arrives end-to-end encrypted.
+
+■ Great for
+- Sending a batch of photos and videos to another device
+- Handing over files that are too big to attach to email or chat
+- Moving notes and URLs between your own iPhone and iPad in seconds
+
+■ Features
+▼ Connect in seconds with a QR code or invitation link
+Show your invitation QR code for the other device to scan, scan theirs with your camera, or paste the invitation URL. Invitations are valid for 10 minutes.
+
+▼ Send multiple files at once
+Send multiple files in one go. File names, byte counts, percentage, and speed are shown live, and you can cancel a transfer at any time.
+
+▼ Keep track of received files
+Received files are saved inside the app. Open them from the list or copy their save location. If a file has the same name, Ponlet keeps both by adding (1) to the new one.
+
+▼ Two-way text chat
+Exchange text messages with the other device. Copy, share, save, or clear your history whenever you like.
+
+▼ Send straight from the iOS share sheet
+Share photos and files to Ponlet right from another app's share menu—no need to open Ponlet first.
+
+▼ Connection routes chosen automatically
+Ponlet picks the connection route that fits your situation, and the route in use on this device is shown on screen.
+
+▼ Japanese and English
+Switch the display language at any time.
+
+■ Privacy by design
+- No accounts, no login, no in-app purchases, no subscriptions, no ads, and no external purchase links.
+- Files and text are transferred end-to-end encrypted.
+- Usage telemetry is opt-out. While enabled, aggregate information such as launch and transfer counts and sizes is sent. File names, paths, transfer contents, and personal information are never sent. You can turn it off in settings at any time.
+- Received files are saved in the app's sandbox.
+- The only external pages linked from the app are the privacy policy and the OSS licenses page.
+
+■ Requirements
+iPhone and iPad (iOS 17.0 or later)

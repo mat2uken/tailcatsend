@@ -225,7 +225,7 @@ if profile:
 overlay = "".join(f"      {key}: {json.dumps(value)}\n" for key, value in settings.items())
 text = text.replace(app_needle, app_needle + overlay, 1)
 
-share_needle = "        PRODUCT_BUNDLE_IDENTIFIER: jp.yasagure.ponlet.share.k7vnga9k78\n"
+share_needle = "        PRODUCT_BUNDLE_IDENTIFIER: jp.yasagure.ponlet.share\n"
 if share_needle not in text:
     raise SystemExit("iOS project spec is missing the Ponlet Share Extension bundle identifier")
 share_settings = {
@@ -271,7 +271,7 @@ import sys
 path, team, identity, profile, share_profile, method = sys.argv[1:]
 provisioning_profiles = {"jp.yasagure.ponlet": profile}
 if share_profile:
-    provisioning_profiles["jp.yasagure.ponlet.share.k7vnga9k78"] = share_profile
+    provisioning_profiles["jp.yasagure.ponlet.share"] = share_profile
 options = {
     "method": method,
     "teamID": team,

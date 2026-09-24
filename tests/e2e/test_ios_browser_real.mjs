@@ -83,6 +83,19 @@ function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+async function selectTab(page, name) {
+  await page.getByRole("tab", { name }).first().click();
+}
+
+async function expectMessage(page, direction, text) {
+  await selectTab(page, /Messages|メッセージ/);
+  await page
+    .locator(`.message-bubble.${direction}`)
+    .filter({ hasText: text })
+    .first()
+    .waitFor({ state: "visible", timeout: 30_000 });
+}
+
 async function tapIosButton(page, locator) {
   await locator.waitFor({ state: "visible", timeout: 30_000 });
   const deadline = Date.now() + 30_000;
@@ -221,18 +234,21 @@ async function main() {
     );
 
     const text = `Browser→iOS 実通信: 日本語 ✅ ${runId}`;
+    await selectTab(host, /Messages|メッセージ/);
     await host.locator("textarea").fill(text);
     await host.getByRole("button", { name: /Send|送信/ }).click();
-    await ios.getByText(`[Peer]: ${text}`).first().waitFor({ state: "visible" });
+    await expectMessage(ios, "incoming", text);
 
     const reverseText = `iOS→Browser 実通信: reply ↔ 日本語 ${runId}`;
+    await selectTab(ios, /Messages|メッセージ/);
     await ios.locator("textarea").fill(reverseText);
     await tapIosButton(ios, ios.getByRole("button", { name: /Send|送信/ }));
-    await host.getByText(`[Peer]: ${reverseText}`).first().waitFor({ state: "visible" });
+    await expectMessage(host, "incoming", reverseText);
 
     const bytes = Buffer.from(Array.from({ length: 131_071 }, (_, index) => (index * 13) % 251));
     const expectedHash = sha256(bytes);
     const fileName = `browser-to-ios-${runId}-日本語.bin`;
+    await selectTab(host, /Transfer|転送/);
     const [fileChooser] = await Promise.all([
       host.waitForEvent("filechooser"),
       host.getByRole("button", { name: /Choose file|ファイルを選択/ }).click(),
@@ -310,6 +326,7 @@ async function main() {
       (value) => value.received?.some((item) => item.name === reverseFileName),
       "Browser reverse file receive",
     );
+    await selectTab(host, /Transfer|転送/);
     const [download] = await Promise.all([
       host.waitForEvent("download"),
       host.getByRole("button", { name: /^(Open|開く)$/ }).click(),

@@ -154,3 +154,59 @@ it("cancels native scanning and restores the app even while permission is pendin
   await flush();
   expect(scanner.dialog.open).toBe(false);
 });
+
+it("displays macOS preview inside the dialog and clears it on cancellation", async () => {
+  const scan = deferred();
+  const cancel = vi.fn().mockResolvedValue();
+  let preview;
+  const pending = scanner.openNativeScanner(
+    (onPreview) => {
+      preview = onPreview;
+      return scan.promise;
+    },
+    cancel,
+    undefined,
+    true,
+  );
+  const image = scanner.dialog.querySelector(".scanner-image");
+  expect(document.documentElement.classList.contains("native-scanning")).toBe(false);
+  expect(scanner.dialog.classList.contains("mac-scanner")).toBe(true);
+  expect(scanner.dialog.querySelector(".scanner-reticle")).toBeTruthy();
+  preview("data:image/jpeg;base64,frame");
+  expect(image.src).toBe("data:image/jpeg;base64,frame");
+  scanner.dialog.dispatchEvent(new Event("cancel", { cancelable: true }));
+  await expect(pending).resolves.toBeNull();
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(image.hasAttribute("src")).toBe(false);
+  preview("data:image/jpeg;base64,late");
+  expect(image.hasAttribute("src")).toBe(false);
+  scan.resolve("late");
+  await flush();
+  expect(scanner.dialog.open).toBe(false);
+});
+
+it("clears the macOS preview after success and failure", async () => {
+  for (const success of [true, false]) {
+    const scan = deferred();
+    let preview;
+    const pending = scanner.openNativeScanner(
+      (onPreview) => {
+        preview = onPreview;
+        return scan.promise;
+      },
+      vi.fn(),
+      undefined,
+      true,
+    );
+    preview("data:image/jpeg;base64,frame");
+    if (success) {
+      scan.resolve("invite");
+      await expect(pending).resolves.toBe("invite");
+    } else {
+      scan.reject(new Error("camera failed"));
+      await expect(pending).rejects.toThrow("camera failed");
+    }
+    expect(scanner.dialog.querySelector(".scanner-image").hasAttribute("src")).toBe(false);
+    expect(scanner.dialog.classList.contains("mac-scanner")).toBe(false);
+  }
+});

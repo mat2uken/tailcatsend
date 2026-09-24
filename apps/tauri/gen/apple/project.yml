@@ -31,6 +31,10 @@ targets:
       - path: Sources
       - path: Assets.xcassets
       - path: tailsend-tauri_iOS
+        excludes:
+          - "PrivacyInfo.xcprivacy"
+      - path: tailsend-tauri_iOS/PrivacyInfo.xcprivacy
+        buildPhase: resources
       - path: assets
         buildPhase: resources
         type: folder
@@ -41,7 +45,6 @@ targets:
         LSRequiresIPhoneOS: true
         NSCameraUsageDescription: Ponlet uses the camera to scan invitation QR codes and connect to another device.
         NSLocalNetworkUsageDescription: Ponlet uses the local network for direct device connections and file transfers.
-        NSBonjourServices: [_tailsend._tcp, _tailsend._udp]
         ITSAppUsesNonExemptEncryption: false
         FIREBASE_ANALYTICS_COLLECTION_ENABLED: false
         FirebaseCrashlyticsCollectionEnabled: false
@@ -113,10 +116,15 @@ targets:
     platform: iOS
     sources:
       - path: ShareExtension
+        excludes:
+          - "PrivacyInfo.xcprivacy"
+      - path: ShareExtension/PrivacyInfo.xcprivacy
+        buildPhase: resources
     info:
       path: ShareExtension/Info.plist
       properties:
         CFBundleDisplayName: Ponlet
+        ITSAppUsesNonExemptEncryption: false
         NSLocalNetworkUsageDescription: Ponlet connects to your other device to send the shared items.
         CFBundlePackageType: XPC!
         CFBundleShortVersionString: 1.0.14
@@ -138,7 +146,7 @@ targets:
           - group.jp.yasagure.ponlet.k7vnga9k78
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: jp.yasagure.ponlet.share.k7vnga9k78
+        PRODUCT_BUNDLE_IDENTIFIER: jp.yasagure.ponlet.share
         PRODUCT_NAME: PonletShareExtension
         SWIFT_VERSION: 5.0
         APPLICATION_EXTENSION_API_ONLY: YES
@@ -153,3 +161,120 @@ targets:
       - sdk: Security.framework
       - sdk: CoreFoundation.framework
       - sdk: SystemConfiguration.framework
+
+  tailsend-tauri_macOS:
+    type: application
+    platform: macOS
+    sources:
+      - path: MacApp
+        excludes:
+          - "PrivacyInfo.xcprivacy"
+      - path: MacApp/PrivacyInfo.xcprivacy
+        buildPhase: resources
+    info:
+      path: MacApp/Info.plist
+      properties:
+        CFBundleDisplayName: Ponlet
+        CFBundleIconFile: AppIcon
+        LSApplicationCategoryType: public.app-category.utilities
+        CFBundleShortVersionString: 1.0.14
+        CFBundleVersion: "1.0.14"
+        NSCameraUsageDescription: Ponlet uses the camera to scan invitation QR codes and connect to another device.
+        NSLocalNetworkUsageDescription: Ponlet uses the local network for direct device connections and file transfers.
+        ITSAppUsesNonExemptEncryption: false
+        CFBundleURLTypes:
+          - CFBundleTypeRole: Editor
+            CFBundleURLName: jp.yasagure.ponlet.share.k7vnga9k78
+            CFBundleURLSchemes: [ponlet]
+    entitlements:
+      path: MacApp/Ponlet.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+        com.apple.security.network.server: true
+        com.apple.security.files.downloads.read-write: true
+        com.apple.security.files.user-selected.read-write: true
+        com.apple.security.device.camera: true
+        com.apple.security.application-groups:
+          - group.jp.yasagure.ponlet.k7vnga9k78
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: jp.yasagure.ponlet
+        PRODUCT_NAME: Ponlet
+        ARCHS: [arm64, x86_64]
+        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        ENABLE_HARDENED_RUNTIME: YES
+        DEBUG_INFORMATION_FORMAT: dwarf
+        STRIP_INSTALLED_PRODUCT: NO
+        COPY_PHASE_STRIP: NO
+    dependencies:
+      - target: PonletShareExtensionMac
+        embed: true
+    postBuildScripts:
+      - name: Install Tauri Desktop Executable
+        script: |
+          set -euo pipefail
+          cp "${PROJECT_DIR}/../../../../target/native/tailcat/macos-universal/tailsend-tauri" "${TARGET_BUILD_DIR}/${EXECUTABLE_PATH}"
+          mkdir -p "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
+          cp "${PROJECT_DIR}/../../../../apps/desktop/AppIcon.icns" "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/AppIcon.icns"
+        basedOnDependencyAnalysis: false
+
+  PonletShareExtensionMac:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: ShareExtensionMac
+        excludes:
+          - "PrivacyInfo.xcprivacy"
+      - path: ShareExtensionMac/PrivacyInfo.xcprivacy
+        buildPhase: resources
+      - path: ShareExtension/ShareSession.swift
+    info:
+      path: ShareExtensionMac/Info.plist
+      properties:
+        CFBundleDisplayName: Ponlet
+        CFBundlePackageType: XPC!
+        CFBundleShortVersionString: 1.0.14
+        CFBundleVersion: "1.0.14"
+        ITSAppUsesNonExemptEncryption: false
+        NSLocalNetworkUsageDescription: Ponlet connects to your other device to send the shared items.
+        NSExtension:
+          NSExtensionAttributes:
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsFileWithMaxCount: 20
+              NSExtensionActivationSupportsImageWithMaxCount: 20
+              NSExtensionActivationSupportsMovieWithMaxCount: 20
+              NSExtensionActivationSupportsText: true
+              NSExtensionActivationSupportsWebURLWithMaxCount: 20
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+    entitlements:
+      path: ShareExtensionMac/PonletShareExtension.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+        com.apple.security.network.server: true
+        com.apple.security.files.user-selected.read-only: true
+        com.apple.security.application-groups:
+          - group.jp.yasagure.ponlet.k7vnga9k78
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: jp.yasagure.ponlet.share
+        PRODUCT_NAME: PonletShareExtensionMac
+        ARCHS: [arm64, x86_64]
+        MACOSX_DEPLOYMENT_TARGET: "13.0"
+        SWIFT_VERSION: 5.0
+        APPLICATION_EXTENSION_API_ONLY: YES
+        SWIFT_OBJC_BRIDGING_HEADER: ShareExtension/ShareSession.h
+        LIBRARY_SEARCH_PATHS[arch=arm64]: $(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION)
+        LIBRARY_SEARCH_PATHS[arch=x86_64]: $(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION)
+        OTHER_LDFLAGS: [$(inherited), -lponlet_share_session, -ltailcat, -lresolv]
+        ENABLE_HARDENED_RUNTIME: YES
+    dependencies:
+      - sdk: Security.framework
+      - sdk: CoreFoundation.framework
+      - sdk: SystemConfiguration.framework
+    preBuildScripts:
+      - name: Build macOS Tauri and Share Bridge
+        script: bash "${PROJECT_DIR}/../../../../scripts/build_tauri_xcode_macos.sh"
+        basedOnDependencyAnalysis: false
