@@ -32,7 +32,19 @@ fn main() {
     // Cargo's target setting instead and keep these desktop-only frameworks
     // out of Android and iOS artifacts.
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
-        for framework in ["Security", "CoreFoundation"] {
+        cc::Build::new()
+            .file("src/macos_qr_scanner.m")
+            .flag("-fobjc-arc")
+            .compile("ponlet_macos_qr_scanner");
+        println!("cargo:rerun-if-changed=src/macos_qr_scanner.m");
+        for framework in [
+            "Security",
+            "CoreFoundation",
+            "AppKit",
+            "AVFoundation",
+            "CoreImage",
+            "CoreMedia",
+        ] {
             println!("cargo:rustc-link-lib=framework={framework}");
         }
     }

@@ -15,6 +15,8 @@ pub mod commands;
 #[cfg(desktop)]
 mod desktop_telemetry;
 mod ipc;
+#[cfg(target_os = "macos")]
+mod macos_qr_scanner;
 pub mod model;
 pub mod runtime;
 mod scheme;
@@ -54,6 +56,10 @@ pub fn run() {
             commands::ponlet_import_shared,
             commands::ponlet_save_text,
             commands::ponlet_qr_code,
+            #[cfg(target_os = "macos")]
+            commands::ponlet_scan_qr,
+            #[cfg(target_os = "macos")]
+            commands::ponlet_cancel_scan,
             commands::ponlet_cancel_transfer,
             commands::ponlet_disconnect,
             commands::ponlet_open_received,

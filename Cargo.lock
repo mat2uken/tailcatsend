@@ -4172,6 +4172,7 @@ name = "tailsend-tauri"
 version = "1.0.17"
 dependencies = [
  "async-trait",
+ "cc",
  "futures",
  "jni",
  "libc",

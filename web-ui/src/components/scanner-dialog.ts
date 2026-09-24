@@ -1,7 +1,7 @@
 import van from "vanjs-core";
 import { uiText } from "../i18n";
 
-const { button, div, h2, p } = van.tags;
+const { button, div, h2, img, p } = van.tags;
 type BarcodeDetectorLike = {
   detect(video: HTMLVideoElement): Promise<Array<{ rawValue?: string }>>;
 };
@@ -14,9 +14,10 @@ interface ScannerDialogComponent {
   closeScanner(): void;
   dialog: HTMLDialogElement;
   openNativeScanner(
-    scan: () => Promise<string | null>,
+    scan: (onPreview: (image: string) => void) => Promise<string | null>,
     cancel: () => Promise<void>,
     triggerElement?: HTMLElement | null,
+    showPreview?: boolean,
   ): Promise<string | null>;
   openScanner(triggerElement?: HTMLElement | null): Promise<string | null>;
 }
@@ -34,6 +35,7 @@ export function createScannerDialog(): ScannerDialogComponent {
   video.autoplay = true;
   video.playsInline = true;
   video.muted = true;
+  const previewImage = img({ class: "scanner-image", alt: "" });
   const canvas = document.createElement("canvas");
   const status = p({ class: "scanner-status", role: "status" }, () => uiText.scannerStarting);
   let stream: MediaStream | undefined;
@@ -47,7 +49,8 @@ export function createScannerDialog(): ScannerDialogComponent {
   function cleanup(): void {
     generation++;
     document.documentElement.classList.remove("native-scanning");
-    dialog.classList.remove("native-scanner");
+    dialog.classList.remove("native-scanner", "mac-scanner");
+    previewImage.removeAttribute("src");
     cancelAnimationFrame(frame);
     frame = 0;
     stream?.getTracks().forEach((track) => track.stop());
@@ -82,9 +85,10 @@ export function createScannerDialog(): ScannerDialogComponent {
     }
   }
   function openNativeScanner(
-    scan: () => Promise<string | null>,
+    scan: (onPreview: (image: string) => void) => Promise<string | null>,
     cancel: () => Promise<void>,
     triggerElement?: HTMLElement | null,
+    showPreview = false,
   ): Promise<string | null> {
     closeScanner();
     const current = generation;
@@ -94,8 +98,12 @@ export function createScannerDialog(): ScannerDialogComponent {
       settle = resolve;
       fail = reject;
     });
-    document.documentElement.classList.add("native-scanning");
-    dialog.classList.add("native-scanner");
+    if (showPreview) {
+      dialog.classList.add("mac-scanner");
+    } else {
+      document.documentElement.classList.add("native-scanning");
+      dialog.classList.add("native-scanner");
+    }
     status.textContent = uiText.scannerReady;
     try {
       if (typeof dialog.showModal === "function") {
@@ -103,7 +111,11 @@ export function createScannerDialog(): ScannerDialogComponent {
       } else {
         dialog.setAttribute("open", "");
       }
-      void scan()
+      void scan((image) => {
+        if (showPreview && current === generation) {
+          previewImage.src = image;
+        }
+      })
         .then((value) => {
           if (current === generation) {
             nativeCancel = undefined;
@@ -124,7 +136,7 @@ export function createScannerDialog(): ScannerDialogComponent {
   }
   dialog.append(
     h2({ id: "scanner-dialog-title" }, () => uiText.scan),
-    div({ class: "scanner-preview" }, video, div({ class: "scanner-reticle" })),
+    div({ class: "scanner-preview" }, video, previewImage, div({ class: "scanner-reticle" })),
     status,
     button(
       { class: "secondary dialog-close", type: "button", onclick: closeScanner },

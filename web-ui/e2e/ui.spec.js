@@ -24,10 +24,15 @@ test("switches QR and join panes on a narrow disconnected screen", async ({ page
 
 async function installBackend(
   page,
-  { failFirstInvite = false, connected = false, receivedSharing = false } = {},
+  {
+    failFirstInvite = false,
+    connected = false,
+    receivedSharing = false,
+    macScanPreview = false,
+  } = {},
 ) {
   await page.addInitScript(
-    ({ failFirstInvite, connected, receivedSharing }) => {
+    ({ failFirstInvite, connected, receivedSharing, macScanPreview }) => {
       let listener;
       const calls = [];
       let state = {
@@ -57,6 +62,9 @@ async function installBackend(
         calls,
         publish,
         text,
+        preview(image) {
+          this.onPreview?.(image);
+        },
         terminal(status) {
           const id = state.transfer.id;
           state = { ...state, sequence: state.sequence + 1 };
@@ -138,9 +146,21 @@ async function installBackend(
         setTelemetryEnabled: async (enabled) => {
           calls.push(["telemetry", enabled]);
         },
+        ...(macScanPreview
+          ? {
+              scanQr: async () => null,
+              scanQrWithPreview: (onPreview) => {
+                window.__testPonlet.onPreview = onPreview;
+                return new Promise((resolve) => {
+                  window.__testPonlet.finishScan = resolve;
+                });
+              },
+              cancelScan: async () => window.__testPonlet.finishScan?.(null),
+            }
+          : {}),
       };
     },
-    { failFirstInvite, connected, receivedSharing },
+    { failFirstInvite, connected, receivedSharing, macScanPreview },
   );
 }
 
@@ -181,6 +201,27 @@ for (const receivedSharing of [true, false]) {
       .toEqual(expectedCalls);
   });
 }
+
+test("shows macOS preview frames inside the scanner dialog and clears them on close", async ({
+  page,
+}) => {
+  await installBackend(page, { macScanPreview: true });
+  await page.goto("/");
+  await page.getByRole("button", { name: "Scan with camera" }).click();
+  const dialog = page.locator(".scanner-dialog");
+  const preview = dialog.locator(".scanner-image");
+  await expect(dialog).toBeVisible();
+  await expect(preview).toBeVisible();
+  await expect(dialog.locator(".scanner-reticle")).toBeVisible();
+  await expect(page.locator("html")).not.toHaveClass(/native-scanning/);
+  await page.evaluate(() => window.__testPonlet.preview("data:image/jpeg;base64,frame"));
+  await expect(preview).toHaveAttribute("src", "data:image/jpeg;base64,frame");
+  await dialog.getByRole("button", { name: "Close" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(preview).not.toHaveAttribute("src");
+  await page.evaluate(() => window.__testPonlet.preview("data:image/jpeg;base64,late"));
+  await expect(preview).not.toHaveAttribute("src");
+});
 
 test("keeps long received filenames and message controls inside a narrow screen", async ({
   page,

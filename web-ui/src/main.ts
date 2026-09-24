@@ -999,9 +999,11 @@ scanButton.addEventListener(
       const invitation =
         native.scanQr && native.cancelScan
           ? await scanner.openNativeScanner(
-              () => native.scanQr!(),
+              (onPreview) =>
+                native.scanQrWithPreview ? native.scanQrWithPreview(onPreview) : native.scanQr!(),
               () => native.cancelScan!(),
               scanButton,
+              Boolean(native.scanQrWithPreview),
             )
           : native.scanQr
             ? await native.scanQr()

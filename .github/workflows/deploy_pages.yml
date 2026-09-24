@@ -14,6 +14,7 @@ on:
       - 'tailcat/**'
       - 'vendor/**'
       - 'dist/**'
+      - 'THIRD_PARTY_LICENSES.md'
       - 'functions/**'
       - 'web-ui/**'
       - 'scripts/build_web_ui.sh'
@@ -128,6 +129,8 @@ jobs:
           # Keep legal/static files already in dist while installing the
           # Vite WebView entry point.
           cp -R web-ui/dist/web/. dist/
+          # Publish the same notice as the repository root on every deploy.
+          cp THIRD_PARTY_LICENSES.md dist/THIRD_PARTY_LICENSES.md
 
       - name: Check the built browser with real bidirectional transfers
         run: |

@@ -36,6 +36,8 @@ Extension は `ponlet-share-session` の Rust ライブラリと既存の Go 通
 
 Apple Developer で本体の App ID と `jp.yasagure.ponlet.sharek7vnga9k78` の Extension App ID に同じ App Group を追加し、それぞれの実機用署名プロファイルを作成します。CI では本体を `BUILD_PROVISION_PROFILE_BASE64`、Extension を `BUILD_PROVISION_PROFILE_SHARE_BASE64` に登録します。ローカルの配布ビルドでは `PROVISIONING_PROFILE_SPECIFIER` と `PROVISIONING_PROFILE_SPECIFIER_SHARE` を指定してください。
 
+2026-09-24 に審査提出した Ponlet 1.0.14 の共有拡張 ID は `jp.yasagure.ponlet.share` です。現行のビルド設定（1.0.17）とは異なるため、提出時の署名・実機検証を現行版の確認結果として扱わないでください（`docs/APPSTORE_SUBMISSION_CHECKLIST.md`）。
+
 確認手順は、Files からファイル、別アプリからテキストを Ponlet に共有し、シートが閉じずに内容とQRコードを表示すること、接続後に進捗・完了を表示すること、相手側の受信内容が一致することです。QRコード側と招待URL貼り付け側の両方、送信中の終了、バックグラウンド移行、接続失敗後の再試行も確認します。ビルド成功、端末へのインストール、シート表示、受信側の内容確認は別々に記録します。
 
 macOS 用の Go archive `target/native/tailcat/libtailcat.a` がある環境では、次のテストで C API から既存の受信処理へファイル・テキストを送信し、受信内容と接続前キャンセルを確認できます。実ネットワークを使用するため、通常のユニットテストとは分けています。これは iPhone 上の UI やメモリ使用量の検証を代替しません。

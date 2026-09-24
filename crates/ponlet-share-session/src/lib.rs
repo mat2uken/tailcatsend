@@ -289,9 +289,14 @@ async fn run_connected(
     items: Vec<Item>,
     invite: String,
 ) -> Result<(), String> {
+    let platform = if cfg!(target_os = "macos") {
+        PlatformKind::MacOS
+    } else {
+        PlatformKind::IOS
+    };
     let peer = PeerInfo::new_native(
         "Ponlet Share".into(),
-        PlatformKind::IOS,
+        platform,
         env!("CARGO_PKG_VERSION").into(),
     );
     let capabilities = Capabilities::default();

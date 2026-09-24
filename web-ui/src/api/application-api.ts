@@ -100,6 +100,8 @@ export interface PonletBackend {
   saveText(text: string): Promise<void>;
   /** Native mobile camera scanner; cancellation returns null. */
   scanQr?: () => Promise<string | null>;
+  /** macOS scanner with JPEG preview frames for the in-app dialog. */
+  scanQrWithPreview?: (onPreview: (image: string) => void) => Promise<string | null>;
   sendFiles(files: Array<File>): Promise<void>;
   sendText(text: string): Promise<void>;
   setTelemetryEnabled?: (enabled: boolean) => Promise<void>;

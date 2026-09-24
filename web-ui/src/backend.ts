@@ -154,6 +154,12 @@ export function createBackend(
     },
     ...(native.openDownloads ? { openDownloads: () => native.openDownloads!() } : {}),
     ...(native.scanQr ? { scanQr: () => native.scanQr!() } : {}),
+    ...(native.scanQrWithPreview
+      ? {
+          scanQrWithPreview: (onPreview: (image: string) => void) =>
+            native.scanQrWithPreview!(onPreview),
+        }
+      : {}),
     ...(native.cancelScan ? { cancelScan: () => native.cancelScan!() } : {}),
     ...(native.importShared ? { importShared: () => native.importShared!() } : {}),
     copyText: (text) => (native.copyText ? native.copyText(text) : copyText(text)),

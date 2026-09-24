@@ -1,0 +1,10 @@
+Ponlet is now on the App Store.
+
+- Connect to another device with a QR code, an invitation link, or a pasted invitation URL
+- Send multiple files at once with live progress, and cancel any time
+- Browse received files, open them, or copy their save location
+- Two-way text chat with copy, share, save, and clear-history
+- Send directly from the iOS share sheet without opening Ponlet
+- Automatic connection route selection, with the route in use shown on screen
+- Japanese and English display languages
+- Telemetry setting (opt-out)

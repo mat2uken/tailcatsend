@@ -87,6 +87,18 @@ pub fn ponlet_qr_code(url: String) -> Result<UiQrBitmap, String> {
     ponlet_qr_code_impl(url)
 }
 
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn ponlet_scan_qr(app: AppHandle, scan_id: u64) -> Result<Option<String>, String> {
+    crate::macos_qr_scanner::scan(app, scan_id).await
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub fn ponlet_cancel_scan(scan_id: u64) {
+    crate::macos_qr_scanner::cancel(scan_id);
+}
+
 #[tauri::command]
 pub async fn ponlet_cancel_transfer(
     runtime: State<'_, TauriRuntime>,
