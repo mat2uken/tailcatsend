@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import unittest
 
+BASH = '/bin/bash'  # Exercise the same system Bash 3.2 used on macOS runners.
 SCRIPT = Path(__file__).resolve().parents[1] / 'build_macos_store_ci.sh'
 SECRETS = (
     'MACOS_APP_CERT_P12', 'MACOS_APP_CERT_PASSWORD',
@@ -17,7 +18,7 @@ SECRETS = (
 class CleanupTests(unittest.TestCase):
     def test_missing_secret_never_calls_security(self):
         env = {'PATH': os.environ['PATH']}
-        result = subprocess.run(['bash', str(SCRIPT)], env=env, capture_output=True, text=True)
+        result = subprocess.run([BASH, str(SCRIPT)], env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 2)
         self.assertIn('Required secret is missing:', result.stderr)
 
@@ -65,7 +66,7 @@ exit 0
             env.update(PATH=f"{binary}:{os.environ['PATH']}", MOCK_LOG=str(log), MOCK_FAIL_COMMAND=fail_command,
                        GITHUB_ACTIONS='true', GITHUB_RUN_NUMBER='123', GITHUB_RUN_ATTEMPT='1',
                        RUNNER_TEMP=str(root), PREVIOUS_STORE_BUILD='1.0.19', HOME=str(root))
-            result = subprocess.run(['bash', str(scripts / SCRIPT.name)], env=env,
+            result = subprocess.run([BASH, str(scripts / SCRIPT.name)], env=env,
                                     capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
             self.assertNotIn('dummy-test-only', result.stdout + result.stderr)

@@ -38,7 +38,8 @@ PY
     echo 'Failed to restore keychain settings during cleanup.' >&2
     status=1
   fi
-  for profile in "${created_profiles[@]}"; do
+  # macOS system Bash 3.2 treats an empty array as unset under nounset.
+  for profile in ${created_profiles[@]+"${created_profiles[@]}"}; do
     if ! rm -f -- "$profile"; then echo 'Failed to remove temporary profile.' >&2; status=1; fi
   done
   if [[ "$keychain_created" == 1 ]] && ! security delete-keychain "$keychain" >/dev/null 2>&1; then
