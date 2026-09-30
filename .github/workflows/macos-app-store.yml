@@ -1,4 +1,4 @@
-name: macOS App Store package (manual, no upload)
+name: macOS review archive (A - Mac export, no credentials)
 on:
   workflow_dispatch:
     inputs:
@@ -14,10 +14,10 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: macos-app-store-package
+  group: macos-review-archive
   cancel-in-progress: false
 jobs:
-  package:
+  archive:
     runs-on: macos-26
     timeout-minutes: 120
     defaults:
@@ -29,16 +29,6 @@ jobs:
         with:
           submodules: recursive
           persist-credentials: false
-      - name: Fail early if signing secrets are missing
-        env:
-          MACOS_APP_CERT_P12: ${{ secrets.MACOS_APP_CERT_P12 }}
-          MACOS_APP_CERT_PASSWORD: ${{ secrets.MACOS_APP_CERT_PASSWORD }}
-          MACOS_INSTALLER_CERT_P12: ${{ secrets.MACOS_INSTALLER_CERT_P12 }}
-          MACOS_INSTALLER_CERT_PASSWORD: ${{ secrets.MACOS_INSTALLER_CERT_PASSWORD }}
-          MACOS_STORE_PROFILE_BASE64: ${{ secrets.MACOS_STORE_PROFILE_BASE64 }}
-          MACOS_STORE_SHARE_PROFILE_BASE64: ${{ secrets.MACOS_STORE_SHARE_PROFILE_BASE64 }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: bash scripts/build_macos_store_ci.sh --check-secrets
       - name: Validate runner and build number before setup
         env:
           PREVIOUS_STORE_BUILD: ${{ inputs.previous_build }}
@@ -70,29 +60,22 @@ jobs:
           cargo install tauri-cli --version 2.10.0 --locked
       - name: Test metadata helpers and frontend
         run: |
-          python3 -m unittest discover -s scripts/tests -p "test_macos_store_*.py"
+          python3 -m unittest discover -s scripts/tests -p "test_macos*.py"
           cd web-ui
           npm ci
           npm run lint
           npm run typecheck
           npm run format:check
           npm test
-      - name: Build and verify Store package (no Apple upload)
+      - name: Build archive and sandbox validation copy (no Apple credentials)
         env:
           PREVIOUS_STORE_BUILD: ${{ inputs.previous_build }}
           STORE_BUILD_NUMBER: ${{ inputs.build_number }}
-          MACOS_APP_CERT_P12: ${{ secrets.MACOS_APP_CERT_P12 }}
-          MACOS_APP_CERT_PASSWORD: ${{ secrets.MACOS_APP_CERT_PASSWORD }}
-          MACOS_INSTALLER_CERT_P12: ${{ secrets.MACOS_INSTALLER_CERT_P12 }}
-          MACOS_INSTALLER_CERT_PASSWORD: ${{ secrets.MACOS_INSTALLER_CERT_PASSWORD }}
-          MACOS_STORE_PROFILE_BASE64: ${{ secrets.MACOS_STORE_PROFILE_BASE64 }}
-          MACOS_STORE_SHARE_PROFILE_BASE64: ${{ secrets.MACOS_STORE_SHARE_PROFILE_BASE64 }}
-          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
-        run: bash scripts/build_macos_store_ci.sh
+        run: bash scripts/build_macos_archive_ci.sh
       - name: Save only verified deliverables
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: Ponlet-macOS-Store-${{ github.run_number }}-${{ github.run_attempt }}
+          name: Ponlet-macOS-Archive-${{ github.run_number }}-${{ github.run_attempt }}
           path: store-artifacts/
           if-no-files-found: error
           retention-days: 14

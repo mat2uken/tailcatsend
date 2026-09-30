@@ -1,55 +1,62 @@
-# macOS App Store packageをGitHub Actionsで作る
+# macOSのActions archiveとManaged署名（経路A）
 
-この手動workflowはStore向けpkgと、同じ生成物から作る撮影・実機検証用sandbox appを出力します。Appleへのupload/submit、GitHub Release公開は行いません。通常配布のrelease.ymlとPages workflowは変更しません。
+今回の提出候補は、GitHub Actionsでarchiveとlocal sandbox appを生成し、本人のMacにある既存Apple Distribution identityとXcode accountを使ってManaged Installer署名のpkgを書き出す方式です。Apple upload/submitは行いません。通常配布release、Pages、iOS workflowは変更しません。
 
-## 実行前に必要な確認
+## AのActions実行前
 
-1. 本体 `jp.yasagure.ponlet` とMac共有拡張 `jp.yasagure.ponlet.share` のmacOS Store profilesが、Team `K7VNGA9K78`、App Group `group.jp.yasagure.ponlet.k7vnga9k78`、同じApple Distribution証明書に対応していることを確認します。iOSのsharek profileは使いません。
-2. App Store Connectで現在のmacOS最大build番号を本人が確認し、`previous_build` に入力します。CIはAppleに問い合わせません。入力の正しさ・他の提出との重複は自動保証されません。
-3. `build_number` が空ならこの専用workflowの `(1000 + run_number).0.run_attempt` を使用します。再実行も別番号です。過去番号より小さい/同じ場合は失敗し、本人がより大きい未使用番号を明示入力します。各桁は保守的に1..9999、0..99、0..99とし、桁上限を超えても剰余で再利用しません。これは実装の制限です。Apple現行文書は1〜3個の整数をピリオドで区切る形式を示します。
-4. 指定したXcode 26.4がstandard arm64 `macos-26` runnerに存在する必要があります。存在しなければ明確に失敗します。実runnerでのavailabilityとuniversal build/exportはまだ未検証です。runnerの7GB RAM/14GB空き容量で足りるかも未検証です。有料large runnerへの変更はしていません。
+1. `macos-app-store.yml` は手動のみです。GitHubのworkflow_dispatchにはworkflowがdefault branchに存在する必要があります。今回のfeature branchのpushだけでは実行を保証できず、mainへのmergeは別途承認が必要です。
+2. 本人がASCの現在のmacOS最大build番号を確認して`previous_build`へ入力します。`build_number`は明示指定するか、既定 `(1000 + run_number).0.run_attempt` を使います。過去番号以下は拒否し、番号上限で剰余による再利用はしません。ASCへの問い合わせや他の提出との重複自動保証はありません。最新番号が未確定なら実行しません。
+3. AはApple Secrets、API key、p12、profile、keychain設定変更を必要としません。arm64 `macos-26`、Xcode26.4、Go1.27.1、Rust1.94.0、Node24、Tauri CLI2.10.0、XcodeGenを使用し、実際の版を記録します。runner availability・容量・実buildは未検証です。
+4. 公式ActionsをSHA固定、contents:read、checkout credentials非保持で使用します。実行は今回まだ行っていません。
 
-## 本人が登録するGitHub Actions Secrets
+## Aのartifact
 
-GitHub repository Settings → Secrets and variables → Actions → New repository secretで以下を登録します。Secrets設定への既存読取は403だったため、登録状態は未確認です。別アカウントや権限で迂回しません。CI実装のためにこのMacから秘密鍵を読み出す/転送する操作は行っていません。
+`Ponlet-macOS-Archive-RUN-ATTEMPT`には次を保存します。
 
-| Name                             | 入れる物                                                                                        |
-| -------------------------------- | ----------------------------------------------------------------------------------------------- |
-| MACOS_APP_CERT_P12               | 本人が管理するApple Distribution証明書と秘密鍵のpassword付きp12をBase64化した1行                |
-| MACOS_APP_CERT_PASSWORD          | 上のp12のpassword                                                                               |
-| MACOS_INSTALLER_CERT_P12         | 本人が管理する3rd Party Mac Developer Installer証明書と秘密鍵のpassword付きp12をBase64化した1行 |
-| MACOS_INSTALLER_CERT_PASSWORD    | 上のp12のpassword                                                                               |
-| MACOS_STORE_PROFILE_BASE64       | 本体の有効なmacOS App Store provisionprofileをBase64化した1行                                   |
-| MACOS_STORE_SHARE_PROFILE_BASE64 | Mac共有拡張の有効なmacOS App Store provisionprofileをBase64化した1行                            |
-| KEYCHAIN_PASSWORD                | このjobだけの一時keychain用の十分長いランダムpassword                                           |
+- `Ponlet-preflight.xcarchive.zip`：Store署名資材なしのarchive。完全な未署名Mach-Oではなく、検証用ad-hoc sandbox署名を含みます。
+- `Ponlet-local-sandbox.zip`：同一jobの撮影・実機検証用app。
+- `build-input.json`：commit、submodule、version/build、toolchain、run URL、入力clean状態。
+- main/shareの実効sandbox・App Group・版・arm64/x86_64・privacy manifest検査結果、署名除去後4sliceコードhash、frontendファイルhash、ZIP等のSHA256。
+- 利用可能ならbuild側のdSYM。CPU UUIDが対応することを確認し、空のUUID結果や不一致は拒否します。
 
-証明書4項目のSecret名はkmvirtualcameraと共通ですが、PonletにはApp Store用のApple Distribution／3rd Party Mac Developer Installerを登録します。Developer ID Application／Installerは今回のStore提出に流用しません。p8のnotary/APIキーはarchive/export-onlyの本workflowには不要です。
+Xcodeのbuildとarchiveでnative wrapperが異なる可能性があるため、archiveのProductsに検証したlocal appを格納します。4sliceコードhash一致を必須にします。コード比較はMach-Oの範囲であり、resources/dSYM全部の同一性を保証するものではありません。元ソース・入力SHAとfrontend hashも記録します。
 
-Base64は暗号化ではありません。安全なローカル環境で本人が作成し、チャット・Issue・リポジトリ・ログに貼らず、GitHubのSecret入力欄へ直接登録します。既存iOS secretsは上書きしません。App Store Connect API keyは不要です。新規証明書/profileが必要な場合は別途確認します。
+## 本人MacでのManaged export
 
-## 検証と安全性
+Aの成果物をrepo外へ取得します。同じsource commitのclean checkoutで、reviewしたcommit SHAとarchive ZIPのSHA256を指定し、`scripts/export_macos_archive_on_mac.sh`を使う候補です。ZIP経路、manifest、版・権限・コードを認証前に検査します。
 
-- workflow_dispatchのみ、contents:read、checkout credentials非保持。第三者setup/upload Actionsは公式repositoryのcommit SHAで固定。Rust/Go/Tauri CLI/Xcodeを明示し、実際の版を記録します。Node24とXcodeGenのpatch版はrunner/install時の状態に依存し、manifestに記録します。完全なbit単位再現を保証しません。
-- Secretsは不足を確認する短いpreflightと署名shellだけに渡し、他のActionsやfrontend検査には渡しません。値を表示せず、コンパイル前に環境からunsetします。private scratchとkeychain以外へp12を保存しません。cleanupは成功・失敗・INT・TERMでprofileを削除し、keychain検索リスト/既定を復元して一時keychainを削除します。強制runner終了時はGitHub-hosted ephemeral VMの破棄に依存します。
-- profileのteam、bundle、platform、Store種別、期限、App Group、証明書一致を確認。本体と共有拡張のversion/build、arm64+x86_64、署名、実効sandbox entitlements、privacy manifestを確認します。
-- manual exportで証明書fingerprintと両profile UUIDを指定します。`-allowProvisioningUpdates` は使いません。pkg Installer署名team、展開payloadのDistribution証明書とprofileも検査します。
-- local sandbox appとStore payloadの両実行ファイル4sliceについて署名除去後SHA256が一致することを必須にします。署名/profileは異なります。Store用のapplication/team identifierを追加しますが実行権限は同じです。
-- artifactは検証後のpkg、local sandbox app ZIP、version/build/commit/submodule/toolchain/run URL、検証結果、実行コードと成果物SHA256だけ。p12、private keys、decoded profiles、keychain、exportログ、環境dumpを含めません。Store pkgには配布に必要な公開証明書/profileが含まれます。公開repositoryのActions artifactはアクセス可能な利用者に取得され得るため、未公開にしたいアプリコードの扱いを実行前に確認してください。
+本人が指定する非秘密の入力：
 
-## 撮影済み動画との対応
+- `EXPECTED_SOURCE_COMMIT`相当の完全SHA、archive ZIPのSHA256（scriptの引数）。
+- `PONLET_MAC_MAIN_PROFILE`：`jp.yasagure.ponlet`の既存OSX Store profile。
+- `PONLET_MAC_SHARE_PROFILE`：`jp.yasagure.ponlet.share`の既存OSX Store profile。
+- 既存Mac account・Managed署名の利用を本人が確認して`PONLET_CONFIRM_EXISTING_MANAGED_SIGNING=yes`。
 
-既存v2動画はこのMacで作った1.0.18/build1.0.19のlocal sandbox検証版です。今後CIで作るappと自動的に同じとは扱いません。CIの実行コード・実効権限を既存版と照合し、不一致ならCIのlocal sandbox appで実機検証・必要な撮影を行います。同じjob内のpkgとの一致は記録しますが、Appleによる再処理後の配布物まで同一だとは主張しません。
+例（まだ実行していません。パス・SHAは本人の確認値へ置換）：
 
-## 実装段階の検証限界
+```bash
+PONLET_CONFIRM_EXISTING_MANAGED_SIGNING=yes \
+PONLET_MAC_MAIN_PROFILE='/path/to/main.provisionprofile' \
+PONLET_MAC_SHARE_PROFILE='/path/to/share.provisionprofile' \
+bash scripts/export_macos_archive_on_mac.sh \
+  /path/outside/repo/archive-artifact FULL_SOURCE_COMMIT ARCHIVE_ZIP_SHA256 \
+  /path/outside/repo/new-export-output
+```
 
-workflow構文、shell lint、Pythonの番号/profile異常系、missing-secret早期失敗をローカル確認します。既存1.0.18/build1.0.19のappでmetadata/binary照合方法を確認できますが、新しいCI生成物の成功証拠とは区別します。今回workflowのpush・実行、Secrets登録、Apple送信は未実施です。既存のローカル署名用verify scriptやMacの識別子は変更せず、CI生成時だけMacの本体/拡張build番号を揃えます。
+本体/shareは同じTeam K7VNGA9K78、App Group group.jp.yasagure.ponlet.k7vnga9k78、同じ期限内Distribution証明書に対応する必要があります。iOS sharek、開発用profile、Developer ID Installerは使いません。既存Apple Distribution identityでapp/shareを署名し、`signingStyle=automatic`でManaged Installer exportします。API keyや`-allowProvisioningUpdates`は渡さず、新しいkeychain/profileのインストールもしません。Xcode accountや秘密鍵利用のアクセス要求、新規証明書/rotationが必要になれば止めて本人へ報告します。
 
-参照: https://developer.apple.com/documentation/bundleresources/information-property-list/cfbundleversion ; https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+以前、このMacではローカルDistribution署名済みappからautomatic exportが成功し、ログにRemotePackageSigningToolが確認されました。しかし今回の新しいad-hoc staging archiveから再署名・Managed exportするscript、GitHub製archiveからのexportは未実行です。構造検査の成功をexport成功とは扱いません。
 
-## 今回のローカル検証結果
+export後はInstallerのApple-issued署名、Store app/shareのDistribution種類・証明書・profile・版・権限を検査し、CIと4sliceコードhash一致を確認します。pkgと公開検査記録だけ保存し、decoded profile・私的exportログは保存先へコピーしません。Appleへ送信しません。
 
-基底commit a8b08db、feature/macos-store-ciの未コミット新規6ファイル。actionlint、shellcheck、bash構文、7件のPythonテストを確認済み。Secrets不足、番号の範囲・前番号との比較、iOSを保持した両Mac番号更新、profile異常系、一時keychain作成失敗と証明書import失敗時の後始末を模擬コマンドで検証しました。実keychainは変更していません。
+## Bの並行実験と旧manual方式
 
-既存1.0.18/build1.0.19のlocal sandbox appとStore書き出しappで、新しいbundle検査（版、両architecture、実効権限、privacy manifest、Store公開署名証明書・profile）を確認しました。署名除去後の本体/共有拡張4slice hashも一致しました。これらは既存成果物による検査手法の確認であり、新CI成果物ではありません。隔離したtrackedコピーにbuild1001.0.1を設定し、XcodeGen生成と両Mac Info.plistへの反映も確認しました。
+Bは[MACOS_MANAGED_EXPORT_CI.md](MACOS_MANAGED_EXPORT_CI.md)を参照。A成果物を再buildせずAPI認証でManaged exportする別workflowです。実験承認は既定falseで、p8登録・権限追加・外部実験は未実施。Aの提出をBの成功待ちにしません。
 
-web-uiはoffline npm ci（install scriptsなし）、lint、typecheck、format成功。既存132テストは131件成功＋sandboxによるHTTP待受EPERMの1件を通常権限で再実行し成功しました。元main・既存ビルド用worktreeの変更を保持し、push、PR、Actions実行、Secrets登録、Appleへの送信は行っていません。
+旧`scripts/build_macos_store_ci.sh`はlocal秘密鍵付きStore Installer p12がある場合のmanual方式として残していますが、A/B workflowは使いません。KMと統一した`MACOS_APP_CERT_P12/PASSWORD`、`MACOS_INSTALLER_CERT_P12/PASSWORD`の名前はこの旧方式に維持します。Managed Installerをp12へexportすることは要求しません。Aにはこの7 Secretsの登録は不要です。
+
+## 検証限界と動画
+
+既存撮影v2はこのMacで作った1.0.18/build1.0.19のlocal sandbox版です。新CI成果物と自動的に同一と扱わず、生成後に実測して差異があれば再検証・必要な撮影を行います。新archiveの構造・後署名可否と、実Managed exportの成功は別の確認です。
+
+参照：[Cloud-managed certificates](https://developer.apple.com/help/account/certificates/cloud-managed-certificates/)、[CFBundleVersion](https://developer.apple.com/documentation/bundleresources/information-property-list/cfbundleversion)、[workflow_dispatch](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_dispatch)、ローカルXcode26.6 `xcodebuild -help`。

@@ -69,6 +69,8 @@ def bundle_check(app, version, build, store=False, fingerprint=None):
                 prefix = str(Path(tmp) / 'cert')
                 subprocess.run(['codesign', '-d', '--extract-certificates=' + prefix, str(root)], check=True, capture_output=True)
                 assert hashlib.sha1(Path(prefix + '0').read_bytes()).hexdigest().upper() == fingerprint.upper(), 'Wrong signing certificate'
+                subject = run('openssl', 'x509', '-inform', 'DER', '-in', prefix + '0', '-nameopt', 'RFC2253', '-noout', '-subject')
+                assert any(kind in subject for kind in ('CN=Apple Distribution:', 'CN=3rd Party Mac Developer Application:', 'CN=Mac App Distribution:')), 'Not an App Store distribution certificate'
             assert effective.get('com.apple.application-identifier') == f'{TEAM}.{bundle}', 'Missing Store application ID'
             assert effective.get('com.apple.developer.team-identifier') == TEAM, 'Wrong effective entitlement team'
             decoded = subprocess.check_output(['security', 'cms', '-D', '-i', str(root / 'Contents/embedded.provisionprofile')], stderr=subprocess.DEVNULL)

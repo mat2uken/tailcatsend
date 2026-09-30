@@ -1,0 +1,82 @@
+name: macOS managed cloud export (experimental, no upload)
+on:
+  workflow_dispatch:
+    inputs:
+      authorize_cloud_signing:
+        description: Explicitly authorize this experiment; Xcode may create/update profiles and cloud certificates
+        type: boolean
+        required: true
+        default: false
+      artifact_run_id:
+        description: Successful archive-only workflow run ID in this repository
+        type: string
+        required: true
+      artifact_name:
+        description: Exact archive-only artifact name from that run
+        type: string
+        required: true
+      source_commit:
+        description: Expected complete archive source commit SHA (40 hexadecimal characters)
+        type: string
+        required: true
+      archive_sha256:
+        description: Expected Ponlet-preflight.xcarchive.zip SHA256 from reviewed archive job
+        type: string
+        required: true
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: macos-managed-cloud-export
+  cancel-in-progress: false
+jobs:
+  export:
+    if: inputs.authorize_cloud_signing
+    runs-on: macos-26
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout export helpers
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Download reviewed archive only (no signing secrets)
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # verified official commit
+        with:
+          name: ${{ inputs.artifact_name }}
+          path: archive-input
+          run-id: ${{ inputs.artifact_run_id }}
+          github-token: ${{ github.token }}
+      - name: Validate input metadata and export script without credentials
+        env:
+          EXPECTED_SOURCE_COMMIT: ${{ inputs.source_commit }}
+          EXPECTED_ARCHIVE_SHA256: ${{ inputs.archive_sha256 }}
+        run: |
+          test "$(uname -m)" = arm64
+          python3 -m unittest discover -s scripts/tests -p test_macos_managed_export.py
+          python3 scripts/verify_macos_managed_input.py archive-input
+      - name: Select pinned Xcode (no signing secrets)
+        env:
+          DEVELOPER_DIR: /Applications/Xcode_26.4.app/Contents/Developer
+        run: |
+          test -d "$DEVELOPER_DIR"
+          echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
+          xcodebuild -version
+      - name: Experimental managed signing and local package export
+        env:
+          AUTHORIZE_CLOUD_SIGNING: ${{ inputs.authorize_cloud_signing }}
+          EXPECTED_SOURCE_COMMIT: ${{ inputs.source_commit }}
+          EXPECTED_ARCHIVE_SHA256: ${{ inputs.archive_sha256 }}
+          APP_STORE_CONNECT_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+        run: bash scripts/export_macos_managed_ci.sh archive-input
+      - name: Save only verified package and public validation records
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Ponlet-macOS-managed-export-${{ github.run_number }}-${{ github.run_attempt }}
+          path: managed-export-artifacts/
+          if-no-files-found: error
+          retention-days: 14
