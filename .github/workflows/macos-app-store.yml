@@ -1,0 +1,81 @@
+name: macOS review archive (A - Mac export, no credentials)
+on:
+  workflow_dispatch:
+    inputs:
+      previous_build:
+        description: Latest macOS build in App Store Connect (confirm manually; three numeric components)
+        required: true
+        type: string
+      build_number:
+        description: Optional unique build override; otherwise (1000 + run_number).0.run_attempt
+        required: false
+        default: ""
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: macos-review-archive
+  cancel-in-progress: false
+jobs:
+  archive:
+    runs-on: macos-26
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout exact input, including submodule
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - name: Validate runner and build number before setup
+        env:
+          PREVIOUS_STORE_BUILD: ${{ inputs.previous_build }}
+          STORE_BUILD_NUMBER: ${{ inputs.build_number }}
+        run: |
+          test "$(uname -m)" = arm64
+          number=$(python3 scripts/macos_store_metadata.py number "$GITHUB_RUN_NUMBER" "$GITHUB_RUN_ATTEMPT" --override "$STORE_BUILD_NUMBER")
+          python3 scripts/macos_store_metadata.py compare "$number" "$PREVIOUS_STORE_BUILD"
+      - name: Setup Go
+        uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # verified official commit
+        with:
+          go-version: "1.27.1"
+          cache: false
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # verified official commit
+        with:
+          node-version: "24"
+      - name: Setup native toolchain (no signing secrets)
+        env:
+          DEVELOPER_DIR: /Applications/Xcode_26.4.app/Contents/Developer
+        run: |
+          test -d "$DEVELOPER_DIR"
+          echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
+          xcodebuild -version
+          rustup toolchain install 1.94.0 --profile minimal
+          rustup default 1.94.0
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          brew install xcodegen
+          cargo install tauri-cli --version 2.10.0 --locked
+      - name: Test metadata helpers and frontend
+        run: |
+          python3 -m unittest discover -s scripts/tests -p "test_macos*.py"
+          cd web-ui
+          npm ci
+          npm run lint
+          npm run typecheck
+          npm run format:check
+          npm test
+      - name: Build archive and sandbox validation copy (no Apple credentials)
+        env:
+          PREVIOUS_STORE_BUILD: ${{ inputs.previous_build }}
+          STORE_BUILD_NUMBER: ${{ inputs.build_number }}
+        run: bash scripts/build_macos_archive_ci.sh
+      - name: Save only verified deliverables
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Ponlet-macOS-Archive-${{ github.run_number }}-${{ github.run_attempt }}
+          path: store-artifacts/
+          if-no-files-found: error
+          retention-days: 14
