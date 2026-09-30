@@ -9,8 +9,8 @@ import unittest
 
 SCRIPT = Path(__file__).resolve().parents[1] / 'build_macos_store_ci.sh'
 SECRETS = (
-    'MACOS_DISTRIBUTION_CERTIFICATE_BASE64', 'MACOS_DISTRIBUTION_P12_PASSWORD',
-    'MACOS_INSTALLER_CERTIFICATE_BASE64', 'MACOS_INSTALLER_P12_PASSWORD',
+    'MACOS_APP_CERT_P12', 'MACOS_APP_CERT_PASSWORD',
+    'MACOS_INSTALLER_CERT_P12', 'MACOS_INSTALLER_CERT_PASSWORD',
     'MACOS_STORE_PROFILE_BASE64', 'MACOS_STORE_SHARE_PROFILE_BASE64', 'KEYCHAIN_PASSWORD',
 )
 
@@ -60,7 +60,7 @@ exit 0
                 path.chmod(0o755)
             env = {name: 'dummy-test-only' for name in SECRETS}
             for name in SECRETS:
-                if name.endswith('_BASE64'):
+                if name.endswith('_BASE64') or name.endswith('_P12'):
                     env[name] = base64.b64encode(b'non-sensitive fixture').decode()
             env.update(PATH=f"{binary}:{os.environ['PATH']}", MOCK_LOG=str(log), MOCK_FAIL_COMMAND=fail_command,
                        GITHUB_ACTIONS='true', GITHUB_RUN_NUMBER='123', GITHUB_RUN_ATTEMPT='1',

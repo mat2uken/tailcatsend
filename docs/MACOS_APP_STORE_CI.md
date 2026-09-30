@@ -13,15 +13,17 @@
 
 GitHub repository Settings → Secrets and variables → Actions → New repository secretで以下を登録します。Secrets設定への既存読取は403だったため、登録状態は未確認です。別アカウントや権限で迂回しません。CI実装のためにこのMacから秘密鍵を読み出す/転送する操作は行っていません。
 
-| Name                                  | 入れる物                                                                                        |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| MACOS_DISTRIBUTION_CERTIFICATE_BASE64 | 本人が管理するApple Distribution証明書と秘密鍵のpassword付きp12をBase64化した1行                |
-| MACOS_DISTRIBUTION_P12_PASSWORD       | 上のp12のpassword                                                                               |
-| MACOS_INSTALLER_CERTIFICATE_BASE64    | 本人が管理する3rd Party Mac Developer Installer証明書と秘密鍵のpassword付きp12をBase64化した1行 |
-| MACOS_INSTALLER_P12_PASSWORD          | 上のp12のpassword                                                                               |
-| MACOS_STORE_PROFILE_BASE64            | 本体の有効なmacOS App Store provisionprofileをBase64化した1行                                   |
-| MACOS_STORE_SHARE_PROFILE_BASE64      | Mac共有拡張の有効なmacOS App Store provisionprofileをBase64化した1行                            |
-| KEYCHAIN_PASSWORD                     | このjobだけの一時keychain用の十分長いランダムpassword                                           |
+| Name                             | 入れる物                                                                                        |
+| -------------------------------- | ----------------------------------------------------------------------------------------------- |
+| MACOS_APP_CERT_P12               | 本人が管理するApple Distribution証明書と秘密鍵のpassword付きp12をBase64化した1行                |
+| MACOS_APP_CERT_PASSWORD          | 上のp12のpassword                                                                               |
+| MACOS_INSTALLER_CERT_P12         | 本人が管理する3rd Party Mac Developer Installer証明書と秘密鍵のpassword付きp12をBase64化した1行 |
+| MACOS_INSTALLER_CERT_PASSWORD    | 上のp12のpassword                                                                               |
+| MACOS_STORE_PROFILE_BASE64       | 本体の有効なmacOS App Store provisionprofileをBase64化した1行                                   |
+| MACOS_STORE_SHARE_PROFILE_BASE64 | Mac共有拡張の有効なmacOS App Store provisionprofileをBase64化した1行                            |
+| KEYCHAIN_PASSWORD                | このjobだけの一時keychain用の十分長いランダムpassword                                           |
+
+証明書4項目のSecret名はkmvirtualcameraと共通ですが、PonletにはApp Store用のApple Distribution／3rd Party Mac Developer Installerを登録します。Developer ID Application／Installerは今回のStore提出に流用しません。p8のnotary/APIキーはarchive/export-onlyの本workflowには不要です。
 
 Base64は暗号化ではありません。安全なローカル環境で本人が作成し、チャット・Issue・リポジトリ・ログに貼らず、GitHubのSecret入力欄へ直接登録します。既存iOS secretsは上書きしません。App Store Connect API keyは不要です。新規証明書/profileが必要な場合は別途確認します。
 

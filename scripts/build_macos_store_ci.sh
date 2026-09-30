@@ -4,7 +4,7 @@ set -euo pipefail
 set +x
 umask 077
 cd "$(dirname "$0")/.."
-required=(MACOS_DISTRIBUTION_CERTIFICATE_BASE64 MACOS_DISTRIBUTION_P12_PASSWORD MACOS_INSTALLER_CERTIFICATE_BASE64 MACOS_INSTALLER_P12_PASSWORD MACOS_STORE_PROFILE_BASE64 MACOS_STORE_SHARE_PROFILE_BASE64 KEYCHAIN_PASSWORD)
+required=(MACOS_APP_CERT_P12 MACOS_APP_CERT_PASSWORD MACOS_INSTALLER_CERT_P12 MACOS_INSTALLER_CERT_PASSWORD MACOS_STORE_PROFILE_BASE64 MACOS_STORE_SHARE_PROFILE_BASE64 KEYCHAIN_PASSWORD)
 for name in "${required[@]}"; do
   if [[ -z "${!name:-}" ]]; then printf 'Required secret is missing: %s\n' "$name" >&2; exit 2; fi
 done
@@ -55,15 +55,15 @@ trap 'exit 143' TERM
 python3 - "$work" <<'PY'
 import base64, os, pathlib, sys
 root = pathlib.Path(sys.argv[1])
-for name, filename in [('MACOS_DISTRIBUTION_CERTIFICATE_BASE64','distribution.p12'),('MACOS_INSTALLER_CERTIFICATE_BASE64','installer.p12'),('MACOS_STORE_PROFILE_BASE64','main.provisionprofile'),('MACOS_STORE_SHARE_PROFILE_BASE64','share.provisionprofile')]:
+for name, filename in [('MACOS_APP_CERT_P12','distribution.p12'),('MACOS_INSTALLER_CERT_P12','installer.p12'),('MACOS_STORE_PROFILE_BASE64','main.provisionprofile'),('MACOS_STORE_SHARE_PROFILE_BASE64','share.provisionprofile')]:
     (root/filename).write_bytes(base64.b64decode(os.environ[name], validate=True))
 PY
 security create-keychain -p "$KEYCHAIN_PASSWORD" "$keychain" > "$work/security.log" 2>&1
 keychain_created=1
 security set-keychain-settings -lut 21600 "$keychain"
 security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$keychain"
-security import "$work/distribution.p12" -k "$keychain" -P "$MACOS_DISTRIBUTION_P12_PASSWORD" -T /usr/bin/codesign > "$work/import.log" 2>&1
-security import "$work/installer.p12" -k "$keychain" -P "$MACOS_INSTALLER_P12_PASSWORD" -T /usr/bin/productbuild >> "$work/import.log" 2>&1
+security import "$work/distribution.p12" -k "$keychain" -P "$MACOS_APP_CERT_PASSWORD" -T /usr/bin/codesign > "$work/import.log" 2>&1
+security import "$work/installer.p12" -k "$keychain" -P "$MACOS_INSTALLER_CERT_PASSWORD" -T /usr/bin/productbuild >> "$work/import.log" 2>&1
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$keychain" > "$work/partition.log" 2>&1
 # Expose only the temporary keychain, not the runner/user login keychain.
 security list-keychains -d user -s "$keychain"
@@ -100,7 +100,7 @@ pathlib.Path('store-artifacts/build-input.json').write_text(json.dumps(data,inde
 PY
 python3 scripts/macos_store_metadata.py set-number "$number"
 # Secrets are no longer inherited by compiler/package hooks or child build tools.
-unset MACOS_DISTRIBUTION_CERTIFICATE_BASE64 MACOS_DISTRIBUTION_P12_PASSWORD MACOS_INSTALLER_CERTIFICATE_BASE64 MACOS_INSTALLER_P12_PASSWORD MACOS_STORE_PROFILE_BASE64 MACOS_STORE_SHARE_PROFILE_BASE64 KEYCHAIN_PASSWORD
+unset MACOS_APP_CERT_P12 MACOS_APP_CERT_PASSWORD MACOS_INSTALLER_CERT_P12 MACOS_INSTALLER_CERT_PASSWORD MACOS_STORE_PROFILE_BASE64 MACOS_STORE_SHARE_PROFILE_BASE64 KEYCHAIN_PASSWORD
 PONLET_MACOS_DERIVED_DATA="$work/build" bash scripts/build_apple_macos.sh
 local_app="$work/build/Build/Products/release/Ponlet.app"
 python3 scripts/macos_store_metadata.py bundle "$local_app" "$version" "$number" > store-artifacts/local-validation.json
