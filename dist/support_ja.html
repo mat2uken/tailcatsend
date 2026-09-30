@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <script>
+      if (location.hostname === "mktailcatsend.pages.dev") {
+        location.replace(
+          "https://ponlet.mat2uken.app" + location.pathname + location.search + location.hash,
+        );
+      }
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Ponlet — サポート</title>
+    <meta name="description" content="Ponlet 使い方・接続・ファイル保存・お問い合わせ." />
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon.png" />
+    <link rel="icon" type="image/x-icon" href="favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
+    <link rel="stylesheet" href="privacy.css" />
+    <style>
+      .policy-section a {
+        color: var(--accent);
+        text-decoration: underline;
+        overflow-wrap: anywhere;
+      }
+      .policy-section ol {
+        padding-left: 1.5rem;
+        margin-bottom: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="header-inner">
+        <a href="/" class="brand-link" title="Ponlet トップへ">
+          <img
+            src="favicon.png"
+            alt="Ponlet Logo"
+            class="brand-logo"
+            onerror="this.style.display = 'none'"
+          />
+          <div class="brand-title">
+            Ponlet
+            <span class="brand-badge">Support</span>
+          </div>
+        </a>
+        <div class="header-actions">
+          <nav class="header-nav">
+            <a href="/" class="nav-link">Web版アプリ</a>
+            <a href="/licenses.html" class="nav-link">OSSライセンス</a>
+          </nav>
+          <div class="lang-switch" role="navigation" aria-label="言語切り替え">
+            <span class="lang-btn active" lang="ja">日本語</span>
+            <a href="support_en.html" class="lang-btn" lang="en">English</a>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <div class="hero"><h1>Ponlet サポート</h1></div>
+      <section id="contact" class="policy-section">
+        <div class="section-header">
+          <span class="section-num">01</span>
+          <h2 class="section-title">お問い合わせ</h2>
+        </div>
+        <p>
+          使い方の質問や不具合の報告は、<a href="mailto:app-support@mat2uken.app"
+            >app-support@mat2uken.app</a
+          >
+          へお送りください。
+        </p>
+        <p>
+          OSとPonletのバージョン、どちらの端末で起きたか、再現手順、エラーの内容をお知らせください。スクリーンショットは必要な部分だけにし、私的な内容を隠してください。パスワード、招待URL・QRコード、転送したファイル、メッセージ本文などの機密情報は送らないでください。
+        </p>
+      </section>
+      <section id="connect" class="policy-section">
+        <div class="section-header">
+          <span class="section-num">02</span>
+          <h2 class="section-title">初回接続</h2>
+        </div>
+        <ol>
+          <li>双方の端末でPonletを開きます。専用アクセサリやPonletアカウントは不要です。</li>
+          <li>
+            一方に表示された招待QRを、もう一方の「カメラで読取」で読み取ります。カメラが使えない場合は、招待URLをコピーして相手の「招待URL」欄へ貼り付け、接続します。
+          </li>
+          <li>
+            双方が「接続済み」になったことを確認します。招待が期限切れの場合は「再生成」して、新しいQRまたはURLを使います。招待情報は接続する相手だけに渡してください。
+          </li>
+        </ol>
+      </section>
+      <section id="transfer" class="policy-section">
+        <div class="section-header">
+          <span class="section-num">03</span>
+          <h2 class="section-title">ファイルとメッセージ</h2>
+        </div>
+        <p>
+          「転送」の「ファイルを選択」で送信するファイルを選びます。完了表示と相手の受信一覧を確認してください。「メッセージ」では入力欄に文字を入れて送信し、相手側の履歴を確認します。
+        </p>
+        <p>
+          macOSの受信ファイルは通常、ホームフォルダの
+          <code>Downloads/Ponlet</code
+          >（Finderの「ダウンロード」→「Ponlet」）へ自動保存されます。「受信フォルダを開く」や「保存先をコピー」で場所を確認できます。同名のファイルがある場合は連番が付きます。iPhoneでは受信ファイルの「共有」から「ファイルに保存」を選べます。
+        </p>
+      </section>
+      <section id="troubleshooting" class="policy-section">
+        <div class="section-header">
+          <span class="section-num">04</span>
+          <h2 class="section-title">接続・カメラの問題</h2>
+        </div>
+        <ul>
+          <li>
+            接続できないときは、双方がオンラインか、招待が期限内か確認してください。ネットワークやVPN・ファイアウォールの制限で接続できない場合があります。接続が切れた場合は新しい招待でやり直してください。
+          </li>
+          <li>QRは画面の明るさや距離を調整し、カメラの枠へ全体を入れてください。</li>
+          <li>
+            カメラが黒いときは、読み取り画面を閉じて開き直してください。画面表示・ミラーリング・収録を使っている場合は、一時的に終了してから再度試せます。これらが常に原因とは限りません。
+          </li>
+          <li>
+            カメラを許可していない場合は、OSのPonletのカメラ設定を確認してください。許可を変更したくない場合は招待URLで接続できます。
+          </li>
+          <li>
+            改善しない場合は、エラー内容と操作手順を上記メールへお知らせください。まず小さいテストファイルで確認し、大切なデータは手元に残してください。
+          </li>
+        </ul>
+      </section>
+      <section id="environment" class="policy-section">
+        <div class="section-header">
+          <span class="section-num">05</span>
+          <h2 class="section-title">対応環境とプライバシー</h2>
+        </div>
+        <p>
+          Apple版の最低OSはmacOS 13、iOS
+          17です。今回ローカル検証版で動作を確認した組み合わせはMac版1.0.18とiPhone AirのiOS
+          27.0.1／Ponlet
+          1.0.18です。すべての端末・ネットワーク条件での動作を確認したものではありません。ブラウザ版は<a
+            href="/"
+            >Ponlet Web版</a
+          >から利用できます。
+        </p>
+        <p>データの取り扱いは<a href="privacy_ja.html">プライバシーポリシー</a>をご覧ください。</p>
+      </section>
+    </main>
+    <footer>
+      <div class="footer-inner">
+        <div class="lang-switch" role="navigation" aria-label="言語切り替え">
+          <span class="lang-btn active" lang="ja">日本語</span>
+          <a href="support_en.html" class="lang-btn" lang="en">English</a>
+        </div>
+        <div class="footer-links">
+          <a href="/">Web版アプリ</a>
+          <a href="/licenses.html">OSSライセンス</a>
+          <a
+            href="https://github.com/mat2uken/tailcatsend"
+            target="_blank"
+            rel="noopener noreferrer"
+            >GitHub</a
+          >
+        </div>
+        <div class="footer-copy">&copy; 2026 Ponlet Project. All rights reserved.</div>
+      </div>
+    </footer>
+  </body>
+</html>

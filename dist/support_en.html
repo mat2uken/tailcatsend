@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <script>
+      if (location.hostname === "mktailcatsend.pages.dev") {
+        location.replace(
+          "https://ponlet.mat2uken.app" + location.pathname + location.search + location.hash,
+        );
+      }
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Ponlet — Support</title>
+    <meta name="description" content="Ponlet help, pairing, file transfers and support contact." />
+    <link rel="icon" type="image/png" sizes="32x32" href="favicon.png" />
+    <link rel="icon" type="image/x-icon" href="favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
+    <link rel="stylesheet" href="privacy.css" />
+    <style>
+      .policy-section a {
+        color: var(--accent);
+        text-decoration: underline;
+        overflow-wrap: anywhere;
+      }
+      .policy-section ol {
+        padding-left: 1.5rem;
+        margin-bottom: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="header-inner">
+        <a href="/" class="brand-link" title="Ponlet Home">
+          <img
+            src="favicon.png"
+            alt="Ponlet Logo"
+            class="brand-logo"
+            onerror="this.style.display = 'none'"
+          />
+          <div class="brand-title">
+            Ponlet
+            <span class="brand-badge">Support</span>
+          </div>
+        </a>
+        <div class="header-actions">
+          <nav class="header-nav">
+            <a href="/" class="nav-link">Web App</a>
+            <a href="/licenses.html" class="nav-link">OSS Licenses</a>
+          </nav>
+          <div class="lang-switch" role="navigation" aria-label="Language Switcher">
+            <a href="support_ja.html" class="lang-btn" lang="ja">日本語</a>
+            <span class="lang-btn active" lang="en">English</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <div class="hero"><h1>Ponlet Support</h1></div>
+      <section id="contact" class="policy-section">
+        <div class="section-header">
+          <span class="section-num">01</span>
+          <h2 class="section-title">Contact support</h2>
+        </div>
+        <p>
+          For help or bug reports, email
+          <a href="mailto:app-support@mat2uken.app">app-support@mat2uken.app</a>.
+        </p>
+        <p>
+          Include your OS and Ponlet versions, the affected device, steps to reproduce, and the
+          error shown. Limit screenshots to the relevant area and hide private information. Do not
+          send passwords, invitation URLs or QR codes, transferred files, private message contents,
+          or other confidential information.
+        </p>
+      </section>
+      <section id="connect" class="policy-section">
+        <div class="section-header">
+          <span class="section-num">02</span>
+          <h2 class="section-title">First connection</h2>
+        </div>
+        <ol>
+          <li>
+            Open Ponlet on both devices. No dedicated accessory or Ponlet account is required.
+          </li>
+          <li>
+            On one device, display the invitation QR code. On the other, choose the camera scan
+            button and scan it. Alternatively, copy the invitation URL, paste it into the other
+            device’s invitation URL field, and connect.
+          </li>
+          <li>
+            Check that both devices show Connected. If the invitation expires, regenerate it and use
+            the new QR code or URL. Share invitation details only with the intended recipient.
+          </li>
+        </ol>
+      </section>
+      <section id="transfer" class="policy-section">
+        <div class="section-header">
+          <span class="section-num">03</span>
+          <h2 class="section-title">Files and messages</h2>
+        </div>
+        <p>
+          In the Transfer tab, choose a file to send. Check the completion status and the receiving
+          device’s file list. In the Messages tab, enter text, send it, and check the other device’s
+          message history.
+        </p>
+        <p>
+          On macOS, received files are normally saved automatically in
+          <code>Downloads/Ponlet</code> under your home folder (Finder: Downloads → Ponlet). Use
+          Open received folder or Copy save location to check the path. A numbered suffix is added
+          when a file with the same name already exists. On iPhone, use the received file’s Share
+          button and choose Save to Files.
+        </p>
+      </section>
+      <section id="troubleshooting" class="policy-section">
+        <div class="section-header">
+          <span class="section-num">04</span>
+          <h2 class="section-title">Connection and camera help</h2>
+        </div>
+        <ul>
+          <li>
+            If connection fails, check that both devices are online and the invitation has not
+            expired. Network, VPN, or firewall restrictions can prevent a connection. Use a new
+            invitation after a disconnection.
+          </li>
+          <li>
+            For QR scanning, adjust screen brightness and distance, and keep the entire code inside
+            the camera frame.
+          </li>
+          <li>
+            If the camera view is black, close and reopen the scanner. If a screen display,
+            mirroring, or recording tool is in use, temporarily close it and try again. Such tools
+            are not necessarily the cause.
+          </li>
+          <li>
+            If camera access was not allowed, check Ponlet’s camera setting in the OS. You can use
+            an invitation URL if you prefer not to change camera access.
+          </li>
+          <li>
+            If the issue continues, email the error and reproduction steps. Try a small test file
+            first and keep your important originals.
+          </li>
+        </ul>
+      </section>
+      <section id="environment" class="policy-section">
+        <div class="section-header">
+          <span class="section-num">05</span>
+          <h2 class="section-title">Environment and privacy</h2>
+        </div>
+        <p>
+          The Apple apps target macOS 13 or later and iOS 17 or later. The locally verified
+          combination uses a local validation build of Ponlet 1.0.18 on Mac and Ponlet 1.0.18 on
+          iPhone Air running iOS 27.0.1. This does not establish compatibility with every device or
+          network. The
+          <a href="/">Ponlet Web app</a> is also available.
+        </p>
+        <p>See the <a href="privacy_en.html">Privacy Policy</a> for data handling.</p>
+      </section>
+    </main>
+    <footer>
+      <div class="footer-inner">
+        <div class="lang-switch" role="navigation" aria-label="Language Switcher">
+          <a href="support_ja.html" class="lang-btn" lang="ja">日本語</a>
+          <span class="lang-btn active" lang="en">English</span>
+        </div>
+        <div class="footer-links">
+          <a href="/">Web App</a>
+          <a href="/licenses.html">OSS Licenses</a>
+          <a
+            href="https://github.com/mat2uken/tailcatsend"
+            target="_blank"
+            rel="noopener noreferrer"
+            >GitHub</a
+          >
+        </div>
+        <div class="footer-copy">&copy; 2026 Ponlet Project. All rights reserved.</div>
+      </div>
+    </footer>
+  </body>
+</html>
