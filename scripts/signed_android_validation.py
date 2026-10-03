@@ -13,6 +13,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 
 VERSION_CODE = '2030000102'
 SIGNING_KEYS = ('ANDROID_KEYSTORE_BASE64', 'ANDROID_KEYSTORE_PASSWORD',
@@ -65,12 +66,21 @@ def parse_private_env(path, keystore):
     return result
 
 
-def failure_category(content):
-    content = content.lower()
+def failure_category(content, return_code=None):
+    # A diagnostic hint, not proof of the failure's underlying cause.
+    content = re.sub(rb'\x1b\[[0-9;]*[A-Za-z]', b'', content).lower()
+    if return_code in (-9, 137):
+        return 'process-killed'
     for category, needles in (
+        ('disk-space', (b'no space left on device', b'disk quota exceeded')),
+        ('memory', (b'out of memory', b'cannot allocate memory', b'java heap space')),
+        ('gradle-daemon', (b'gradle build daemon disappeared unexpectedly', b'daemon disappeared')),
+        ('frontend-check', (b'formatting issues found', b'format check failed', b'tests failed', b'test failed', b'tsc: error')),
+        ('patches', (b'cannot apply ', b'patch does not apply')),
+        ('go-toolchain', (b'go: errors parsing go.mod', b'go tool compile:')),
         ('tool-missing', (b'command not found', b'no such file or directory')),
         ('sdk-dependency', (b'could not resolve', b'sdk location not found', b'failed to find platform')),
-        ('gradle-control', (b'upload suppression', b'upload prohibited', b'build id task absent', b'release configuration missing')),
+        ('gradle-control', (b'upload suppression', b'upload prohibited', b'build id task absent', b'release configuration missing', b'signed validation requires both firebase build plugins')),
         ('signature', (b'signing', b'keystore', b'signature')),
         ('resources', (b'android resource linking failed', b'processresources')),
         ('compile', (b'compilation failed', b'could not compile', b'compileerror'))):
@@ -79,8 +89,36 @@ def failure_category(content):
     return 'unclassified'
 
 
+def phase_event(phase, status, cwd, started=None, return_code=None, category=None, digest=None):
+    # Only caller-owned literals, enums and numeric runner counters are public.
+    event = {'validation_phase': phase, 'status': status}
+    if started is not None:
+        event['elapsed_seconds'] = round(time.monotonic() - started, 3)
+    if return_code is not None:
+        event['return_code'] = return_code
+    if category is not None:
+        event['category'] = category
+    if digest is not None:
+        event['log_sha256'] = digest
+    try:
+        event['disk_free_bytes'] = shutil.disk_usage(cwd).free
+    except OSError:
+        pass
+    try:
+        for line in Path('/proc/meminfo').read_text().splitlines():
+            match = re.fullmatch(r'MemAvailable:\s+(\d+) kB', line)
+            if match:
+                event['memory_available_bytes'] = int(match[1]) * 1024
+                break
+    except OSError:
+        pass
+    print(json.dumps(event, sort_keys=True), file=sys.stderr)
+
+
 def run_private(command, cwd, env, work, phase, require_graph=False, json_output=None):
     log = work / (phase + '.log')
+    started = time.monotonic()
+    phase_event(phase, 'started', cwd)
     with contextlib.ExitStack() as stack:
         output = stack.enter_context(log.open('wb'))
         stdout = stack.enter_context(json_output.open('wb')) if json_output else output
@@ -99,14 +137,16 @@ def run_private(command, cwd, env, work, phase, require_graph=False, json_output
                 except ProcessLookupError:
                     pass
                 child.wait()
+            phase_event(phase, 'cancelled', cwd, started)
             raise
     content = log.read_bytes()
     digest = hashlib.sha256(content).hexdigest()
     if return_code or (require_graph and MARKER not in content):
         # Never include command lines, raw logs, exception contents, or input values.
-        category = failure_category(content) if return_code else 'graph-marker-missing'
-        print(f'validation failed: phase={phase}; category={category}; log_sha256={digest}', file=sys.stderr)
+        category = failure_category(content, return_code) if return_code else 'graph-marker-missing'
+        phase_event(phase, 'failed', cwd, started, return_code, category, digest)
         raise ValidationError('private subprocess failed')
+    phase_event(phase, 'succeeded', cwd, started, return_code, digest=digest)
     return digest
 
 

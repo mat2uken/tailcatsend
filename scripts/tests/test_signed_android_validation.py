@@ -53,8 +53,35 @@ class GuardTests(unittest.TestCase):
                     validation.run_private(['python3', '-c', f'print("PRIVATE_SENTINEL"); exit({exit_code})'],
                                            tmp, dict(os.environ), Path(tmp), 'fixture', require_graph)
             self.assertNotIn('PRIVATE_SENTINEL', captured.getvalue())
-            self.assertIn('phase=fixture; category=', captured.getvalue())
-            self.assertIn('log_sha256=', captured.getvalue())
+            events = [json.loads(line) for line in captured.getvalue().splitlines()]
+            failures = [event for event in events if event['status'] == 'failed']
+            self.assertEqual([event['return_code'] for event in failures], [1, 0])
+            self.assertEqual([event['category'] for event in failures], ['unclassified', 'graph-marker-missing'])
+            self.assertTrue(all('elapsed_seconds' in event and 'log_sha256' in event for event in failures))
+
+    def test_failure_classifier_emits_fixed_enums_without_log_fragments(self):
+        fixtures = [(b'PRIVATE_SENTINEL unknown error', 1, 'unclassified'),
+                    (b'PRIVATE_SENTINEL No space left on device', 1, 'disk-space'),
+                    (b'PRIVATE_SENTINEL java heap space', 1, 'memory'),
+                    (b'PRIVATE_SENTINEL daemon disappeared', 1, 'gradle-daemon'),
+                    (b'PRIVATE_SENTINEL Formatting issues found', 1, 'frontend-check'),
+                    (b'PRIVATE_SENTINEL Cannot apply patch cleanly', 1, 'patches'),
+                    (b'PRIVATE_SENTINEL unknown error', -9, 'process-killed')]
+        for content, code, expected in fixtures:
+            self.assertEqual(validation.failure_category(content, code), expected)
+        with tempfile.TemporaryDirectory() as tmp:
+            captured = io.StringIO()
+            with contextlib.redirect_stderr(captured):
+                validation.phase_event('build-apk', 'failed', tmp, validation.time.monotonic(),
+                                       137, 'process-killed', 'a' * 64)
+            event = json.loads(captured.getvalue())
+            self.assertEqual(event['return_code'], 137)
+            self.assertEqual(event['category'], 'process-killed')
+            self.assertTrue(isinstance(event['disk_free_bytes'], int))
+            self.assertNotIn(tmp, captured.getvalue())
+            self.assertNotIn('PRIVATE_SENTINEL', captured.getvalue())
+            self.assertLessEqual(set(event), {'validation_phase', 'status', 'elapsed_seconds', 'return_code',
+                                              'category', 'log_sha256', 'disk_free_bytes', 'memory_available_bytes'})
 
 
     def test_base64_wrapping_is_accepted_but_invalid_chars_are_rejected(self):

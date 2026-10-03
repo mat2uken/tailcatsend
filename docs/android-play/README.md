@@ -10,6 +10,7 @@
 | [SDKの保存・削除・OFF調査](SDK_RETENTION_AND_DELETION.md) | 公式仕様、端末内queue、個別削除手段と未確定の範囲 |
 | [Firebase／Analytics実設定](PROJECT_SETTINGS_READONLY.md) | 照合済みproject／propertyのread-only確認値。配布Androidの接続先照合は別途必要 |
 | [署名release検証の最小手順](SIGNED_RELEASE_VALIDATION_PLAN.md) | 配布を伴わないCI候補、runner制約、実行に必要な承認と試験対象 |
+| [署名build CI実施記録](SIGNED_CI_VALIDATION_RESULTS.md) | 承認後の検証実装・branch push・手動CI。実行時点の署名候補の結果とruntime未検証を区別 |
 | [開発署名16KBローカルpilot](LOCAL_DEV_PILOT_RESULTS.md) | Firebaseなしの実アプリ起動、設定保存・再起動、scratch保存。配布候補・実転送・SDK通信は別検証 |
 | [Data safety回答草案](DATA_SAFETY_DRAFT.md) | Firebase／ML Kit／転送内容、広告ID、収集・共有・任意性の判断材料 |
 | [日英privacy／support修正草案](PRIVACY_SUPPORT_DRAFTS.md) | 公開ページの差し替え候補と、公開前に埋める必要がある項目 |
@@ -51,4 +52,4 @@
 
 `publication_ready=false`。Google側の保存期間・削除手順とSDK通信、署名を含む提出候補の検証が未完であり、ローカルHTMLをそのまま公開しない。
 
-18:30 UTC前後の後続読み取りでは、対象Firebase／GAのイベント2か月・ユーザー14か月・活動ごとの期限更新ONなどを確認した。[実設定記録](PROJECT_SETTINGS_READONLY.md)と[SDK仕様](SDK_RETENTION_AND_DELETION.md)を分け、未照合の配布Androidへ値を適用していない。日英ローカルHTMLにはAndroid Crashlyticsの次起動OFF反映・端末保持・再ON送信だけを補足し、保存期間の仮値は追加していない。後続文書と補足は独立レビューを完了、重大指摘なし。今回Google設定変更・削除API・新runtime試験・workflow追加・CI実行・配布はしていない。新署名候補、個別削除手順、ML Kit診断の保持と削除はなお未確認。
+18:30 UTC前後の後続読み取りでは、対象Firebase／GAのイベント2か月・ユーザー14か月・活動ごとの期限更新ONなどを確認した。[実設定記録](PROJECT_SETTINGS_READONLY.md)と[SDK仕様](SDK_RETENTION_AND_DELETION.md)を分け、未照合の配布Androidへ値を適用していない。日英ローカルHTMLにはAndroid Crashlyticsの次起動OFF反映・端末保持・再ON送信だけを補足し、保存期間の仮値は追加していない。後続文書と補足は独立レビューを完了、重大指摘なし。18:30 UTCの調査段階ではGoogle設定変更・削除API・新runtime試験・workflow追加・CI実行・配布はしていない。後続の署名CI実装・実行は[実施記録](SIGNED_CI_VALIDATION_RESULTS.md)を参照。新署名候補、個別削除手順、ML Kit診断の保持と削除はなお未確認。
