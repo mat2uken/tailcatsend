@@ -379,7 +379,7 @@ def verify(path, require_camera_optional=False, expect_version_code=None, strict
                             result['errors'].append(f'{name}: LOAD {load["index"]} is not 16 KB aligned/congruent')
                     for relro in library['relro']:
                         if relro['end_mod_16k']:
-                            message = f'{name}: RELRO {relro["index"]} end modulo 16 KB = {relro["end_mod_16k"]:#x}; runtime compatibility unverified'
+                            message = f'{name}: RELRO {relro["index"]} end modulo 16 KB = {relro["end_mod_16k"]:#x}; guide-formula audit warning, not proof of runtime failure'
                             result['errors' if strict_relro else 'warnings'].append(message)
                     if not aab:
                         info = archive.getinfo(name)
@@ -412,7 +412,7 @@ def main(argv=None):
     parser.add_argument('--report', type=Path, help='write detailed JSON report')
     parser.add_argument('--require-camera-optional', action='store_true')
     parser.add_argument('--expect-version-code', type=int)
-    parser.add_argument('--strict-relro', action='store_true', help='fail the documented RELRO end modulo rule (default: warn)')
+    parser.add_argument('--strict-relro', action='store_true', help='fail the guide end-formula audit; not proof of runtime failure (default: warn)')
     args = parser.parse_args(argv)
     if args.expect_version_code is not None and not 1 <= args.expect_version_code <= 2100000000:
         parser.error('--expect-version-code must be in Google Play range 1..2100000000')
@@ -420,7 +420,8 @@ def main(argv=None):
     payload = {'schema_version': 1, 'page_size': PAGE,
                'limitations': ['Static checks do not verify 16 KB device runtime behavior or signing.',
                                'AAB page alignment is only a request; verify generated APK ZIP alignment.',
-                               'RELRO warnings require investigation; --strict-relro enforces the documented end formula.'],
+                               'RELRO modulo alone does not prove runtime failure; investigate rounded protection and test SDK behavior.',
+                               '--strict-relro is a guide-formula audit, not a published Play rejection algorithm.'],
                'artifacts': reports}
     if args.report:
         args.report.write_text(json.dumps(payload, indent=2) + '\n', encoding='utf-8')

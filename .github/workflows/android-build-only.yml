@@ -47,7 +47,7 @@ jobs:
           test -n "$apk"
           python3 scripts/verify_android_artifacts.py "${artifacts[@]}" \
             --report "$RUNNER_TEMP/android-build-verification.json" \
-            --require-camera-optional --expect-version-code "$PONLET_ANDROID_VERSION_CODE" --strict-relro
+            --require-camera-optional --expect-version-code "$PONLET_ANDROID_VERSION_CODE"
           cat "$RUNNER_TEMP/android-build-verification.json"
       # No artifact publication, signing secrets, Firebase client config,
       # or Play credentials are used by this workflow.

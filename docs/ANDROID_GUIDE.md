@@ -59,6 +59,8 @@ node tests/e2e/test_android_browser_cancel.mjs
 
 配布なしローカル検証は `./scripts/build_android_verify.sh` を使う。`PONLET_ANDROID_BUILD_ONLY=1` を固定し、既存署名環境変数を解除する。Gradleはこの場合、既存 `google-services.json` があってもGoogle Services／Crashlytics pluginを適用せず、署名設定も使わない。API endpointへuploadする工程はない。生成物はFirebase設定を含むPlay候補と同一ではないため、配布候補は別途検証する。
 
+両workflowの通常検査は [`scripts/verify_android_artifacts.py`](../scripts/verify_android_artifacts.py) のLOAD／ZIP配置、manifest、versionCodeを提出前の停止条件にする。RELROの端数はreportの警告として記録し、これだけで起動不可とは判定しない。`--strict-relro` はRELROを追加の停止条件にする監査用オプションとして残すが、通常workflowでは使わない。静的検査の成功は16KB端末での起動・転送やPlay Console判定の成功を保証しない。警告対象も含めた16KB環境での実行時試験と、配布候補を使ったPlay側の検証は別に記録する。
+
 Android CI版番号は [`scripts/android_version_code.py`](../scripts/android_version_code.py) を使い、`2030000000 + (GITHUB_RUN_NUMBER - 1) × 100 + GITHUB_RUN_ATTEMPT` と、確認済みConsole最大値＋1のうち大きい値を使う。既存Console最大値 `2026093037` を超える開始値を選んだ。別workflowが先行した場合も、その最大値を入力して新しい番号を割り当てられる。attemptは1〜99で、100回目は停止する。run番号700000までは計算式の全attemptがPlay上限2100000000以内に収まる。Console最大値が上限へ達した場合や計算式が上限を超えた場合は停止する。日付や下2桁の循環は使わない。iOSの `set_ci_build_number.sh` は変更しない。
 
 `GITHUB_RUN_NUMBER` はworkflowごとに異なる。別workflowの成果物や古いrunの再実行を新しいPlay版番号として自動的に保証できない。候補が入力したConsole最大値を超えなければupload前に停止する。`previous_version_code` は人が確認した値で、APIから最大値を取得する処理ではない。Console最大値＋1を使ったrunは、同じ入力で再実行すると同じ版番号になり得る。待機中に別の経路から配布された場合や古い入力値のまま再実行した場合、Play側の重複・順序チェックで拒否される可能性がある。配布直前に最大値を再確認し、入力が古ければそのrunを再利用せず新しい手動runへ進む。GitHub release APKの版番号はPlay用に予約した番号ではない。

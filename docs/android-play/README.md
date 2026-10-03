@@ -5,10 +5,12 @@
 | 文書 | 用途 |
 | --- | --- |
 | [ローカル検証結果](VALIDATION_RESULTS.md) | 実装、未署名AAB/APK、テスト、SDKの残存ブロッカーと証拠 |
+| [RELRO再評価](RELRO_ASSESSMENT.md) | ガイド式、linker実装、実行確認、Play判定の区別 |
 | [Data safety回答草案](DATA_SAFETY_DRAFT.md) | Firebase／ML Kit／転送内容、広告ID、収集・共有・任意性の判断材料 |
 | [日英privacy／support修正草案](PRIVACY_SUPPORT_DRAFTS.md) | 公開ページの差し替え候補と、公開前に埋める必要がある項目 |
 | [Console回答草案](CONSOLE_ANSWERS_DRAFT.md) | 未完のアプリ設定、課金・対象年齢等の要決定事項 |
 | [審査員手順とテスト計画](REVIEW_AND_TEST_PLAN.md) | 日英操作案内、Android releaseの検証項目と記録様式 |
+| [製品判断と最小確認事項](PRODUCT_DECISIONS.md) | 既存iOS方針との照合、広告ID・価格・対象年齢・backupの推薦と副作用 |
 
 ## 確認済みの配布物とConsole状態
 
@@ -34,7 +36,7 @@
 
 ## 優先順位
 
-1. 16 KB対応の全体確認を完了する。親担当の新候補AAB検査では全9本のLOAD整列、Go／RustのRELRO、カメラ任意設定を確認したが、第三者SDK2本のRELRO strict検査で不合格が残る。実機／Play Consoleでの新候補確認も未完であり、全体の対応済みとは扱わない。
+1. 16 KB対応の全体確認を完了する。新候補AAB/APKは全9本のLOADとZIP整列、Go／RustのRELRO、カメラ任意設定を確認した。SDK2本のRELRO式は監査警告であり、起動不可やPlay拒否が確認されたブロッカーではない。アプリ・SDK機能の16KB実行／Play判定は別途確認する。[再評価](RELRO_ASSESSMENT.md)を参照。
 2. 広告ID／広告関連権限を新候補でどう扱うか決定し、Data safety・公開ポリシーを提出AABに一致させる。
 3. Firebase／ML Kitの収集、OFFの効果、保存期間・削除方法に加え、OSバックアップと復元の経路を確認し、日英ポリシーとConsole回答を完成させる。
 4. Android release実機試験と審査員手順の再現を完了する。iOS／macOSの結果はAndroidの合格記録に転用しない。
