@@ -7,6 +7,9 @@
 | [初回ローカル検証](VALIDATION_RESULTS.md) | 承認前候補の検証。SDK2本のRELRO式は警告であり、修正必須のブロッカーとは判定しない |
 | [承認後の方針検証](POLICY_VALIDATION_RESULTS.md) | 広告ID・cloud除外の承認後候補2030000102のartifactとframework検証、未実行の実通信・復元試験 |
 | [RELRO再評価](RELRO_ASSESSMENT.md) | ガイド式、linker実装、実行確認、Play判定の区別 |
+| [SDKの保存・削除・OFF調査](SDK_RETENTION_AND_DELETION.md) | 公式仕様、端末内queue、個別削除手段と未確定の範囲 |
+| [Firebase／Analytics実設定](PROJECT_SETTINGS_READONLY.md) | 照合済みproject／propertyのread-only確認値。配布Androidの接続先照合は別途必要 |
+| [署名release検証の最小手順](SIGNED_RELEASE_VALIDATION_PLAN.md) | 配布を伴わないCI候補、runner制約、実行に必要な承認と試験対象 |
 | [Data safety回答草案](DATA_SAFETY_DRAFT.md) | Firebase／ML Kit／転送内容、広告ID、収集・共有・任意性の判断材料 |
 | [日英privacy／support修正草案](PRIVACY_SUPPORT_DRAFTS.md) | 公開ページの差し替え候補と、公開前に埋める必要がある項目 |
 | [Console回答草案](CONSOLE_ANSWERS_DRAFT.md) | 未完のアプリ設定、課金・対象年齢等の要決定事項 |
@@ -46,3 +49,5 @@
 2026-10-03 17:59 UTCにユーザーが承認：Play本体無料、子ども向けを意図しない一般向け、Android受信ファイルのクラウドバックアップ除外、広告ID無効化。Analytics／Crashlyticsは既定ONとOFF操作を維持する。具体的なPlay年齢区分とConsole選択は未実施、D2D移行の対象範囲は拡張しない。 Analytics廃止・初回opt-inへの変更は行わない。
 
 `publication_ready=false`。Google側の保存期間・削除手順とSDK通信、署名を含む提出候補の検証が未完であり、ローカルHTMLをそのまま公開しない。
+
+18:30 UTC前後の後続読み取りでは、対象Firebase／GAのイベント2か月・ユーザー14か月・活動ごとの期限更新ONなどを確認した。[実設定記録](PROJECT_SETTINGS_READONLY.md)と[SDK仕様](SDK_RETENTION_AND_DELETION.md)を分け、未照合の配布Androidへ値を適用していない。日英ローカルHTMLにはAndroid Crashlyticsの次起動OFF反映・端末保持・再ON送信だけを補足し、保存期間の仮値は追加していない。後続文書と補足は独立レビューを完了、重大指摘なし。今回Google設定変更・削除API・新runtime試験・workflow追加・CI実行・配布はしていない。新署名候補、個別削除手順、ML Kit診断の保持と削除はなお未確認。

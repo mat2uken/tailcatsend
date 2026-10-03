@@ -1,6 +1,6 @@
 # 日英privacy／support修正草案
 
-内部レビュー用。2026-10-03 17:59 UTCに本体無料、子ども向けを意図しない一般向け、Android受信ファイルのcloud backup除外、広告ID無効化とAnalytics／Crashlytics既定ON維持が承認された。日英privacy／supportの `dist/` ローカルHTMLも修正する。**公開していない、`publication_ready=false`**。保存期間・削除手順とSDK通信は未確認。未確定欄はこのdocsだけに保持し、HTMLへplaceholderを混入しない。未署名候補の広告IDflags／3権限除去とcloud ruleは検査済みで、ローカルHTMLへ「この改訂」として反映した。既存配布版1.0.18へ適用する説明ではない。
+内部レビュー用。2026-10-03 17:59 UTCに本体無料、子ども向けを意図しない一般向け、Android受信ファイルのcloud backup除外、広告ID無効化とAnalytics／Crashlytics既定ON維持が承認された。日英privacy／supportの `dist/` ローカルHTMLも修正する。**公開していない、`publication_ready=false`**。保存期間・削除の一般仕様と一部GA実設定は確認済み。配布Androidとの接続先照合、個別削除手順、ML Kit保持期間とSDK実通信は未確認。未確定欄はこのdocsだけに保持し、HTMLへplaceholderを混入しない。未署名候補の広告IDflags／3権限除去とcloud ruleは検査済みで、ローカルHTMLへ「この改訂」として反映した。既存配布版1.0.18へ適用する説明ではない。
 
 公開ページの読み取り確認は2026-10-03 UTC。次の4ページはHTTP 200。公開メールはCloudflareによる難読化表示だが、リポジトリの宛先は `app-support@mat2uken.app`。
 
@@ -51,11 +51,11 @@ Ponletが独自に送るイベントは、アプリの起動、接続作成・�
 
 **承認済み新候補向け草案**：Android版ではFirebase AnalyticsのAdvertising ID取得と広告パーソナライズを無効にし、広告識別関連の3権限を取り除きます。広告表示機能はありません。アプリインスタンス識別子、IP由来の概略位置、クラッシュ・ML Kit診断の取得は、この変更によって無くなるものではありません。既存1.0.18のAABには広告ID関連権限が含まれます。［compiled flags／permissionsは検査済み。実通信を確認後に公開］。
 
-テレメトリをOFFにすると、PonletがFirebase AnalyticsとCrashlyticsへ設定する収集が無効になります。OFF時の未送信情報の保持・後日の再ONでの送信は［試験結果に合わせて記載］です。ML KitのQR読取に伴うSDK診断はこのスイッチとは別です。このスイッチをOFFにしても、ユーザーが開始する端末間の転送や、接続のための通信は行われます。
+AndroidではFirebaseの収集設定を変更します。CrashlyticsのOFFは次回アプリ起動から反映され、OFF中のクラッシュ情報は端末に保持されます。再ONすると未送信の情報も送信されます。OFFはGoogle側の過去データ削除や端末内レポートの破棄を行う操作ではありません。切替前のqueueや送信中データ等の実動作は［試験結果を追記］です。ML KitのQR読取に伴うSDK診断はこのスイッチとは別です。このスイッチをOFFにしても、ユーザーが開始する端末間の転送や、接続のための通信は行われます。
 
 ### 送信先・保存期間・削除
 
-解析・診断データの送信先はGoogle LLCです。通信にはTLS／HTTPSを利用します。Googleでの取扱いについては [Googleプライバシーポリシー](https://policies.google.com/privacy?hl=ja) もご確認ください。Google側のサービス設定、保存期間、削除手順は［確認した内容を記載］します。転送ファイルの不保持と、解析・診断データの保存を同じものとして説明しません。
+解析・診断データの送信先はGoogle LLCです。通信にはTLS／HTTPSを利用します。Googleでの取扱いについては [Googleプライバシーポリシー](https://policies.google.com/privacy?hl=ja) もご確認ください。Google側のサービス設定と保存期間の一部は、[SDKメモ](SDK_RETENTION_AND_DELETION.md)と[project読み取り](PROJECT_SETTINGS_READONLY.md)で確認しています。配布Androidとの接続先照合、対象別の実行可能な削除手順と残る保存期間は［確認後に公開文へ記載］します。転送ファイルの不保持と、解析・診断データの保存を同じものとして説明しません。
 
 Androidのデータ削除・アンインストールは、現在の端末のアプリ内部ファイルや設定を削除する操作です。OSバックアップ、移行先端末、別アプリや外部保存先のコピーまで同時に消す保証はありません。OSのバックアップから再インストール時などに復元される場合もあるため、バックアップ側の保存・削除方法は利用端末とバックアップサービスの設定から別途確認してください。解析・診断データの開示・削除に関するお問い合わせは `app-support@mat2uken.app` へご連絡ください。［実行可能な削除方法、必要な情報、対応範囲を確認してここに記載］。お問い合わせにファイル本文、パスワード、招待QR・URLを送る必要はありません。
 
@@ -87,11 +87,11 @@ Firebase Analytics also handles app-instance identifiers, app lifecycle events, 
 
 **Approved candidate draft:** This Android revision disables Advertising ID collection and ad personalization and removes the three advertising identifier permissions. The app does not display ads. This does not remove app-instance identifiers, IP-derived coarse location, or Crashlytics and ML Kit diagnostics. Existing version 1.0.18 included advertising identifier permissions. [Compiled candidate flags/permissions verified; verify network behavior before publishing.]
 
-Turning telemetry off disables the collection settings that Ponlet applies to Firebase Analytics and Crashlytics. Retention of pending reports and transmission after telemetry is re-enabled are [to be described after testing]. ML Kit diagnostics associated with QR scanning are separate from this switch. Peer transfers and connection-related networking can still occur when you use the app with telemetry off.
+On Android, turning telemetry off changes Firebase collection settings. Crashlytics applies OFF on the next app launch and keeps crash information locally while disabled. Turning it on again sends previously unsent reports. OFF does not delete past Google data or discard local reports. Behavior of queues created before OFF or data already in transit is [to be added after testing]. ML Kit diagnostics associated with QR scanning are separate from this switch. Peer transfers and connection-related networking can still occur when you use the app with telemetry off.
 
 ### Recipients, retention, and deletion
 
-Analytics and diagnostics are sent to Google LLC using TLS/HTTPS. See the [Google Privacy Policy](https://policies.google.com/privacy). Service configuration, retention periods, and available deletion procedures are [to be verified and described]. The absence of a file-content storage server does not mean that analytics and diagnostic services retain no data.
+Analytics and diagnostics are sent to Google LLC using TLS/HTTPS. See the [Google Privacy Policy](https://policies.google.com/privacy). Some service settings and general retention/deletion specifications have been checked in the internal [SDK memo](SDK_RETENTION_AND_DELETION.md) and [project read-only record](PROJECT_SETTINGS_READONLY.md). Match these settings to the distributed Android configuration and verify individual deletion procedures and remaining retention periods [before adding them to public text]. The absence of a file-content storage server does not mean that analytics and diagnostic services retain no data.
 
 Clearing app data or uninstalling removes current local app data. It does not guarantee deletion of OS backups or copies on other devices, apps, or external storage; a backup may later restore data. Check backup retention and deletion separately through the applicable device or service settings. For questions about access to or deletion of analytics and diagnostic data, contact `app-support@mat2uken.app`. [Describe the verified deletion procedure, required information, and limitations.] Do not send private file contents, passwords, or invitation QR codes/URLs in a support request.
 
@@ -124,7 +124,7 @@ The current Android version does not import content directly from another app’
 ## 公開前に解決する項目
 
 1. 承認済み広告ID無効化のcompiled flags／permissionsは検査済み。署名する提出AABで再検査し、実通信を検証する。
-2. Google側の保存期間、削除手順、共有・広告連携設定の実確認。OSバックアップ、端末移行と復元の範囲も、[Android公式資料](https://developer.android.com/identity/data/autobackup)と実機で確認する。受信ファイルcloud除外は承認済み。D2D既存範囲維持と設定復元を検証し、OS backup全体無効化へ拡張しない。
+2. 一部GA実期間・Signals・共有設定はproject読み取りで確認済み。配布Androidとの接続先照合、個別削除、ML Kit保持と削除、Crash Insights等を確認する。OSバックアップ、端末移行と復元の範囲も、[Android公式資料](https://developer.android.com/identity/data/autobackup)と実機で確認する。受信ファイルcloud除外は承認済み。D2D既存範囲維持と設定復元を検証し、OS backup全体無効化へ拡張しない。
 3. OFF後／再ON後のAnalytics・Crashlyticsと、OFF中QRの通信確認。
 4. 本体無料・一般向けは承認済み。配布地域と具体的なPlay年齢帯の提案、必要な同意／表示は確認が必要。Consoleは選択しない。既定ON維持は承認済みで、opt-inへ変更しない。
 5. 日英の意味の一致、Android保存操作の実機確認、未確定欄の解消。
@@ -139,3 +139,5 @@ The current Android version does not import content directly from another app’
 正式公開準備は引き続き **`publication_ready=false`**。未確定の保存期間や削除手順は内部草案だけに保留し、公開用HTMLへ仮の値や未回答欄は挿入していない。
 
 ローカル文書確認：4HTMLの構造（タグ、section、id）、内部参照、言語切替、stylesheet／scriptとリンク先を既存HEADと照合し維持を確認。未確定placeholderなし。内部Markdownのリンク・コード欄と `git diff --check` を確認した。表示ブラウザでの実画面確認・公開URLの再取得は未実施。
+
+OFFの公式仕様を2026-10-03 UTCのSDK調査に基づき、日英ローカルprivacy／supportにも短く補足した。Crashlyticsは次回起動からOFF反映、OFF中の端末保持、再ON送信を明示する。保存期間の実設定数値は公開HTMLへ追加していない。

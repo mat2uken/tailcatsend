@@ -36,13 +36,13 @@ AndroidのOS既定ではfilesDirとSharedPreferencesがバックアップ対象�
 | おおよその現在地 | AnalyticsのIP由来概略位置を含めて収集ありを検討 | GPS権限がなくても自動収集があり得る。GA property・配布地域の設定とSDKの挙動を確認 |
 | 氏名・メール・電話・アカウント情報 | アプリ内の通常利用で収集する実装は見つからない | サポートメールで本人が送る情報と、アプリの自動送信を分ける |
 | 写真／動画／ファイル／メッセージ | 開発者が読めないE2EE転送に対する開示の例外を検討。OSバックアップ経路は未評価 | [Playの定義](https://support.google.com/googleplay/android-developer/answer/10787469)でE2EE、ユーザー開始の共有、OSバックアップ、第三者サービス提供者の扱いを確認。転送本文をAnalyticsへ送らない事実だけで全設問を決めない |
-| 保存期間／一時的処理 | SDKの解析・診断を「一時的処理のみ」とは申告しない | 各サービスの保存期間を確認。接続メモリ、受信内部保存、クラウド診断データを区別する |
+| 保存期間／一時的処理 | SDKの解析・診断を「一時的処理のみ」とは申告しない。読み取り対象GAの実期間はevent2／user14か月、reset ON | 接続先を配布Androidと照合する。Crashlytics90日後に削除処理開始、GA集計・ML Kitを一つの最大期間へまとめない。SDKメモ参照 |
 | 収集が任意か必須か | Analytics／CrashlyticsはOFF可能。全SDK一括で「任意」とは断定しない | ML Kit診断はFirebaseスイッチと別。各データ種別・機能ごとにConsoleの任意／必須の定義と照合する |
 | データの共有 | Googleへの送信あり。ただしConsole上の「共有」は提供者の役割と設定で判断 | サービス提供者の除外を適用できるか、Google Signals／Adsリンク／data sharing設定／その他第三者を確認。自動的に「共有なし」としない |
 | 転送中の暗号化 | はいを候補とする | SDKはTLS／HTTPS、転送はE2EE。全通信経路と新候補の通信観測で確認 |
 | 削除を要求できるか | **要確認、未回答** | サーバー個人データなしという旧文言を根拠に「不要」としない。診断・識別子の保存、OSバックアップの別コピーと復元、実行可能な削除手順を確認 |
 
-Google資料は最新SDKの一般説明であり、特定AABの実通信を証明しない。[Analytics開示資料](https://support.google.com/analytics/answer/11582702)はapp-instance ID、Advertising ID、IP由来概略位置、lifecycle events等を列挙する。IAP自動イベントは該当購入がない限り、SDKの機能だけを理由に購入履歴収集ありとしない。
+Google資料は最新SDKの一般説明であり、特定AABの実通信を証明しない。保存期間と削除・OFFの仕様は [SDK調査メモ](SDK_RETENTION_AND_DELETION.md)、GAの実期間・Signals・共有設定は [project読み取り](PROJECT_SETTINGS_READONLY.md) を参照。後者は配布Androidとの接続先照合が未完であり、個別削除窓口の実行手順も未確定。[Analytics開示資料](https://support.google.com/analytics/answer/11582702)はapp-instance ID、Advertising ID、IP由来概略位置、lifecycle events等を列挙する。IAP自動イベントは該当購入がない限り、SDKの機能だけを理由に購入履歴収集ありとしない。
 
 ## 広告IDの履歴と承認済み方針
 
@@ -76,8 +76,12 @@ jp.yasagure.ponlet.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
 ## 提出前に確定する記録
 
 - 新候補のsource SHA、versionCode、AAB SHA-256、merged permissions、広告ID取得／広告personalization flags、cloud／D2D backup rules、resolved SDK一覧。
-- Firebase／GAの保存期間、Google Signals、Adsリンク、data sharing、export設定。秘密の値はこの文書へ記載しない。
+- Firebase／GAの実設定はproject読み取り記録へ一部確認済み。配布Androidとの接続先照合、Crash Insights、個別削除手順、ML Kit保持期間・削除、過去exportはなお未確定。秘密の値は記載しない。
 - ON／OFF／再起動／QR／クラッシュ／再ONごとの通信結果とSDK診断の内容。ファイル名・本文・招待情報を送信データに含めない確認。
 - OSバックアップ有効／無効、cloudの受信ファイル除外とD2D既存範囲、データ削除／アンインストール後の復元について、内部受信ファイル・設定と削除範囲を確認。機種・OEM・OS設定ごとの差を記録。
 - [privacy草案](PRIVACY_SUPPORT_DRAFTS.md)の未確定欄を埋めた内容と、日英公開ページの最終取得記録。
 - Console保存後の表示と、新AABとの一致。現在の未完フォームを完了済みとして記録しない。
+
+## OFFの説明に関する公式仕様の補足
+
+Crashlyticsのfalseは次回アプリ起動から反映。OFF中でもcrash情報は端末に保持され、再ON時に送信される。`deleteUnsentReports()` は別APIで現行Ponletに呼出しはない。Analyticsの端末リセットも別APIで、現行OFFはGoogleサーバー削除要求ではない。根拠・APIの対象・未検証queue挙動は [SDKメモ](SDK_RETENTION_AND_DELETION.md) を参照し、任意性と削除回答を分ける。
