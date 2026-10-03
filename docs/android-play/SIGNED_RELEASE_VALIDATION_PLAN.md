@@ -15,6 +15,8 @@
 
 現在の成功は全nativeのLOAD／ZIP配置、compiled manifest／backup XML、16KBでのdlopen、Android frameworkのscratch復元まで。[方針検証記録](POLICY_VALIDATION_RESULTS.md)を参照。Ponlet実アプリのFirebase初期化・転送・バックアップtransportはまだ合格していない。
 
+後続の[ローカル開発署名pilot](LOCAL_DEV_PILOT_RESULTS.md)で、Firebaseなしの同unsigned APKコピーを既存開発keyで署名し、16KB実アプリ起動と設定の保存／再起動保持を確認した。これは上表の「次の署名・Firebase候補」ではなく、production署名・SDK初期化／通信・Play upgradeの未検証を解消していない。
+
 ## 現行CIをそのまま使わない理由
 
 | 現行ファイル | 確認した動作 | 次段での扱い |
