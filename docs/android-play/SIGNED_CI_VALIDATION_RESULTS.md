@@ -52,7 +52,42 @@ AAB/APKはartifactとして保存・移送しない。CI結果はそのrun内の
 
 診断補強は実装済み。各phaseの開始・成功・失敗・中断、所要秒、終了code、私有logのhash、runnerの空きdiskと利用可能memoryの数値だけを記録する。失敗分類は固定enumの手掛かりであり、根本原因の証明ではない。生ログ・コマンド・path・env・設定値を出さない。関連safety fixtureは14件成功。製品コード、既存build script、workflow、署名入力、Firebase構成、upload抑止はこの診断補強で変更していない。
 
-**補強後の追加CIは未実行。** 次の署名検証では最新commitの完全SHAを指定し、`mode=verify` / `confirm_deploy=false` / `track=internal` を維持する。90分上限の独立署名検証jobを1回再試行し、先にphase分類・終了code・時間を確認してから後段の成果物検査を評価する。`track` は検証modeで使用されない。配布jobへの切替やuploadは再試行に含めない。
+**診断補強commit作成時点では追加CI未実行。** 再試行の承認を確認後、下記runを実行した。`mode=verify` / `confirm_deploy=false` / `track=internal`、90分上限を維持する。`track` は検証modeで使用されない。配布jobへの切替やuploadは再試行に含めない。
+
+## 診断補強版の再試行
+
+| 項目 | 値 |
+| --- | --- |
+| run | [37160029775](https://github.com/mat2uken/tailcatsend/actions/runs/37160029775) |
+| source SHA | `bde026160c883a5a80a072e272f617ccc946e820` |
+| 状態 | FAIL。署名検証jobは22:55:07–23:06:11 UTC。request・完全SHA・tool setup・safety fixtureを通過。配布jobはskipped、always cleanup成功、artifact 0件 |
+
+実署名stepの診断JSONだけを抽出した。credential-free fixtureが出すsynthetic phase JSONは実buildの証拠に含めない。
+
+| 実phase | 秒 / exit | 結果 |
+| --- | --- | --- |
+| cargo-metadata | 2.007 / 0 | 成功 |
+| signing | 0.665 / 0 | helper正常終了。成果物署名検証とは分ける |
+| gradle-graph | 66.700 / 0 | 成功 |
+| build-aab | 305.164 / 0 | 成功 |
+| build-apk | 6.991 / 1 | `category=patches`。log hash `1a6884fc1ac5cd2090133dbcb2dee2de7fb4b7f7944feb145523b1f0a9a9489f` |
+
+署名・証明書一致・16KB・manifest・compiled Firebase設定のartifact verifierは未到達のまま。失敗時の空きdiskは79,528,804,352 bytes、利用可能memoryは14,989,864,960 bytesだった。これらのsnapshotを根本原因の証明とは扱わない。
+
+## patch再適用の不具合と最小修正
+
+`0001-android-selinux-netmon-fallback.patch` のtest import文脈は `strings` の次が `sync/atomic` だが、現在のsubmodule HEADには間に `sync` がある。原checkoutを変更せず `git apply --reverse --check --unidiff-zero` を実行すると、適用済みの `tailcat_test.go` のimport hunkで失敗する。`0002` のreverse checkは成功した。
+
+現在のHEADの2ファイルを一時コピーして再現した。旧patchはMacのportable patch fallbackで一度目に適用できても、二度目も `Applied` と表示して変更を取り消し、両fileのhashが変わった。CI側は `patches` 分類までを確認し、GNU fallbackの生ログと挙動詳細は保持していない。
+
+最小修正は `0001` のimport文脈2行だけ。`sync` を含めるとGit forward check・reverse checkが成功し、二度目は `Already applied`、両fileの内容は不変になる。修正後の初回内容は旧patch初回適用内容と一致し、runtime Goコードの意味を変えない。
+
+| 適用後file | SHA-256（旧初回・修正初回・修正二度目で一致） |
+| --- | --- |
+| tailcat.go | `2fdf4609d594e410fef73bcb6ec9e0c82daf3ea2516922a37a079d38c89972aa` |
+| tailcat_test.go | `d82e815338502cbabbf0b3a673c3679e61f4e3cc3018240bf57b3b741d045e8b` |
+
+回帰テストで、同じsourceへhelperを二度実行して内容が変わらないことを検査する。CIのcredential-free stepでも実行する。原submoduleのファイル・HEADを直接変更せず、外部credentialやupload制御も変えない。この修正後の新しい完全SHAで再検証する。
 
 ## 残る提出準備
 

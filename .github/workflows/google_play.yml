@@ -68,7 +68,9 @@ jobs:
           RUNNER_DEBUG: ${{ runner.debug }}
         run: python3 scripts/signed_android_validation.py --check-source
       - name: Test validation safety controls without credentials
-        run: python3 -m unittest discover -s scripts/tests -p test_signed_android_validation.py -v
+        run: |
+          python3 -m unittest discover -s scripts/tests -p test_signed_android_validation.py -v
+          python3 -m unittest discover -s scripts/tests -p test_tailcat_patch_idempotence.py -v
       - uses: actions/setup-java@v5
         with: { java-version: "17", distribution: temurin }
       - uses: actions/setup-go@v5

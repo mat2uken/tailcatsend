@@ -90,8 +90,8 @@ index a571dd26e..872dca81d 100644
  	"os"
 +	"slices"
  	"strings"
+ 	"sync"
  	"sync/atomic"
- 	"testing"
 @@ -381,6 +382,9 @@ func TestStatusReportsPeers(t *testing.T) {
  	if !ok {
  		t.Fatalf("Status().Peer has no entry for client %v; got %d peer(s)", c.PublicKey(), len(st.Peer))
