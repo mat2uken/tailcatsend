@@ -9,7 +9,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Privacy Policy — Ponlet</title>
-    <meta name="description" content="Privacy Policy for Ponlet. Secure file and text transfers with peer-to-peer connections, DERP relay routing, End-to-End Encryption (E2EE), and a strict Zero Data Retention policy.">
+    <meta name="description" content="Privacy Policy for Ponlet. Encrypted file and text transfers, Android storage and QR scanning, and Firebase and ML Kit analytics and diagnostics.">
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
@@ -40,6 +40,7 @@
         </div>
     </header>
 
+    <!-- Local review revision; publication readiness: docs/android-play/PRIVACY_SUPPORT_DRAFTS.md -->
     <!-- Main Content -->
     <main>
         <!-- Hero -->
@@ -52,7 +53,7 @@
             <div class="hero-meta">
                 <div class="hero-meta-item">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                    Last Updated: September 8, 2026
+                    Last Updated: October 3, 2026
                 </div>
                 <div class="hero-meta-item">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
@@ -70,9 +71,9 @@
                 </svg>
             </div>
             <div class="promise-content">
-                <h2>Zero Data Retention Policy</h2>
+                <h2>Transferred Content and Diagnostics</h2>
                 <p>
-                    Connections are established directly via peer-to-peer (WireGuard / WebRTC DataChannel) whenever possible. In environments where NAT traversal or firewall restrictions make direct connection difficult, packets are relayed through DERP relay servers. Even when passing through relays, all communications remain end-to-end encrypted (E2EE) with WireGuard, making it technically impossible for the server to inspect or store any transferred content (file data or text), ensuring Zero Data Retention.
+                    Connections are established directly via peer-to-peer (WireGuard / WebRTC DataChannel) whenever possible. In environments where NAT traversal or firewall restrictions make direct connection difficult, packets are relayed through DERP relay servers. Transfer packets passing through DERP remain end-to-end encrypted (E2EE) with WireGuard, so those relays do not hold the decryption keys. Ponlet does not operate a file storage server retaining transferred content. Analytics, diagnostics, and OS backups are handled separately.
                 </p>
             </div>
         </div>
@@ -84,12 +85,12 @@
                 Table of Contents
             </div>
             <ul class="toc-list">
-                <li><a href="#section-1">1. Overview & Zero Data Retention</a></li>
+                <li><a href="#section-1">1. Overview & Data Handling</a></li>
                 <li><a href="#section-2">2. Communication Architecture & Relays</a></li>
                 <li><a href="#section-3">3. Local Data Storage</a></li>
                 <li><a href="#section-4">4. Telemetry (Usage Reporting)</a></li>
-                <li><a href="#section-5">5. No Third-Party Sharing & Analytics</a></li>
-                <li><a href="#section-6">6. Compliance & Children's Privacy</a></li>
+                <li><a href="#section-5">5. Third-Party Services</a></li>
+                <li><a href="#section-6">6. Google Play & Children's Privacy</a></li>
                 <li><a href="#section-7">7. App Info & Contact</a></li>
             </ul>
         </div>
@@ -98,36 +99,36 @@
         <section id="section-1" class="policy-section">
             <div class="section-header">
                 <span class="section-num">01</span>
-                <h2 class="section-title">Overview & Zero Data Retention</h2>
+                <h2 class="section-title">Overview & Data Handling</h2>
                 <span class="section-sub">Core Principles</span>
             </div>
             <p>
                 This Privacy Policy outlines how Ponlet ("the App") handles data. The App encompasses the Android client (package name: <code>jp.yasagure.ponlet</code>), the Web client, iOS client, and desktop versions (macOS/Windows/Linux).
             </p>
             <p>
-                The App is architected with privacy by design as its foundational principle. We do not operate centralized file storage servers, and we enforce a strict Zero Data Retention policy—neither developers nor servers ever collect, view, or retain your transferred data or personal information.
+                The App transfers files and text to a peer chosen by the user using encryption. We do not operate a centralized storage server to retain or view transferred content. Analytics and diagnostics for quality improvements are separately sent to Google.
             </p>
             <div class="info-grid">
                 <div class="info-card">
-                    <span class="badge-pill danger">Never Collected</span>
+                    <span class="badge-pill danger">No Account Required</span>
                     <div class="info-card-header">
                         <div class="info-card-title">Accounts & Identity</div>
                     </div>
-                    <p>No user account or login is ever required. We never collect or request names, email addresses, phone numbers, or passwords.</p>
+                    <p>Normal use does not require an account or login or ask for your name, email address, or phone number. SDK installation identifiers are described in Section 4.</p>
                 </div>
                 <div class="info-card">
-                    <span class="badge-pill danger">Never Stored</span>
+                    <span class="badge-pill danger">No Transfer Storage Server</span>
                     <div class="info-card-header">
                         <div class="info-card-title">Files & Messages</div>
                     </div>
-                    <p>Transferred photos, documents, and clipboard text exist only on participating peer devices and are never stored on any server.</p>
+                    <p>Ponlet does not operate a transfer storage server retaining photos, documents, or text. Local storage, export to other apps, and OS backup or migration copies are handled separately.</p>
                 </div>
                 <div class="info-card">
                     <span class="badge-pill success">Opt-Out Telemetry</span>
                     <div class="info-card-header">
                         <div class="info-card-title">Telemetry (Usage Reporting)</div>
                     </div>
-                    <p>Limited telemetry for quality improvement is provided on an opt-out basis (enabled by default; it can be turned off in Settings). No advertising SDKs are included, and transferred content such as file names or message text is never sent. See "4. Telemetry" for details.</p>
+                    <p>Limited telemetry for quality improvement is provided on an opt-out basis (enabled by default; it can be turned off in Settings). No advertising SDKs are included, and transferred content such as file names or message text is not passed to Ponlet’s custom analytics events. See "4. Telemetry" for details.</p>
                 </div>
             </div>
         </section>
@@ -143,8 +144,8 @@
                 Communications are established directly between devices via peer-to-peer (WireGuard / WebRTC DataChannel) whenever possible. In restrictive environments—such as symmetric NAT or strict corporate firewalls—packets are relayed through public DERP (Designated Encrypted Relay for Packets) relay servers.
             </p>
             <ul>
-                <li><strong>End-to-End Encryption (E2EE):</strong> All packets are encrypted end-to-end between peer devices using the WireGuard protocol. DERP relay servers merely route opaque, encrypted packets without possessing decryption keys. It is cryptographically impossible for relays to inspect or modify the content of your transmissions.</li>
-                <li><strong>Volatile In-Memory Processing:</strong> Transient network metadata (SDP, ICE candidates) used during peer discovery is handled purely in volatile memory and discarded immediately upon session establishment or disconnection. No data is written to disk or recorded in access logs.</li>
+                <li><strong>End-to-End Encryption (E2EE):</strong> Transfer packets relayed through DERP are encrypted between devices using WireGuard, and the relays do not hold the decryption keys. Analytics and diagnostic transmissions are separate communications.</li>
+                <li><strong>Connection Information:</strong> Establishing a peer connection involves network addresses and routing information. These connection details are separate from the encrypted file and message contents.</li>
                 <li><strong>Confidential Invite Links:</strong> The 32-byte shared cryptographic key is embedded exclusively in the URL hash fragment (<code>#i=...</code>). Under the HTTP standard, hash fragments are handled entirely by the browser client and are never sent across the network to hosting servers (such as Cloudflare Pages) or logged in server logs.</li>
             </ul>
         </section>
@@ -157,7 +158,7 @@
                 <span class="section-sub">Device-Level Management</span>
             </div>
             <p>
-                All received files and messages are strictly stored and managed locally on your own devices:
+                Received files and text are managed on your device. Copies exported by the user or created through OS backup or migration are handled separately:
             </p>
             <div class="info-grid">
                 <div class="info-card">
@@ -172,9 +173,15 @@
                     <div class="info-card-header">
                         <div class="info-card-title">Local Storage Directory</div>
                     </div>
-                    <p>On Android, iOS, and desktop platforms, files are saved directly into your authorized local folders (e.g., standard Downloads). The app never uploads local files without explicit instruction.</p>
+                    <p>Android stores received files in Ponlet’s internal app storage rather than automatically saving them to public Downloads. Choosing “Open” grants the selected compatible app read access to that file. iOS and desktop apps use their respective app storage or download folders.</p>
                 </div>
             </div>
+            <p>
+                This Android revision is configured to exclude received files from OS cloud backup on Android 12 (API31) and higher. It preserves the existing scope of device-to-device migration (D2D). Backup of app settings and D2D copies or restoration depend on device settings, OS, and manufacturer behavior. This change does not delete backup copies created by older versions.
+            </p>
+            <p>
+                On Android, the camera is used to scan an invitation QR code when the user chooses the camera scanner; permission is requested at that point. ML Kit processes camera images and scan results on the device and does not use them for transmission to Google. The app reads files selected by the user through Android’s document picker. Text copy, paste, and sharing also follow user actions.
+            </p>
         </section>
 
         <!-- Section 4: Telemetry -->
@@ -190,35 +197,36 @@
             <ul>
                 <li><strong>Google Analytics for Firebase (Analytics):</strong> Used on iOS / Android / Web.</li>
                 <li><strong>Firebase Crashlytics:</strong> Used on iOS / Android. Sends crash reports when a crash occurs (including native crash stack traces).</li>
+                <li><strong>Android ML Kit (QR scanning):</strong> The SDK may send diagnostics such as device, OS and app information, installation-related identifiers, performance, and API usage to Google. These diagnostics are separate from on-device image and scan-result processing and are not stopped by the Firebase telemetry switch.</li>
                 <li><strong>Google Analytics 4 Measurement Protocol (direct HTTP POST):</strong> Used on Desktop only. Enabled only when configured via environment variables.</li>
             </ul>
             <p>
-                <strong>Events sent:</strong> <code>app_start</code>, <code>session_created</code>, <code>peer_connected</code>, <code>transfer_started</code>, <code>transfer_completed</code>, <code>transfer_cancelled</code>, <code>transfer_failed</code>, <code>text_message_sent</code> / <code>text_message_received</code>, <code>app_end</code>, <code>error</code>
+                <strong>Custom Android events:</strong> <code>app_start</code>, <code>session_created</code>, <code>peer_connected</code>, <code>transfer_started</code>, <code>transfer_completed</code>, <code>transfer_cancelled</code>, <code>text_message_sent</code> / <code>text_message_received</code>, <code>error</code>
             </p>
             <p>
-                <strong>Parameters sent:</strong> Platform name, OS version, app version, language setting, number of transferred files, total bytes, transfer duration, transport type (direct P2P / relayed), message length bracket (digit count), error category.
+                <strong>Custom Android parameters:</strong> Platform, OS and app versions, language, file count, transport, direction, message-length bracket, cancellation reason, and error category. SDK automatic collection is separate from this list.
             </p>
             <div class="info-grid">
                 <div class="info-card">
-                    <span class="badge-pill danger">Never Sent</span>
+                    <span class="badge-pill danger">Custom Event Exclusions</span>
                     <div class="info-card-header">
                         <div class="info-card-title">What Telemetry Does Not Include</div>
                     </div>
-                    <p>File names, file contents, message text, peer identifiers, and location data are never sent. Session keys, information related to invite URLs, and any personally identifiable information are never sent either. We also do not collect additional information derived from IP addresses on our own.</p>
+                    <p>Ponlet’s custom events do not include file names, contents, message bodies, peer addresses, session keys, or invitation URLs. On Android, Firebase Analytics handles app-instance identifiers, app usage events, and coarse location derived from IP addresses. SDK identifiers can exist without a login.</p>
                 </div>
                 <div class="info-card">
                     <span class="badge-pill success">Crash Reports</span>
                     <div class="info-card-header">
                         <div class="info-card-title">What Crashlytics May Include</div>
                     </div>
-                    <p>Stack traces, device model, OS version, and app version may be included.</p>
+                    <p>Reports may include stack traces, device and app state, OS and app versions, and installation-related identifiers. On Android, dependent SDK identifiers and session information also need to be considered.</p>
                 </div>
                 <div class="info-card">
                     <span class="badge-pill success">How to Opt Out</span>
                     <div class="info-card-header">
                         <div class="info-card-title">Turning Telemetry Off</div>
                     </div>
-                    <p>Open Settings (the gear icon at the top of the app) and turn off "Allow telemetry". On the Web client, the setting is stored in browser storage; on Desktop, it is persisted in the app settings. While telemetry is off, nothing is sent, including Analytics. Crashlytics reports are also not sent for crashes that occur after you turn it off.</p>
+                    <p>Turning off "Allow telemetry" in Settings disables the collection settings for Firebase Analytics and Crashlytics. Android stores this choice in app preferences; Web uses browser storage and Desktop uses app settings. Android QR SDK diagnostics are separate from this switch. Turning it off does not delete previously stored analytics or diagnostics or disable all OS backup.</p>
                 </div>
             </div>
             <p>
@@ -233,14 +241,17 @@
         <section id="section-5" class="policy-section">
             <div class="section-header">
                 <span class="section-num">05</span>
-                <h2 class="section-title">No Third-Party Sharing & Analytics</h2>
-                <span class="section-sub">Complete Data Isolation</span>
+                <h2 class="section-title">Third-Party Services</h2>
+                <span class="section-sub">Services & Advertising Purposes</span>
             </div>
             <p>
-                We do not sell, rent, trade, or share user data with advertising networks, data brokers, analytics providers, or any other commercial third parties. Except when telemetry is enabled, the App sends no user data to any third party (when telemetry is enabled, usage data is sent to Google LLC as described in the previous section).
+                This Android revision disables Firebase Analytics Advertising ID collection and ad personalization and removes the Advertising ID, AdServices Advertising ID, and advertising attribution permissions. This does not remove app-instance identifiers, IP-derived coarse location, or Crashlytics and ML Kit diagnostics. Existing internal-test version 1.0.18 (versionCode 2026093037) included advertising identifier permissions; this description does not apply to that older version. This revision candidate has the same versionName and versionCode 2030000102.
             </p>
             <p>
-                Because no communication payloads, file data, or personal identifiers are stored on any servers, we cannot provide user data even in response to legal requests or governmental inquiries—there is simply no data to disclose.
+                The App does not display ads and is not intended to use usage data for advertising, marketing, or sale to data brokers. Firebase and Android’s ML Kit are Google LLC services. Telemetry collection settings, QR SDK diagnostics, and peer transfers are separate paths.
+            </p>
+            <p>
+                We do not operate a server retaining transferred files or messages. This does not guarantee that Google or other services retain no analytics or diagnostic data.
             </p>
         </section>
 
@@ -248,15 +259,15 @@
         <section id="section-6" class="policy-section">
             <div class="section-header">
                 <span class="section-num">06</span>
-                <h2 class="section-title">Compliance & Children's Privacy</h2>
-                <span class="section-sub">Legal & Platform Standards</span>
+                <h2 class="section-title">Google Play & Children's Privacy</h2>
+                <span class="section-sub">Disclosures & Audience</span>
             </div>
             <p>
-                This policy conforms to Google Play Developer Program Policies, the Act on the Protection of Personal Information (APPI), and global privacy standards.
+                This page describes data handling in the apps, including Android. Google Play disclosures must be checked against the distributed version and actual service settings.
             </p>
             <ul>
-                <li><strong>Children's Privacy:</strong> The App does not collect personally identifiable information from any user, including children under the age of 13. Telemetry contains no personally identifiable information either. We fully comply with COPPA and similar regulations worldwide.</li>
-                <li><strong>Data Deletion & Access Requests:</strong> Because no personal data is retained on servers, formal account deletion or server-side data purging requests are unnecessary. You can remove all locally stored data at any time by deleting saved files or uninstalling the application.</li>
+                <li><strong>Children's Privacy:</strong> The Android app is intended for general users and is not designed as a child-directed app. This does not mean that SDK identifiers or diagnostics are not collected.</li>
+                <li><strong>Data Deletion & Access Requests:</strong> Normal use does not create an account. Clearing app data or uninstalling removes current local Android app data. It does not guarantee deletion of copies in other apps, external storage, migrated devices, existing OS backups, or Google analytics and diagnostics. For questions about retention and deletion, contact app-support@mat2uken.app.</li>
             </ul>
         </section>
 

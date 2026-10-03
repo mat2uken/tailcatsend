@@ -52,6 +52,8 @@ const translations = {
     scannerStarting: "カメラを準備しています…",
     scannerReady: "相手のQRコードを枠内に映してください",
     telemetryUnavailable: "この環境では利用状況データの送信を利用できません。",
+    telemetryDescription:
+      "テレメトリは既定で有効です。OFFにしても転送の通信は行われます。AndroidのQR読取に伴う診断送信は、この設定の対象外です。",
     transportObserved: "この端末で確認した経路",
     transportUnknown: "経路を確認中…",
     transportHint: "この端末が最後に確認した経路です。相手側と異なることがあります。",
@@ -136,6 +138,8 @@ const translations = {
     scannerStarting: "Starting camera…",
     scannerReady: "Place the peer’s QR code inside the frame",
     telemetryUnavailable: "Usage data collection is unavailable in this environment.",
+    telemetryDescription:
+      "Telemetry is enabled by default. Turning it off does not stop peer-transfer networking. Diagnostics associated with QR scanning on Android are not disabled by this setting.",
     transportObserved: "Path observed on this device",
     transportUnknown: "Checking path…",
     transportHint: "This is the last path observed by this device; the peer may show another path.",

@@ -111,6 +111,17 @@
           when a file with the same name already exists. On iPhone, use the received file’s Share
           button and choose Save to Files.
         </p>
+        <p>
+          On Android, Choose file opens the OS document picker. Select available photos, videos,
+          PDFs, or other files. Canceling does not start a transfer. Importing directly from another
+          app’s share sheet into Ponlet is not supported.
+        </p>
+        <p>
+          Android stores received files in Ponlet’s internal app storage, not automatically in public
+          Downloads. Open grants a compatible app read access to the selected file. If no compatible
+          app is available, a share chooser opens. Saving or exporting elsewhere depends on the
+          selected app; save and verify a copy of important files.
+        </p>
       </section>
       <section id="troubleshooting" class="policy-section">
         <div class="section-header">
@@ -153,6 +164,18 @@
           iPhone Air running iOS 27.0.1. This does not establish compatibility with every device or
           network. The
           <a href="/">Ponlet Web app</a> is also available.
+        </p>
+        <p>
+          The Android app targets Android 12 or later. This revision is configured to exclude received
+          files from OS cloud backup. The existing device-to-device migration scope is preserved;
+          copies and restoration depend on device settings, OS, and manufacturer behavior. This
+          change does not delete older backup copies.
+        </p>
+        <p>
+          Android telemetry is enabled by default. Turning off Allow telemetry in Settings disables
+          Firebase Analytics and Crashlytics collection settings. ML Kit diagnostics used for QR
+          scanning are separate and are not stopped by this switch. The switch does not delete
+          previously stored diagnostics or disable all OS backup.
         </p>
         <p>See the <a href="privacy_en.html">Privacy Policy</a> for data handling.</p>
       </section>

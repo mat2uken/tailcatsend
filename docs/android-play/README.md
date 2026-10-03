@@ -1,10 +1,11 @@
 # Ponlet Android Google Play 提出準備
 
-このフォルダは内部レビュー用の草案である。Consoleへの保存、公開ページへの反映、審査提出は行っていない。日付は2026-10-03 UTC。コード調査の基準は `31fafb7aa7b59dd9c530fa1de4187293843512eb`。後続のコード修正と未実行の試験を、既存配布物の状態と混同しない。
+このフォルダは内部レビュー用の草案である。Consoleへの保存、公開ページへの反映、審査提出は行っていない。日英privacy／supportのローカルHTMLだけを改訂した。日付は2026-10-03 UTC。コード調査の基準は `31fafb7aa7b59dd9c530fa1de4187293843512eb`。後続のコード修正と未実行の試験を、既存配布物の状態と混同しない。
 
 | 文書 | 用途 |
 | --- | --- |
-| [ローカル検証結果](VALIDATION_RESULTS.md) | 実装、未署名AAB/APK、テスト、SDKの残存ブロッカーと証拠 |
+| [初回ローカル検証](VALIDATION_RESULTS.md) | 承認前候補の検証。SDK2本のRELRO式は警告であり、修正必須のブロッカーとは判定しない |
+| [承認後の方針検証](POLICY_VALIDATION_RESULTS.md) | 広告ID・cloud除外の承認後候補2030000102のartifactとframework検証、未実行の実通信・復元試験 |
 | [RELRO再評価](RELRO_ASSESSMENT.md) | ガイド式、linker実装、実行確認、Play判定の区別 |
 | [Data safety回答草案](DATA_SAFETY_DRAFT.md) | Firebase／ML Kit／転送内容、広告ID、収集・共有・任意性の判断材料 |
 | [日英privacy／support修正草案](PRIVACY_SUPPORT_DRAFTS.md) | 公開ページの差し替え候補と、公開前に埋める必要がある項目 |
@@ -30,16 +31,18 @@
 | 本番アクセス | Consoleにclosed testの12人・14日条件が表示され、確認時点の人数は0人。内部テスト有効だけで条件を満たしたとは扱わない |
 | 16 KBページ対応 | 既存AABはConsoleが非対応、`libtailcat.so` を指定。新候補での修正・最終AAB検査が必要 |
 | カメラ必須設定 | 既存AABの `android.hardware.camera.any` は `required=true`。ソースの任意設定だけでカメラなし端末対応済みと扱わない |
-| OSバックアップ | 新候補AABにも `allowBackup`、`fullBackupContent`、`dataExtractionRules` の指定なし。Androidの既定バックアップ対象に入り得る。実行・復元・削除範囲は未検証 |
+| OSバックアップ | 方針確認前の候補はバックアップ指定なし。17:59 UTCの承認後に、Android API31+で受信 `files/received` をcloud backupから除外する。未署名候補2030000102のcompiled rule検査は合格、backup復元は未確認。D2Dは既存の範囲を維持、OS／OEM依存 |
 
 既存AABと基準コードのAndroidコードに差分がないことは親担当が確認した。ただし新候補のバージョン、署名、SDK構成、manifest、通信挙動は新候補ごとに検査する。
 
 ## 優先順位
 
-1. 16 KB対応の全体確認を完了する。新候補AAB/APKは全9本のLOADとZIP整列、Go／RustのRELRO、カメラ任意設定を確認した。SDK2本のRELRO式は監査警告であり、起動不可やPlay拒否が確認されたブロッカーではない。アプリ・SDK機能の16KB実行／Play判定は別途確認する。[再評価](RELRO_ASSESSMENT.md)を参照。
-2. 広告ID／広告関連権限を新候補でどう扱うか決定し、Data safety・公開ポリシーを提出AABに一致させる。
+1. 16 KB対応の全体確認を完了する。新候補AAB/APKは全9本のLOADとZIP整列、Go／RustのRELRO、カメラ任意設定を確認した。SDK2本のRELRO式は監査警告であり、起動不可やPlay拒否が確認されたブロッカーではない。新候補の9本は16KB／API35のnative dlopen／dlcloseにも合格。アプリ・SDK機能の16KB実行／Play判定は別途確認する。[再評価](RELRO_ASSESSMENT.md)を参照。
+2. 承認された広告ID無効化／広告関連権限除去とcloud受信ファイル除外は未署名候補2030000102の検査で確認済み。署名する提出AABでも再検査し、Data safety・公開ポリシーを一致させる。
 3. Firebase／ML Kitの収集、OFFの効果、保存期間・削除方法に加え、OSバックアップと復元の経路を確認し、日英ポリシーとConsole回答を完成させる。
 4. Android release実機試験と審査員手順の再現を完了する。iOS／macOSの結果はAndroidの合格記録に転用しない。
-5. 未完のアプリ設定、価格・配布国・対象年齢を決め、closed test条件と本番アクセス要件を満たす。
+5. 本体無料・一般向けの承認を未完アプリ設定へ反映する準備を行い、配布国と具体的なPlay年齢区分を提案する。Consoleは選択しない。closed test条件と本番アクセス要件も残る。
 
-この作業では既定ONのAnalyticsを廃止したり、初回opt-inへ変更したりする判断はしていない。課金と対象年齢も未決定である。
+2026-10-03 17:59 UTCにユーザーが承認：Play本体無料、子ども向けを意図しない一般向け、Android受信ファイルのクラウドバックアップ除外、広告ID無効化。Analytics／Crashlyticsは既定ONとOFF操作を維持する。具体的なPlay年齢区分とConsole選択は未実施、D2D移行の対象範囲は拡張しない。 Analytics廃止・初回opt-inへの変更は行わない。
+
+`publication_ready=false`。Google側の保存期間・削除手順とSDK通信、署名を含む提出候補の検証が未完であり、ローカルHTMLをそのまま公開しない。

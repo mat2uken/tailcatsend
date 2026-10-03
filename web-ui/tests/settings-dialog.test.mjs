@@ -94,6 +94,27 @@ describe("settings dialog", () => {
     expect(toggle.disabled).toBe(false);
   });
 
+  it("keeps the Android diagnostic scope visible when telemetry is off in both languages", async () => {
+    const component = createSettingsDialog({
+      getTelemetryEnabled: async () => false,
+      setTelemetryEnabled: async () => {},
+    });
+    document.body.append(component.dialog);
+    component.openSettings();
+    await flush();
+    const toggle = component.dialog.querySelector("#settings-telemetry-toggle");
+    const description = component.dialog.querySelector("#settings-telemetry-description");
+    expect(toggle.checked).toBe(false);
+    expect(toggle.getAttribute("aria-describedby")).toBe(description.id);
+    expect(description.hidden).toBe(false);
+    expect(description.textContent).toContain("enabled by default");
+    expect(description.textContent).toContain("not disabled by this setting");
+    setLanguage("ja");
+    await flush();
+    expect(description.textContent).toContain("既定で有効");
+    expect(description.textContent).toContain("この設定の対象外");
+  });
+
   it("shows the unavailable notice when the native preference cannot be read", async () => {
     const onError = vi.fn();
     const component = createSettingsDialog({
@@ -107,7 +128,7 @@ describe("settings dialog", () => {
 
     component.openSettings();
     await flush();
-    const notice = component.dialog.querySelector(".settings-note");
+    const notice = component.dialog.querySelector("#settings-telemetry-unavailable");
     const toggle = component.dialog.querySelector("#settings-telemetry-toggle");
     expect(notice.hidden).toBe(false);
     expect(toggle.disabled).toBe(true);
@@ -122,7 +143,7 @@ describe("settings dialog", () => {
 
     component.openSettings();
     await component.refreshSettings();
-    expect(component.dialog.querySelector(".settings-note").hidden).toBe(false);
+    expect(component.dialog.querySelector("#settings-telemetry-unavailable").hidden).toBe(false);
     expect(component.dialog.querySelector("#settings-telemetry-toggle").disabled).toBe(true);
   });
 });

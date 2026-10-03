@@ -2,6 +2,11 @@
 
 内部レビュー用。審査員へ送信していない。現在の手順は基準コードを読んで作成したもので、提出releaseの実機で再現した後に確定する。iOS／macOSの実績はAndroidでの成功記録として扱わない。
 
+2026-10-03 17:59 UTCにユーザーが承認：Play本体無料、子ども向けを意図しない一般向け、Android受信ファイルのクラウドバックアップ除外、広告ID無効化。Analytics／Crashlyticsは既定ONとOFF操作を維持する。具体的なPlay年齢区分とConsole選択は未実施、D2D移行の対象範囲は拡張しない。
+
+
+新候補の未署名AAB `versionCode=2030000102` は親担当の最終artifact validatorで確認済み。compiled manifestの広告ID取得・広告personalization flagsは両方false、3広告関連権限は不在。compiled resourcesからbackup XMLを解決し、API31+のcloudでは `received/` だけを除外、SharedPreferencesと隣接ファイルを保持、空のD2D規則は既存の対象を保持することを確認した。これはOS復元試験・実通信・署名・Play配布の成功を意味しない。詳細は [承認後の方針検証](POLICY_VALIDATION_RESULTS.md) を参照。
+
 ## 審査員向け日本語案内
 
 Ponletは、ユーザーが選んだ相手へファイルとテキストを送るアプリです。ログイン・demo accountは必要ありません。二つの端末、またはAndroid端末と、別の端末のWebブラウザを使って確認できます。Web版は `https://ponlet.mat2uken.app/` です。インターネット接続を用意してください。
@@ -16,7 +21,7 @@ Ponletは、ユーザーが選んだ相手へファイルとテキストを送�
 
 専用アクセサリ、USB接続、音声入力は不要です。転送に使う招待URLとQRは、その相手だけに渡してください。操作に問題がある場合は `app-support@mat2uken.app` へOS、アプリバージョン、再現手順をお知らせください。秘密の招待情報やファイル本文を送る必要はありません。
 
-提出時に追記：`versionName=[ ]`、`versionCode=[ ]`、実機で手順確認した端末・OS `[ ]`。価格・地域によるストア取得条件は別途確定する。
+提出時に追記：`versionName=[ ]`、`versionCode=[ ]`、実機で手順確認した端末・OS `[ ]`。本体無料は承認済み。配布地域によるストア取得条件は別途確定する。
 
 ## Reviewer instructions in English
 
@@ -32,7 +37,7 @@ Ponlet transfers files and text to a peer selected by the user. No login or demo
 
 No dedicated accessory, USB connection, or voice input is needed. Share invitation URLs and QR codes only with the intended peer. For help, email `app-support@mat2uken.app` with the OS, app version, and reproduction steps. Do not include secret invitations or private file contents.
 
-Before submission, fill in the verified `versionName=[ ]`, `versionCode=[ ]`, device and OS `[ ]`. Store pricing and regional availability remain separate decisions.
+Before submission, fill in the verified `versionName=[ ]`, `versionCode=[ ]`, device and OS `[ ]`. The Android app is approved to be offered free; regional availability remains to be decided.
 
 ## release検証の前提
 
@@ -57,7 +62,7 @@ Before submission, fill in the verified `versionName=[ ]`, `versionCode=[ ]`, de
 | F02 | 受信保存 | 内部保存、同名2回、容量不足、転送取消・一時ファイル、再起動後の残存を確認。送受信SHA-256／byte数を照合 |
 | F03 | 開く・書き出し | ACTION_VIEW対応アプリ、対応なし時のchooser、権限拒否／アプリなし、未知MIME。supportに記載する外部保存の実際の手順を確認 |
 | F04 | テキスト操作 | Copy／Paste、招待URL貼付、Saveの文書保存画面、Share、履歴消去が成功。clipboard内容を無断送信しない |
-| F05 | OSバックアップ・復元・端末移行 | 許可された試験専用端末・アカウントで、backup有効／無効、cloud／端末移行、clear-data／アンインストール後の再導入を分ける。内部受信ファイル、telemetry OFF／言語設定、SDK識別子等の復元対象と挙動、残るコピー・削除範囲を確認。OFF選択が復元後に維持されるかを記録し、device／OS／OEM／backup設定を明記。私的データを試験に使わない |
+| F05 | OSバックアップ・復元・端末移行 | 許可された試験専用端末・アカウントで、backup有効／無効、cloud／端末移行、clear-data／アンインストール後の再導入を分ける。API31+のcloudでは受信 `files/received` が除外され、D2Dは既存範囲から拡張されていないことを検査。telemetry OFF／言語設定、SDK識別子等の復元対象と挙動、旧版由来の残るコピー・削除範囲も確認。OFF選択が復元後に維持されるかを記録し、device／OS／OEM／backup設定を明記。私的データを試験に使わない |
 | N01 | 双方向接続・転送 | Android↔Android、Android↔Webで日本語テキストと小／大ファイル。UDP／WebRTC／DERPの各観測値と両端の保存内容を記録 |
 | N02 | 中断・復帰 | 転送取消、切断、招待期限切れ・再生成、ネットワーク切替、offline→復帰、バックグラウンドで状態と保存内容を確認。未実装のbackground継続を保証しない |
 | T01 | 初回ON | initial SDK設定、送信先、自動イベント／ID／概略位置を確認。転送内容・ファイル名・鍵・招待情報が解析へ送られない |
@@ -103,4 +108,4 @@ remaining_issue=
 
 上記の新候補release実機試験は**すべて未実行**。この文書のチェック項目や操作案内の存在を合格証拠として扱わない。既存AABの16 KB非対応と広告関連権限は [README](README.md) と [Data safety](DATA_SAFETY_DRAFT.md) の確認済み事実である。親担当が後続で行うコード検査・ローカル検証は、そのsourceと対象を別の結果記録で追記する。
 
-OSバックアップ・復元も未実行。新候補AABのapplicationに `allowBackup`／`fullBackupContent`／`dataExtractionRules` がないことと、[Android Auto Backup資料](https://developer.android.com/identity/data/autobackup)の既定設定を根拠に、受信filesDirとSharedPreferencesを候補範囲へ追加した。実際にバックアップされたとは断定しない。バックアップ無効化・対象除外は未決定であり、本計画では製品動作を変更しない。
+OSバックアップ・復元は未実行。17:59 UTCの承認後、新候補はAPI31+のcloud backupで受信 `files/received` のみ除外し、D2Dの既存範囲を維持する方針。最終AABのrulesとOS／OEMの実際の挙動を確認する。[Android Auto Backup資料](https://developer.android.com/identity/data/autobackup)に基づき、設定復元、旧版backup、削除範囲を分けて試験する。minSdk31ではlegacy older API規則の経路へ到達しない。

@@ -1,5 +1,7 @@
 # Android準備ブランチの検証結果
 
+これは広告ID・クラウドバックアップ方針の承認前に生成した `2030000101` の記録である。承認後の新候補 `2030000102` の結果は [POLICY_VALIDATION_RESULTS.md](POLICY_VALIDATION_RESULTS.md) を参照する。以下の「広告関連権限は残る」や未確定方針は旧時点の状態であり、現在の実装を表さない。
+
 2026-10-03 UTC。基準 `31fafb7aa7b59dd9c530fa1de4187293843512eb` から `feature/android-play-readiness` に作成したローカル変更を検証した。元checkoutは変更していない。物理端末・USB・音声、署名秘密、CI dispatch、GitHub／Play upload、公開サイト、Console保存・提出にはアクセスしていない。後続のRELRO再評価では、既存16KB emulatorを読み取り専用・音声なしで起動してnative試験を行い、終了した。
 
 ## 実装

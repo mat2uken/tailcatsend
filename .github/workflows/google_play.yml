@@ -111,7 +111,8 @@ jobs:
         run: |
           python3 scripts/verify_android_artifacts.py ponlet-release.aab \
             --report "$RUNNER_TEMP/android-play-verification.json" \
-            --require-camera-optional --expect-version-code "$PONLET_ANDROID_VERSION_CODE"
+            --require-camera-optional --require-no-ad-id --require-received-cloud-excluded \
+            --expect-version-code "$PONLET_ANDROID_VERSION_CODE"
           cat "$RUNNER_TEMP/android-play-verification.json"
 
       - name: Upload App Bundle artifact

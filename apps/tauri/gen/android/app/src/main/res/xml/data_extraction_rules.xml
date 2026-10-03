@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <!-- Relative to getFilesDir(): preserve preferences and sibling files. -->
+        <exclude domain="file" path="received/" />
+    </cloud-backup>
+    <!-- No D2D exclusions: preserve Android's existing eligible-data defaults. -->
+    <device-transfer />
+</data-extraction-rules>

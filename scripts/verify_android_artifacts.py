@@ -5,7 +5,8 @@ This verifies static packaging, not execution on a 16 KB Android device. AAB
 alignment is a bundletool request, not proof of generated APK ZIP alignment.
 Schema sources: google/bundletool src/main/proto/config.proto; AOSP aapt2
 Resources.proto and ResourceTypes.h. Only manifest fields needed for review are
-reported; application metadata and Firebase configuration are never printed.
+reported; only whitelisted advertising booleans from metadata are reported,
+never other application metadata or Firebase configuration values.
 """
 import argparse
 import hashlib
@@ -23,6 +24,11 @@ PT_GNU_RELRO = 0x6474E552
 
 
 class InvalidArtifact(ValueError):
+    pass
+
+
+class CompiledBoolean(str):
+    """Retain the type: a metadata string 'false' is not a boolean false."""
     pass
 
 
@@ -85,13 +91,20 @@ def string(fields, number, default=''):
 def proto_value(attribute):
     raw = field(attribute, 3, 2)
     compiled = protobuf(field(attribute, 6, 2, b''))
+    if 1 in compiled:
+        reference = protobuf(field(compiled, 1, 2))
+        resource_id = field(reference, 2, 0, 0)
+        if resource_id:
+            return f'@0x{resource_id:08x}'
+        name = string(reference, 3)
+        return '@' + name if name else '@unresolved'
     for key in (2, 3):
         if key in compiled:
             return string(protobuf(field(compiled, key, 2)), 1)
     if 7 in compiled:
         primitive = protobuf(field(compiled, 7, 2))
         if 8 in primitive:
-            return 'true' if field(primitive, 8, 0) else 'false'
+            return CompiledBoolean('true' if field(primitive, 8, 0) else 'false')
         for key in (6, 7):
             if key in primitive:
                 return str(field(primitive, key, 0))
@@ -213,9 +226,11 @@ def binary_xml(data):
                 if value_type == 3:
                     value = text(value)
                 elif value_type == 0x12:
-                    value = 'true' if value else 'false'
+                    value = CompiledBoolean('true' if value else 'false')
                 elif value_type in (0x10, 0x11):
                     value = str(value)
+                elif value_type == 1 and value:
+                    value = f'@0x{value:08x}'
                 else:
                     value = '@unresolved'
                 key = f'{{{uri}}}{name}' if uri else name
@@ -288,6 +303,219 @@ def manifest_summary(root):
     result['camera_optional'] = not any(c['required'] for c in cameras) and not result['camera_implied_required']
     return result
 
+AD_ID_PERMISSIONS = {
+    'com.google.android.gms.permission.AD_ID',
+    'android.permission.ACCESS_ADSERVICES_AD_ID',
+    'android.permission.ACCESS_ADSERVICES_ATTRIBUTION',
+}
+AD_ID_FLAGS = (
+    'google_analytics_adid_collection_enabled',
+    'google_analytics_default_allow_ad_personalization_signals',
+)
+
+
+def application(root):
+    apps = root.findall('application')
+    require(len(apps) == 1, 'expected one application element')
+    return apps[0]
+
+
+def verify_no_ad_id(root, permissions):
+    """Whitelist only these booleans; never return other metadata values."""
+    present = sorted(AD_ID_PERMISSIONS.intersection(permissions))
+    require(not present, 'advertising permission remains: ' + ', '.join(present))
+    app = application(root)
+    flags = {}
+    for name in AD_ID_FLAGS:
+        nodes = [n for n in app.findall('meta-data') if n.get(f'{{{ANDROID}}}name') == name]
+        require(len(nodes) == 1, f'expected one advertising metadata flag {name}')
+        value = nodes[0].get(f'{{{ANDROID}}}value')
+        require(isinstance(value, CompiledBoolean) and value == 'false',
+                f'advertising metadata flag {name} is not an explicitly compiled boolean false')
+        flags[name] = False
+    return {'flags': flags, 'advertising_permissions': []}
+
+
+def repeated_messages(fields, number):
+    for wire, data in fields.get(number, []):
+        require(wire == 2, 'invalid resource protobuf message')
+        yield protobuf(data)
+
+
+def proto_xml_resources(data):
+    """Map XML resource IDs to every configured file. Aliases stay unresolved."""
+    paths, names = {}, {}
+    for package in repeated_messages(protobuf(data), 2):
+        package_id = field(protobuf(field(package, 1, 2, b'')), 1, 0, 0)
+        package_name = string(package, 2)
+        require(1 <= package_id <= 255, 'invalid protobuf resource package ID')
+        for resource_type in repeated_messages(package, 3):
+            if string(resource_type, 2) != 'xml':
+                continue
+            type_id = field(protobuf(field(resource_type, 1, 2, b'')), 1, 0, 0)
+            require(1 <= type_id <= 255, 'invalid protobuf resource type ID')
+            for entry in repeated_messages(resource_type, 3):
+                entry_id = field(protobuf(field(entry, 1, 2, b'')), 1, 0, 0)
+                require(0 <= entry_id <= 65535, 'invalid protobuf resource entry ID')
+                resource_id = package_id << 24 | type_id << 16 | entry_id
+                require(resource_id not in paths, 'duplicate protobuf XML resource ID')
+                values = set()
+                for config in repeated_messages(entry, 6):
+                    value = protobuf(field(config, 2, 2, b''))
+                    item = protobuf(field(value, 4, 2, b''))
+                    file = protobuf(field(item, 5, 2, b''))
+                    values.add(string(file, 1) or None)
+                paths[resource_id] = values
+                name = string(entry, 2)
+                for reference in (f'@xml/{name}', f'@{package_name}:xml/{name}'):
+                    names.setdefault(reference, set()).add(resource_id)
+    return paths, names
+
+
+def binary_chunks(data, start, end):
+    pos = start
+    while pos < end:
+        kind, header, size = unpack('<HHI', data, pos)
+        require(8 <= header <= size and pos + size <= end, 'invalid resource table chunk')
+        yield kind, header, data[pos:pos + size]
+        pos += size
+    require(pos == end, 'incomplete resource table chunks')
+
+
+def binary_xml_resources(data):
+    """Read file-string values from ARSC. Other types/aliases cannot resolve XML.
+
+    Handles ordinary, sparse/16-bit offsets and compact simple entries. It does
+    not evaluate resource aliases, bags, overlays or runtime dynamic references.
+    Missing/unsupported references fail the backup check rather than pass it.
+    """
+    kind, header, total = unpack('<HHI', data, 0)
+    require(kind == 2 and header >= 12 and total == len(data), 'invalid resources.arsc header')
+    package_count = unpack('<I', data, 8)[0]
+    strings, packages = None, []
+    for kind, subheader, chunk in binary_chunks(data, header, total):
+        if kind == 1:
+            require(strings is None, 'duplicate global resource string pool')
+            strings = binary_strings(chunk)
+        elif kind == 0x200:
+            packages.append((subheader, chunk))
+    require(strings is not None and len(packages) == package_count, 'incomplete resources.arsc packages')
+    paths = {}
+    for package_header, package in packages:
+        require(package_header >= 284, 'unsupported resource package header')
+        package_id = unpack('<I', package, 8)[0]
+        type_offset = unpack('<I', package, 284)[0] if package_header >= 288 else 0
+        require(1 <= package_id <= 255, 'invalid binary resource package ID')
+        for kind, type_header, chunk in binary_chunks(package, package_header, len(package)):
+            if kind != 0x201:
+                continue
+            require(type_header >= 24, 'invalid resource type header')
+            type_id, flags, reserved, count, entry_start = unpack('<BBHII', chunk, 8)
+            require(type_id and type_id + type_offset <= 255 and reserved == 0 and flags in (0, 1, 2), 'unsupported resource type flags/ID')
+            config_size = unpack('<I', chunk, 20)[0]
+            require(config_size >= 4 and 20 + config_size <= type_header, 'invalid resource configuration size')
+            offset_size = 2 if flags == 2 else 4
+            require(type_header + count * offset_size <= entry_start <= len(chunk), 'invalid resource entry offsets')
+            for index in range(count):
+                if flags == 1:
+                    entry_index, off = unpack('<HH', chunk, type_header + index * 4)
+                    off *= 4
+                elif flags == 2:
+                    entry_index = index
+                    value = unpack('<H', chunk, type_header + index * 2)[0]
+                    off = value * 4 if value != 0xFFFF else 0xFFFFFFFF
+                else:
+                    entry_index = index
+                    off = unpack('<I', chunk, type_header + index * 4)[0]
+                if off == 0xFFFFFFFF:
+                    continue
+                require(entry_index <= 65535, 'resource entry index out of range')
+                resource_id = package_id << 24 | (type_id + type_offset) << 16 | entry_index
+                start = entry_start + off
+                entry_size, entry_flags, value = unpack('<HHI', chunk, start)
+                if entry_flags & 1:
+                    paths.setdefault(resource_id, set()).add(None)
+                    continue
+                if entry_flags & 8:
+                    value_type = entry_flags >> 8
+                else:
+                    require(entry_size >= 8, 'invalid full resource entry size')
+                    value_size, zero, value_type, value = unpack('<HBBI', chunk, start + entry_size)
+                    require(value_size == 8 and zero == 0, 'invalid resource typed value')
+                if value_type == 3:
+                    require(value < len(strings), 'invalid resource value string index')
+                    resource_path = strings[value]
+                else:
+                    resource_path = None
+                paths.setdefault(resource_id, set()).add(resource_path)
+    return paths, {}
+
+
+def resolve_xml(reference, resource_paths, resource_names):
+    require(reference is not None and reference.startswith('@'), 'backup policy is not a resource reference')
+    if reference.startswith('@0x'):
+        require(len(reference) == 11, 'invalid backup policy resource ID')
+        try:
+            resource_id = int(reference[1:], 16)
+        except ValueError:
+            raise InvalidArtifact('invalid backup policy resource ID')
+    else:
+        matches = resource_names.get(reference, set())
+        require(len(matches) == 1, 'backup XML name reference missing or ambiguous')
+        resource_id = next(iter(matches))
+    paths = resource_paths.get(resource_id, set())
+    require(paths and all(p and p.startswith('res/') and p.endswith('.xml') and '..' not in p.split('/') for p in paths),
+            'backup XML reference missing, aliased, or unsupported')
+    return sorted(paths)
+
+
+def received_exclusion(node):
+    require(node.tag == 'exclude' and node.attrib.get('domain') == 'file' and
+            node.attrib.get('path') in ('received', 'received/') and
+            set(node.attrib) == {'domain', 'path'} and len(node) == 0,
+            'backup rule must exclude only file/received and preserve other files/preferences')
+
+
+def backup_policy(kind, node):
+    if kind == 'fullBackupContent':
+        require(node.tag == 'full-backup-content' and not node.attrib and len(node) == 1,
+                'legacy backup policy must contain only received exclusion')
+        received_exclusion(node[0])
+        return {'received_excluded': True, 'other_files_preferences_preserved': True,
+                'scope': 'legacy cloud backup and device transfer; API 31+ uses dataExtractionRules'}
+    require(node.tag == 'data-extraction-rules' and not node.attrib and len(node) == 2,
+            'data extraction policy must define cloud-backup and device-transfer')
+    cloud, transfer = node.findall('cloud-backup'), node.findall('device-transfer')
+    require(len(cloud) == len(transfer) == 1 and len(cloud[0]) == 1 and not cloud[0].attrib,
+            'cloud-backup must contain only received exclusion without disabling all backup')
+    received_exclusion(cloud[0][0])
+    require(len(transfer[0]) == 0 and not transfer[0].attrib,
+            'device-transfer must preserve received files and preferences')
+    return {'cloud_received_excluded': True, 'cloud_other_files_preferences_preserved': True,
+            'device_transfer_all_preserved': True}
+
+
+def verify_received_cloud_excluded(root, archive, aab):
+    app = application(root)
+    allow = app.get(f'{{{ANDROID}}}allowBackup', 'true')
+    require(allow == 'true', 'allowBackup must remain true to preserve preferences/device transfer')
+    name = 'base/resources.pb' if aab else 'resources.arsc'
+    require(name in archive.namelist(), 'compiled resource table missing for backup verification')
+    resource_paths, resource_names = (proto_xml_resources if aab else binary_xml_resources)(archive.read(name))
+    policies = {'allow_backup': True}
+    for kind in ('fullBackupContent', 'dataExtractionRules'):
+        reference = app.get(f'{{{ANDROID}}}{kind}')
+        paths = resolve_xml(reference, resource_paths, resource_names)
+        variants = []
+        for path in paths:
+            member = 'base/' + path if aab else path
+            require(member in archive.namelist(), 'referenced backup XML missing from artifact')
+            raw = archive.read(member)
+            policy_root = (proto_xml if aab else binary_xml)(raw)
+            variants.append({'path': member, **backup_policy(kind, policy_root)})
+        policies[kind] = {'reference': reference, 'variants': variants}
+    return policies
+
 
 def elf_summary(data):
     require(len(data) >= 16 and data[:4] == b'\x7fELF', 'not an ELF file')
@@ -345,7 +573,8 @@ def bundle_alignment(data):
             2: 'PAGE_ALIGNMENT_16K', 3: 'PAGE_ALIGNMENT_64K'}[value]
 
 
-def verify(path, require_camera_optional=False, expect_version_code=None, strict_relro=False):
+def verify(path, require_camera_optional=False, expect_version_code=None, strict_relro=False,
+           require_no_ad_id=False, require_received_cloud_excluded=False):
     result = {'path': str(path), 'status': 'failed', 'errors': [], 'warnings': [], 'native_libraries': []}
     try:
         result['sha256'] = hashlib.sha256(Path(path).read_bytes()).hexdigest()
@@ -359,6 +588,16 @@ def verify(path, require_camera_optional=False, expect_version_code=None, strict
             raw = archive.read(manifest_name)
             root = proto_xml(raw) if aab else binary_xml(raw)
             result['manifest'] = manifest_summary(root)
+            if require_no_ad_id:
+                try:
+                    result['no_ad_id'] = verify_no_ad_id(root, result['manifest']['permissions'])
+                except InvalidArtifact as error:
+                    result['errors'].append(str(error))
+            if require_received_cloud_excluded:
+                try:
+                    result['received_cloud_backup'] = verify_received_cloud_excluded(root, archive, aab)
+                except InvalidArtifact as error:
+                    result['errors'].append(str(error))
             if require_camera_optional and not result['manifest']['camera_optional']:
                 result['errors'].append('merged manifest requires camera hardware')
             if expect_version_code is not None and result['manifest']['version_code'] != expect_version_code:
@@ -412,16 +651,20 @@ def main(argv=None):
     parser.add_argument('--report', type=Path, help='write detailed JSON report')
     parser.add_argument('--require-camera-optional', action='store_true')
     parser.add_argument('--expect-version-code', type=int)
+    parser.add_argument('--require-no-ad-id', action='store_true', help='require both Analytics advertising flags false and three advertising permissions absent')
+    parser.add_argument('--require-received-cloud-excluded', action='store_true', help='resolve and check both backup XML policies; preserve other files/preferences and API 31+ device transfer')
     parser.add_argument('--strict-relro', action='store_true', help='fail the guide end-formula audit; not proof of runtime failure (default: warn)')
     args = parser.parse_args(argv)
     if args.expect_version_code is not None and not 1 <= args.expect_version_code <= 2100000000:
         parser.error('--expect-version-code must be in Google Play range 1..2100000000')
-    reports = [verify(path, args.require_camera_optional, args.expect_version_code, args.strict_relro) for path in args.artifacts]
+    reports = [verify(path, args.require_camera_optional, args.expect_version_code, args.strict_relro,
+                      args.require_no_ad_id, args.require_received_cloud_excluded) for path in args.artifacts]
     payload = {'schema_version': 1, 'page_size': PAGE,
                'limitations': ['Static checks do not verify 16 KB device runtime behavior or signing.',
                                'AAB page alignment is only a request; verify generated APK ZIP alignment.',
                                'RELRO modulo alone does not prove runtime failure; investigate rounded protection and test SDK behavior.',
-                               '--strict-relro is a guide-formula audit, not a published Play rejection algorithm.'],
+                               '--strict-relro is a guide-formula audit, not a published Play rejection algorithm.',
+                               'Advertising and backup checks verify packaged configuration; device/SDK runtime behavior is not verified.'],
                'artifacts': reports}
     if args.report:
         args.report.write_text(json.dumps(payload, indent=2) + '\n', encoding='utf-8')

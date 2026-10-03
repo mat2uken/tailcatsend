@@ -43,7 +43,7 @@ object TelemetryBridge {
     }
 
     /**
-     * 永続化されたオプトイン状態 (既定 true) を読み、SDK レベルの収集設定へ
+     * 永続化された収集設定 (既定 true、オプトアウト式) を読み、SDK レベルの設定へ
      * 反映する。Rust 側の初期 enabled 値。
      */
     fun initAndEnabled(context: Context): Boolean {

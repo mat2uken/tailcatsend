@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Legacy Android <=30 format: the exclusion applies to both cloud and D2D.
+     Ponlet currently requires API31+, which uses data_extraction_rules instead. -->
+<full-backup-content>
+    <exclude domain="file" path="received/" />
+</full-backup-content>

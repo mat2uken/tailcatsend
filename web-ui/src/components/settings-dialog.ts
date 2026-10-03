@@ -25,8 +25,12 @@ export function createSettingsDialog(options: SettingsDialogOptions = {}): Setti
     id: "settings-telemetry-toggle",
     type: "checkbox",
     disabled: true,
+    "aria-describedby": "settings-telemetry-description",
   });
-  const telemetryNotice = p({ class: "settings-note" }, () => uiText.telemetryUnavailable);
+  const telemetryNotice = p(
+    { id: "settings-telemetry-unavailable", class: "settings-note" },
+    () => uiText.telemetryUnavailable,
+  );
   const languageSelect = select(
     {
       id: "settings-language",
@@ -102,6 +106,10 @@ export function createSettingsDialog(options: SettingsDialogOptions = {}): Setti
       { class: "settings-toggle", for: "settings-telemetry-toggle" },
       telemetryToggle,
       () => uiText.allowTelemetry,
+    ),
+    p(
+      { id: "settings-telemetry-description", class: "settings-note" },
+      () => uiText.telemetryDescription,
     ),
     telemetryNotice,
     button(

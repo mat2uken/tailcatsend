@@ -1,6 +1,6 @@
 # 日英privacy／support修正草案
 
-内部レビュー用。`dist/` は変更していない。以下の文面には未確定欄があり、**そのまま公開しない**。テレメトリ既定ONを維持する前提。広告IDの扱いは提出候補AABに合わせて一方の文案を選び、両方を公開文へ残さない。
+内部レビュー用。2026-10-03 17:59 UTCに本体無料、子ども向けを意図しない一般向け、Android受信ファイルのcloud backup除外、広告ID無効化とAnalytics／Crashlytics既定ON維持が承認された。日英privacy／supportの `dist/` ローカルHTMLも修正する。**公開していない、`publication_ready=false`**。保存期間・削除手順とSDK通信は未確認。未確定欄はこのdocsだけに保持し、HTMLへplaceholderを混入しない。未署名候補の広告IDflags／3権限除去とcloud ruleは検査済みで、ローカルHTMLへ「この改訂」として反映した。既存配布版1.0.18へ適用する説明ではない。
 
 公開ページの読み取り確認は2026-10-03 UTC。次の4ページはHTTP 200。公開メールはCloudflareによる難読化表示だが、リポジトリの宛先は `app-support@mat2uken.app`。
 
@@ -8,6 +8,9 @@
 - [英語privacy](https://ponlet.mat2uken.app/privacy_en.html)
 - [日本語support](https://ponlet.mat2uken.app/support_ja.html)
 - [英語support](https://ponlet.mat2uken.app/support_en.html)
+
+
+新候補の未署名AAB `versionCode=2030000102` は親担当の最終artifact validatorで確認済み。compiled manifestの広告ID取得・広告personalization flagsは両方false、3広告関連権限は不在。compiled resourcesからbackup XMLを解決し、API31+のcloudでは `received/` だけを除外、SharedPreferencesと隣接ファイルを保持、空のD2D規則は既存の対象を保持することを確認した。これはOS復元試験・実通信・署名・Play配布の成功を意味しない。詳細は [承認後の方針検証](POLICY_VALIDATION_RESULTS.md) を参照。
 
 ## 修正対象
 
@@ -36,7 +39,7 @@ Ponletは、ユーザーが選んだ相手へファイルとテキストを送�
 
 ファイル送信ではAndroidの文書選択画面からユーザーが選んだファイルを読み取ります。受信したファイルは、AndroidではPonletのアプリ内部保存領域に保存します。外部のアプリで開く操作を選んだ場合は、選んだアプリにそのファイルを読む権限を与えます。テキストのコピー・貼り付け・共有も、ユーザーの操作に応じて行います。
 
-AndroidのOSバックアップや端末移行が有効な場合、受信ファイルや保存設定がクラウドのバックアップまたは移行先端末へコピーされ、再インストール時などに復元される可能性があります。現行のバックアップ設定はOS既定に従うため、実際の対象・実行は端末の設定、OS、メーカーの動作に依存します。これはPonletが運営する転送用保存サーバーとは別の経路で、テレメトリ設定をOFFにしても止まるとは限りません。［提出releaseのバックアップ・復元・削除範囲を確認後に公開］。
+Androidのこの改訂では、API31以降のOSクラウドバックアップから受信 `files/received` を除外します。端末間移行（D2D）の既存の対象範囲は変えません。保存設定やD2Dでのコピー・復元は、端末の設定、OS、メーカーの動作に依存します。テレメトリをOFFにしてもOSバックアップ全体を止めるものではありません。既存1.0.18や方針変更前の候補には受信ファイルをcloudから除外する指定がなく、過去のbackupコピーはこの変更だけでは削除されません。［compiled ruleは検査済み。復元・削除範囲を確認後に公開］。
 
 ### 利用状況とクラッシュ報告
 
@@ -46,10 +49,7 @@ Ponletが独自に送るイベントは、アプリの起動、接続作成・�
 
 これに加えてFirebase Analyticsは、アプリインスタンスの識別子、アプリの利用イベント、IPアドレスから導かれる概略位置などを扱います。Crashlyticsはクラッシュ時のスタックトレース、端末・アプリの状態、インストールに関する識別子等を扱います。SDKの推移的な依存が扱う識別子やセッション情報も含め、使用SDKと設定に応じた情報がGoogleへ送られます。氏名やアカウントを設定しなくても、これらの識別子は存在します。
 
-広告IDの記載は次のいずれかを選ぶ。
-
-- **既存1.0.18の構成を維持する場合の草案**：Android版には広告識別関連権限が含まれ、Firebase Analyticsは利用可能なAndroid Advertising IDを取得する場合があります。広告表示機能はありません。広告への利用目的やGoogle側の連携設定は［確認・記載が必要］です。
-- **広告ID取得を無効化した新候補向け草案**：Android版ではFirebase AnalyticsのAdvertising ID取得と広告パーソナライズを無効にし、広告識別関連権限を取り除いています。広告表示機能はありません。アプリインスタンス識別子、IP由来の概略位置、クラッシュ・ML Kit診断の取得は、この変更によって無くなるものではありません。［提出AABと実通信で検証後に採用］。
+**承認済み新候補向け草案**：Android版ではFirebase AnalyticsのAdvertising ID取得と広告パーソナライズを無効にし、広告識別関連の3権限を取り除きます。広告表示機能はありません。アプリインスタンス識別子、IP由来の概略位置、クラッシュ・ML Kit診断の取得は、この変更によって無くなるものではありません。既存1.0.18のAABには広告ID関連権限が含まれます。［compiled flags／permissionsは検査済み。実通信を確認後に公開］。
 
 テレメトリをOFFにすると、PonletがFirebase AnalyticsとCrashlyticsへ設定する収集が無効になります。OFF時の未送信情報の保持・後日の再ONでの送信は［試験結果に合わせて記載］です。ML KitのQR読取に伴うSDK診断はこのスイッチとは別です。このスイッチをOFFにしても、ユーザーが開始する端末間の転送や、接続のための通信は行われます。
 
@@ -59,7 +59,7 @@ Ponletが独自に送るイベントは、アプリの起動、接続作成・�
 
 Androidのデータ削除・アンインストールは、現在の端末のアプリ内部ファイルや設定を削除する操作です。OSバックアップ、移行先端末、別アプリや外部保存先のコピーまで同時に消す保証はありません。OSのバックアップから再インストール時などに復元される場合もあるため、バックアップ側の保存・削除方法は利用端末とバックアップサービスの設定から別途確認してください。解析・診断データの開示・削除に関するお問い合わせは `app-support@mat2uken.app` へご連絡ください。［実行可能な削除方法、必要な情報、対応範囲を確認してここに記載］。お問い合わせにファイル本文、パスワード、招待QR・URLを送る必要はありません。
 
-子ども対象の記載は［Google Playの対象年齢と実際の対象者、SDK条件を確定後に作成］します。「全ユーザーから識別可能情報を収集しない」「COPPA等に完全準拠」の保証文は、識別子と診断の実態を確認せず再掲載しません。
+Ponlet Android版は一般利用者向けで、子ども向けを意図したアプリではありません。具体的なPlay年齢区分は実態に合わせた提案のみで、Consoleでは選択していません。「全ユーザーから識別可能情報を収集しない」「COPPA等に完全準拠」の保証はしません。
 
 ## English privacy replacement draft
 
@@ -75,7 +75,7 @@ The camera is used to read an invitation QR code when you select “Scan with ca
 
 For file sending, Ponlet reads files you choose through Android’s document picker. Received files are stored in Ponlet’s internal app storage. When you choose to open a received file in another app, that app receives permission to read the selected file. Clipboard and text sharing operations are performed in response to your actions.
 
-If OS backup or device migration is enabled, received files and saved preferences may be copied to a cloud backup or another device and restored on reinstallation. The current configuration follows OS defaults; actual backup depends on device settings, OS, and manufacturer behavior. This is separate from a Ponlet-operated transfer storage server. Turning telemetry off does not necessarily disable OS backup. [Verify backup, restore, and deletion on the final release before publishing.]
+This Android revision excludes received `files/received` from OS cloud backup on API31 and higher. It preserves the existing scope of device-to-device migration. Backup and restoration of settings, and D2D migration, depend on device settings, OS, and manufacturer behavior. Turning telemetry off does not disable all OS backup. Existing version 1.0.18 did not specify this cloud exclusion; this change does not delete previously stored backup copies. [Compiled candidate rules verified; verify restore and deletion before publishing.]
 
 ### Usage analytics and crash reporting
 
@@ -85,10 +85,7 @@ Ponlet’s custom events cover app startup, session creation and peer connection
 
 Firebase Analytics also handles app-instance identifiers, app lifecycle events, and coarse location derived from IP addresses. Crashlytics handles crash stack traces, device and app state, and installation-related identifiers. Identifiers and session information handled by dependent SDKs also need to be considered. These identifiers can exist without a named account.
 
-Choose one advertising identifier paragraph:
-
-- **If retaining the existing 1.0.18 configuration:** The Android app includes advertising identifier permissions. Firebase Analytics may collect an available Android Advertising ID. The app does not display ads. Advertising purposes and Google-side integrations are [to be verified and described].
-- **For a verified new candidate with advertising identifiers disabled:** Advertising ID collection and ad personalization are disabled, and advertising identifier permissions have been removed from the Android app. The app does not display ads. This does not remove app-instance identifiers, IP-derived coarse location, or Crashlytics and ML Kit diagnostics. [Use only after final AAB and network verification.]
+**Approved candidate draft:** This Android revision disables Advertising ID collection and ad personalization and removes the three advertising identifier permissions. The app does not display ads. This does not remove app-instance identifiers, IP-derived coarse location, or Crashlytics and ML Kit diagnostics. Existing version 1.0.18 included advertising identifier permissions. [Compiled candidate flags/permissions verified; verify network behavior before publishing.]
 
 Turning telemetry off disables the collection settings that Ponlet applies to Firebase Analytics and Crashlytics. Retention of pending reports and transmission after telemetry is re-enabled are [to be described after testing]. ML Kit diagnostics associated with QR scanning are separate from this switch. Peer transfers and connection-related networking can still occur when you use the app with telemetry off.
 
@@ -98,7 +95,7 @@ Analytics and diagnostics are sent to Google LLC using TLS/HTTPS. See the [Googl
 
 Clearing app data or uninstalling removes current local app data. It does not guarantee deletion of OS backups or copies on other devices, apps, or external storage; a backup may later restore data. Check backup retention and deletion separately through the applicable device or service settings. For questions about access to or deletion of analytics and diagnostic data, contact `app-support@mat2uken.app`. [Describe the verified deletion procedure, required information, and limitations.] Do not send private file contents, passwords, or invitation QR codes/URLs in a support request.
 
-The children’s privacy section remains [pending the target audience decision and SDK review]. Do not publish an unconditional “no identifiers from any users” or legal compliance guarantee without verifying the actual SDK behavior.
+Ponlet Android is intended for general users and is not designed as a child-directed app. The specific Play target age groups remain a proposal to be matched to the intended audience, with no Console selection made. Do not publish an unconditional “no identifiers from any users” or legal compliance guarantee.
 
 ## 日本語support追加候補
 
@@ -126,9 +123,19 @@ The current Android version does not import content directly from another app’
 
 ## 公開前に解決する項目
 
-1. 広告ID案の選択と提出AABの検証。
-2. Google側の保存期間、削除手順、共有・広告連携設定の実確認。OSバックアップ、端末移行と復元の範囲も、[Android公式資料](https://developer.android.com/identity/data/autobackup)と実機で確認する。バックアップを無効化する判断はこの草案で行わない。
+1. 承認済み広告ID無効化のcompiled flags／permissionsは検査済み。署名する提出AABで再検査し、実通信を検証する。
+2. Google側の保存期間、削除手順、共有・広告連携設定の実確認。OSバックアップ、端末移行と復元の範囲も、[Android公式資料](https://developer.android.com/identity/data/autobackup)と実機で確認する。受信ファイルcloud除外は承認済み。D2D既存範囲維持と設定復元を検証し、OS backup全体無効化へ拡張しない。
 3. OFF後／再ON後のAnalytics・Crashlyticsと、OFF中QRの通信確認。
-4. 課金・配布地域・対象年齢の決定、必要な同意／表示のレビュー。既定ONからopt-inへの変更はこの草案だけで決めない。
+4. 本体無料・一般向けは承認済み。配布地域と具体的なPlay年齢帯の提案、必要な同意／表示は確認が必要。Consoleは選択しない。既定ON維持は承認済みで、opt-inへ変更しない。
 5. 日英の意味の一致、Android保存操作の実機確認、未確定欄の解消。
 6. 内容レビュー後に別途公開承認を得る。公開後は両言語URL、app内リンク、Console登録URLを再取得して確認する。
+
+## ローカルHTMLへの反映記録
+
+`dist/privacy_ja.html`、`privacy_en.html`、`support_ja.html`、`support_en.html` をローカル改訂。既存レイアウト、言語切替、サポート宛先、Apple固有の利用手順を維持した。解析・診断の全不保持、OFFで全通信停止、全コピー削除、位置／識別子の全不収集、未検証の法令／Play準拠保証を訂正した。広告ID・cloud規則は未署名改訂候補2030000102の検査を根拠に「この改訂」として記述し、既存内部テスト版1.0.18／2026093037を区別した。公開・Console更新はしていない。
+
+親担当の検査報告：`work/android-policy-artifacts-verification.json`。未署名AAB SHA-256 `28f3bd088968fd33c5f0bf6608c363b9907d06924364908b98324154fa2661d8`、未署名APK SHA-256 `ae49dcfe40bfa62bc7ee6f789dbd12ba8fdba92bec4abadd6626c7b4cc643961`。APKでも同じflags／権限／backup規則の検査に合格。署名・実通信・SDK保存期間／削除・OS復元・Play配布はこの検査で証明されない。
+
+正式公開準備は引き続き **`publication_ready=false`**。未確定の保存期間や削除手順は内部草案だけに保留し、公開用HTMLへ仮の値や未回答欄は挿入していない。
+
+ローカル文書確認：4HTMLの構造（タグ、section、id）、内部参照、言語切替、stylesheet／scriptとリンク先を既存HEADと照合し維持を確認。未確定placeholderなし。内部Markdownのリンク・コード欄と `git diff --check` を確認した。表示ブラウザでの実画面確認・公開URLの再取得は未実施。
