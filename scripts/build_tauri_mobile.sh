@@ -133,11 +133,15 @@ PY
   fi
   mkdir -p "${repo_dir}/target/native/tailcat/android"
   export CGO_ENABLED=1
-  export CC="${toolchain_root}/bin/aarch64-linux-android33-clang"
-  export CXX="${toolchain_root}/bin/aarch64-linux-android33-clang++"
+  # Match the app's minSdk, and explicitly align the Go external linker.
+  # NDK r28's defaults alone do not change Go's c-shared ELF alignment.
+  export CC="${toolchain_root}/bin/aarch64-linux-android31-clang"
+  export CXX="${toolchain_root}/bin/aarch64-linux-android31-clang++"
   (cd "${repo_dir}/tailcat" && \
     GOOS=android GOARCH=arm64 \
-    go build -trimpath -ldflags="-checklinkname=0" -buildmode=c-shared \
+    go build -trimpath \
+      -ldflags='-checklinkname=0 -linkmode=external -extldflags "-Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384"' \
+      -buildmode=c-shared \
       -o "${repo_dir}/target/native/tailcat/android/libtailcat.so" ./bridge/native)
   mkdir -p "${repo_dir}/apps/tauri/gen/android/app/src/main/jniLibs/arm64-v8a"
   cp "${repo_dir}/target/native/tailcat/android/libtailcat.so" \

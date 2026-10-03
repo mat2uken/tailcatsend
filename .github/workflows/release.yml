@@ -148,8 +148,8 @@ jobs:
           else
             echo "::notice::Firebase client configuration is absent; telemetry will stay inactive."
           fi
-      - name: Set date-based Android version code
-        run: ./scripts/set_ci_build_number.sh PONLET_ANDROID_VERSION_CODE
+      - name: Set Android artifact version code (not a Play allocation)
+        run: python3 scripts/android_version_code.py --run-number "$GITHUB_RUN_NUMBER" --attempt "$GITHUB_RUN_ATTEMPT" --previous 2026093037 --github-env "$GITHUB_ENV"
       - run: ./scripts/build_tauri_mobile.sh android release
         env:
           CARGO_PROFILE_RELEASE_STRIP: none

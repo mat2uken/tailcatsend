@@ -1,0 +1,53 @@
+name: Android Build Verification (no upload)
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Build unsigned release AAB and APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      PONLET_ANDROID_BUILD_ONLY: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: true, persist-credentials: false }
+      - name: Test version guards and build-only credential isolation
+        run: python3 -m unittest discover -s scripts/tests -p test_android_build_readiness.py -v
+      - uses: actions/setup-java@v5
+        with: { java-version: "17", distribution: temurin }
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.27.x", cache: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: "24" }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: aarch64-linux-android }
+      - uses: android-actions/setup-android@v3
+        with: { packages: platform-tools }
+      - uses: nttld/setup-ndk@v1
+        with: { ndk-version: r28b }
+      - run: cargo install tauri-cli --version 2.10.0 --locked
+      - name: Choose verification-only version code
+        run: python3 scripts/android_version_code.py --run-number "$GITHUB_RUN_NUMBER" --attempt "$GITHUB_RUN_ATTEMPT" --previous 2026093037 --github-env "$GITHUB_ENV"
+      - name: Build unsigned AAB and APK without Firebase upload
+        run: ./scripts/build_android_verify.sh
+      - name: Check every native library, bundle alignment, manifest, and version code
+        run: |
+          mapfile -t artifacts < <(find apps/tauri/gen/android/app/build/outputs -type f \( -name '*.aab' -o -name '*.apk' \) -print)
+          test "${#artifacts[@]}" -gt 0
+          aab=$(find apps/tauri/gen/android/app/build/outputs -type f -name '*.aab' -print -quit)
+          apk=$(find apps/tauri/gen/android/app/build/outputs -type f -name '*.apk' -print -quit)
+          test -n "$aab"
+          test -n "$apk"
+          python3 scripts/verify_android_artifacts.py "${artifacts[@]}" \
+            --report "$RUNNER_TEMP/android-build-verification.json" \
+            --require-camera-optional --expect-version-code "$PONLET_ANDROID_VERSION_CODE" --strict-relro
+          cat "$RUNNER_TEMP/android-build-verification.json"
+      # No artifact publication, signing secrets, Firebase client config,
+      # or Play credentials are used by this workflow.

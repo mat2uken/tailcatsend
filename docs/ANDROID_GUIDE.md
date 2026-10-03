@@ -52,8 +52,15 @@ node tests/e2e/test_android_browser_cancel.mjs
 
 ## GitHub Actions
 
-- Workflow: [`.github/workflows/google_play.yml`](../.github/workflows/google_play.yml)
+- 配布なし検証: [`.github/workflows/android-build-only.yml`](../.github/workflows/android-build-only.yml)。手動または `v*` tagでunsigned release AAB/APKを生成し、静的検査する。署名秘密、Firebase設定、Play認証、成果物アップロードは使わない。
+- Play 配布: [`.github/workflows/google_play.yml`](../.github/workflows/google_play.yml)。手動のみ。tagでは配布しない。Consoleの全trackで最大のversionCodeを確認し、`previous_version_code` に入力する。署名ビルド後、AAB実体のversionCode・カメラ任意設定・native配置を成果物upload前に検査し、Play upload直前にも候補が入力値より大きいことを確認する。
 - Tauri Android shell: [`apps/tauri/gen/android`](../apps/tauri/gen/android)
 - Build entry: [`scripts/build_tauri_mobile.sh`](../scripts/build_tauri_mobile.sh)
+
+配布なしローカル検証は `./scripts/build_android_verify.sh` を使う。`PONLET_ANDROID_BUILD_ONLY=1` を固定し、既存署名環境変数を解除する。Gradleはこの場合、既存 `google-services.json` があってもGoogle Services／Crashlytics pluginを適用せず、署名設定も使わない。API endpointへuploadする工程はない。生成物はFirebase設定を含むPlay候補と同一ではないため、配布候補は別途検証する。
+
+Android CI版番号は [`scripts/android_version_code.py`](../scripts/android_version_code.py) を使い、`2030000000 + (GITHUB_RUN_NUMBER - 1) × 100 + GITHUB_RUN_ATTEMPT` と、確認済みConsole最大値＋1のうち大きい値を使う。既存Console最大値 `2026093037` を超える開始値を選んだ。別workflowが先行した場合も、その最大値を入力して新しい番号を割り当てられる。attemptは1〜99で、100回目は停止する。run番号700000までは計算式の全attemptがPlay上限2100000000以内に収まる。Console最大値が上限へ達した場合や計算式が上限を超えた場合は停止する。日付や下2桁の循環は使わない。iOSの `set_ci_build_number.sh` は変更しない。
+
+`GITHUB_RUN_NUMBER` はworkflowごとに異なる。別workflowの成果物や古いrunの再実行を新しいPlay版番号として自動的に保証できない。候補が入力したConsole最大値を超えなければupload前に停止する。`previous_version_code` は人が確認した値で、APIから最大値を取得する処理ではない。Console最大値＋1を使ったrunは、同じ入力で再実行すると同じ版番号になり得る。待機中に別の経路から配布された場合や古い入力値のまま再実行した場合、Play側の重複・順序チェックで拒否される可能性がある。配布直前に最大値を再確認し、入力が古ければそのrunを再利用せず新しい手動runへ進む。GitHub release APKの版番号はPlay用に予約した番号ではない。
 
 Play Console の初回登録、署名鍵の保管、内部テストへの段階配布は、対象アプリと現在の Google Play 設定を確認してから行います。

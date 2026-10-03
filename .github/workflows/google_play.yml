@@ -1,4 +1,4 @@
-name: Android Google Play Deployment
+name: Android Google Play Deployment (explicit)
 
 on:
   workflow_dispatch:
@@ -9,8 +9,19 @@ on:
         type: choice
         default: internal
         options: [internal, alpha, beta, production]
-  push:
-    tags: ["v*"]
+      previous_version_code:
+        description: Highest versionCode currently present in Play Console across ALL tracks (required upload guard)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+# One Play upload at a time. Queued/old runs still require a freshly checked
+# Console maximum; run_number alone cannot establish order across workflows.
+concurrency:
+  group: ponlet-google-play-deployment
+  cancel-in-progress: false
 
 jobs:
   build-and-deploy:
@@ -25,6 +36,14 @@ jobs:
         with:
           fetch-depth: 0
           submodules: true
+
+      - name: Check version code against confirmed Console maximum
+        env:
+          PREVIOUS_VERSION_CODE: ${{ inputs.previous_version_code }}
+        run: python3 scripts/android_version_code.py --run-number "$GITHUB_RUN_NUMBER" --attempt "$GITHUB_RUN_ATTEMPT" --previous "$PREVIOUS_VERSION_CODE" --github-env "$GITHUB_ENV"
+
+      - name: Require Play deployment credentials
+        run: test -n "$PLAY_CONFIG_JSON"
 
       - name: Setup Java, Go, Node, and Rust
         uses: actions/setup-java@v5
@@ -65,9 +84,6 @@ jobs:
       - name: Install Tauri CLI
         run: cargo install tauri-cli --version 2.10.0 --locked
 
-      - name: Set monotonic Android version code
-        run: ./scripts/set_ci_build_number.sh PONLET_ANDROID_VERSION_CODE
-
       - name: Restore Firebase client configuration (optional)
         env:
           GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
@@ -91,6 +107,13 @@ jobs:
           cp "$AAB" ponlet-release.aab
           ls -lh ponlet-release.aab
 
+      - name: Validate signed AAB before GitHub artifact or Play upload
+        run: |
+          python3 scripts/verify_android_artifacts.py ponlet-release.aab \
+            --report "$RUNNER_TEMP/android-play-verification.json" \
+            --require-camera-optional --expect-version-code "$PONLET_ANDROID_VERSION_CODE" --strict-relro
+          cat "$RUNNER_TEMP/android-play-verification.json"
+
       - name: Upload App Bundle artifact
         uses: actions/upload-artifact@v4
         with:
@@ -98,12 +121,16 @@ jobs:
           path: ponlet-release.aab
           retention-days: 30
 
+      - name: Recheck built version code before Play upload
+        env:
+          PREVIOUS_VERSION_CODE: ${{ inputs.previous_version_code }}
+        run: python3 scripts/android_version_code.py --candidate "$PONLET_ANDROID_VERSION_CODE" --previous "$PREVIOUS_VERSION_CODE"
+
       - name: Deploy to Google Play
-        if: env.PLAY_CONFIG_JSON != ''
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_CONFIG_JSON }}
           packageName: jp.yasagure.ponlet
           releaseFiles: ponlet-release.aab
-          tracks: ${{ github.event.inputs.track || 'internal' }}
+          tracks: ${{ inputs.track }}
           status: completed

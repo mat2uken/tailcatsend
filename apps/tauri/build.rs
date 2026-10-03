@@ -27,6 +27,12 @@ fn main() {
     println!("cargo:rerun-if-env-changed=PONLET_TAILCAT_LIB_NAME");
     println!("cargo:rerun-if-env-changed=TARGET");
 
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("android") {
+        // Keep both LOAD segments and the RELRO end aligned for 16 KB devices.
+        println!("cargo:rustc-link-arg=-Wl,-z,max-page-size=16384");
+        println!("cargo:rustc-link-arg=-Wl,-z,common-page-size=16384");
+    }
+
     // `build.rs` itself runs for the host, so a compile-time `cfg(target_os)`
     // would report macOS even when Cargo is building the mobile target. Read
     // Cargo's target setting instead and keep these desktop-only frameworks

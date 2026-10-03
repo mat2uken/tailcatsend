@@ -14,16 +14,19 @@ val tauriProperties = Properties().apply {
     }
 }
 
-val hasGoogleServices = file("google-services.json").exists()
+// Verification builds must remain unsigned and must not contact Firebase upload
+// endpoints even when a developer already has client configuration locally.
+val isBuildOnly = System.getenv("PONLET_ANDROID_BUILD_ONLY") == "1"
+val hasGoogleServices = !isBuildOnly && file("google-services.json").exists()
 if (hasGoogleServices) {
     apply(plugin = "com.google.gms.google-services")
     apply(plugin = "com.google.firebase.crashlytics")
 }
 
-val releaseKeystorePath = System.getenv("PONLET_ANDROID_KEYSTORE").orEmpty()
-val releaseKeystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD").orEmpty()
-val releaseKeyAlias = System.getenv("ANDROID_KEY_ALIAS").orEmpty()
-val releaseKeyPassword = System.getenv("ANDROID_KEY_PASSWORD").orEmpty()
+val releaseKeystorePath = if (isBuildOnly) "" else System.getenv("PONLET_ANDROID_KEYSTORE").orEmpty()
+val releaseKeystorePassword = if (isBuildOnly) "" else System.getenv("ANDROID_KEYSTORE_PASSWORD").orEmpty()
+val releaseKeyAlias = if (isBuildOnly) "" else System.getenv("ANDROID_KEY_ALIAS").orEmpty()
+val releaseKeyPassword = if (isBuildOnly) "" else System.getenv("ANDROID_KEY_PASSWORD").orEmpty()
 
 android {
     compileSdk = 36
