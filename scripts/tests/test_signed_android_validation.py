@@ -121,6 +121,39 @@ class GuardTests(unittest.TestCase):
             report.write_text('malformed PRIVATE_SENTINEL')
             self.assertEqual(validation.report_error_codes(report), [])
 
+    def test_signature_counts_publish_only_exact_fields_and_bounded_integers(self):
+        good = dict(zip(validation.SIGNATURE_DIAGNOSTIC_FIELDS, (0, 128, 1, 2)))
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / 'safe.json'
+            report.write_text(json.dumps({'errors': ['PRIVATE_LABEL', 'signature_tool_failed'],
+                                           'raw_path': '/PRIVATE_PATH', 'certificate': 'PRIVATE_CERT',
+                                           'artifacts': [{'type': 'apk', 'signature_diagnostics': good}]}))
+            captured = io.StringIO()
+            with contextlib.redirect_stderr(captured):
+                validation.publish_failure_report(report)
+            self.assertEqual(json.loads(captured.getvalue()),
+                             {'artifact_error_codes': ['signature_tool_failed'], 'signature_diagnostics': good})
+            self.assertNotIn('PRIVATE_', captured.getvalue())
+            for key in validation.SIGNATURE_DIAGNOSTIC_FIELDS:
+                for bad in (True, False, -1, 129, 1.0, '1', None, {'raw_label': 'PRIVATE_LABEL'}, ['PRIVATE_CERT']):
+                    invalid = dict(good, **{key: bad})
+                    report.write_text(json.dumps({'artifacts': [{'type': 'apk', 'signature_diagnostics': invalid}]}))
+                    captured = io.StringIO()
+                    with contextlib.redirect_stderr(captured):
+                        validation.publish_failure_report(report)
+                    self.assertEqual(captured.getvalue(), '')
+            for invalid in (dict(good, raw_label='PRIVATE_LABEL'),
+                            dict(good, path='/PRIVATE_PATH'), dict(good, certificate='PRIVATE_CERT'),
+                            {key: value for key, value in good.items() if key != 'numbered_lines'},
+                            'PRIVATE_CERT', None, []):
+                report.write_text(json.dumps({'artifacts': [{'type': 'apk', 'signature_diagnostics': invalid}]}))
+                self.assertIsNone(validation.report_signature_diagnostics(report))
+            for artifacts in ([{'type': 'PRIVATE_LABEL', 'signature_diagnostics': good}],
+                              [{'type': 'aab', 'signature_diagnostics': good}],
+                              [{'type': 'apk', 'signature_diagnostics': good}] * 2):
+                report.write_text(json.dumps({'artifacts': artifacts}))
+                self.assertIsNone(validation.report_signature_diagnostics(report))
+
     def test_cancellation_terminates_private_child_process_group(self):
         with tempfile.TemporaryDirectory() as tmp:
             with patch.object(subprocess, 'Popen') as popen, patch.object(os, 'killpg') as kill:
@@ -234,6 +267,32 @@ echo PONLET_SIGNED_VALIDATION_GRAPH_OK
             with patch.object(subprocess, 'check_output', return_value=SHA + '\n'), contextlib.redirect_stderr(captured), self.assertRaises(validation.ValidationError):
                 validation.validate(root, SHA, env)
             self.assertNotIn('PRIVATE_', captured.getvalue())
+            self.assertFalse((app / 'google-services.json').exists())
+            self.assertEqual(list(temp.iterdir()), [])
+            self.assertEqual(global_env.read_text(), 'UNCHANGED=1\n')
+
+    def test_artifact_failure_publishes_numeric_counts_without_private_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            app, env, global_env, temp = self.fixture(root)
+            counts = dict(zip(validation.SIGNATURE_DIAGNOSTIC_FIELDS, (0, 2, 0, 1)))
+            report = {'verified': False, 'errors': [], 'raw_path': '/PRIVATE_PATH',
+                      'artifacts': [{'type': 'apk', 'errors': ['apk_public_certificate_missing_or_ambiguous'],
+                                     'signature_diagnostics': counts, 'raw_label': 'PRIVATE_LABEL',
+                                     'certificate': 'PRIVATE_CERT'}]}
+            (root / 'scripts/verify_signed_android_release.py').write_text(
+                'import sys\nfrom pathlib import Path\n'
+                'Path(sys.argv[sys.argv.index("--report") + 1]).write_text(' + repr(json.dumps(report)) + ')\n'
+                'print("PRIVATE_TOOL_OUTPUT")\nraise SystemExit(1)\n')
+            captured = io.StringIO()
+            with patch.object(subprocess, 'check_output', return_value=SHA), contextlib.redirect_stderr(captured), self.assertRaises(validation.ValidationError):
+                validation.validate(root, SHA, env)
+            events = [json.loads(line) for line in captured.getvalue().splitlines()]
+            diagnostics = [event for event in events if 'signature_diagnostics' in event]
+            self.assertEqual(diagnostics, [{'artifact_error_codes': ['apk_public_certificate_missing_or_ambiguous'],
+                                           'signature_diagnostics': counts}])
+            self.assertNotIn('PRIVATE_', captured.getvalue())
+            self.assertNotIn('TEST_ONLY_INPUT', captured.getvalue())
             self.assertFalse((app / 'google-services.json').exists())
             self.assertEqual(list(temp.iterdir()), [])
             self.assertEqual(global_env.read_text(), 'UNCHANGED=1\n')

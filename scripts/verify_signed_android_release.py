@@ -21,6 +21,7 @@ _spec = importlib.util.spec_from_file_location('android_static_checks', Path(__f
 static = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(static)
 FIREBASE_NAMES = ('google_app_id', 'project_id', 'com.google.firebase.crashlytics.mapping_file_id')
+SIGNATURE_DIAGNOSTIC_FIELDS = ('numbered_lines', 'sdk_range_lines', 'unknown_certificate_labels', 'unique_fingerprints')
 
 
 class VerificationFailure(ValueError):
@@ -74,10 +75,55 @@ def apk_signature(path, apksigner):
     output = tool([apksigner, 'verify', '--verbose', '--print-certs', str(path)])
     check(bool(re.search(r'(?m)^Verifies\s*$', output)), 'apk_signature_not_verified')
     check(re.findall(r'(?m)^Number of signers:\s*(\d+)\s*$', output) == ['1'], 'apk_signer_count_not_one')
-    values = re.findall(r'(?m)^Signer #(\d+) certificate SHA-256 digest:\s*([0-9a-fA-F]+)\s*$', output)
-    check(len(values) == 1 and values[0][0] == '1', 'apk_public_certificate_missing_or_ambiguous')
     return {'verified': True, 'signature_present': True, 'signer_count': 1,
-            'certificate_sha256': fingerprint(values[0][1])}
+            'certificate_sha256': apk_certificate_sha256(output)}
+
+
+def apk_certificate_sha256(output):
+    # ApkSignerTool prints SDK-range labels for v3.1 and numbered labels for
+    # earlier schemes. Inspect every signer certificate line, including unknown
+    # labels, so no additional or malformed certificate can silently be ignored.
+    # https://android.googlesource.com/platform/tools/apksig/+/refs/heads/main/src/apksigner/java/com/android/apksigner/ApkSignerTool.java
+    lines = re.findall(r'(?m)^Signer[^\r\n]* certificate SHA-256 digest:[^\r\n]*$', output)
+    numbered = r'Signer #\d+'
+    sdk_range = r'Signer \(minSdkVersion=\d+(?: \(dev release=true\))?, maxSdkVersion=\d+\)'
+    counts = dict.fromkeys(SIGNATURE_DIAGNOSTIC_FIELDS, 0)
+    recognized_fingerprints = set()
+    for line in lines:
+        label, digest = line.split(' certificate SHA-256 digest:', 1)
+        key = ('numbered_lines' if re.fullmatch(numbered, label) else
+               'sdk_range_lines' if re.fullmatch(sdk_range, label) else 'unknown_certificate_labels')
+        counts[key] += 1
+        if re.fullmatch('[0-9a-fA-F]{64}', digest.strip()):
+            recognized_fingerprints.add(digest.strip().lower())
+    counts['unique_fingerprints'] = len(recognized_fingerprints)
+    counts = {key: min(value, 128) for key, value in counts.items()}
+    try:
+        check(bool(lines), 'apk_public_certificate_missing_or_ambiguous')
+        certificates, modes = set(), set()
+        for line in lines:
+            match = re.fullmatch(r'Signer (?P<label>#\d+|\(minSdkVersion=\d+(?: \(dev release=true\))?, maxSdkVersion=\d+\))'
+                                 r' certificate SHA-256 digest:\s*(?P<digest>[0-9a-fA-F]{64})\s*', line)
+            check(match is not None, 'apk_public_certificate_missing_or_ambiguous')
+            label = match['label']
+            if label.startswith('#'):
+                check(label == '#1', 'apk_public_certificate_missing_or_ambiguous')
+                modes.add('numbered')
+            else:
+                minimum, maximum = (int(n) for n in re.findall(r'SdkVersion=(\d+)', label))
+                check(1 <= minimum <= maximum <= 2147483647, 'apk_public_certificate_missing_or_ambiguous')
+                modes.add('sdk_range')
+            certificates.add(fingerprint(match['digest']))
+        check(len(certificates) == 1 and len(modes) == 1, 'apk_public_certificate_missing_or_ambiguous')
+        if modes == {'numbered'}:
+            check(len(lines) == 1, 'apk_public_certificate_missing_or_ambiguous')
+        else:
+            check(bool(re.search(r'(?m)^Verified using v3\.1 scheme \(APK Signature Scheme v3\.1\): true\s*$', output)),
+                  'apk_public_certificate_missing_or_ambiguous')
+        return next(iter(certificates))
+    except VerificationFailure as error:
+        error.signature_diagnostics = counts
+        raise
 
 
 def proto_firebase_values(data):
@@ -219,6 +265,8 @@ def artifact_summary(path, kind, expected, tools):
         report['verified'] = True
     except VerificationFailure as error:
         report['errors'].append(str(error))
+        if hasattr(error, 'signature_diagnostics'):
+            report['signature_diagnostics'] = error.signature_diagnostics
     except Exception:
         # Third-party tool/decoder exceptions may contain paths, values or bytes.
         report['errors'].append('artifact_validation_failed')

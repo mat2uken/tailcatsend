@@ -165,6 +165,76 @@ class SignedReleaseTests(unittest.TestCase):
                 with self.assertRaises(m.VerificationFailure):
                     m.aab_signature(aab, 'jarsigner', 'keytool')
 
+    def test_apksigner_official_v31_sdk_range_labels_accept_only_one_public_certificate(self):
+        _, apk = self.artifacts()
+        header = 'Verifies\nVerified using v3.1 scheme (APK Signature Scheme v3.1): true\nNumber of signers: 1\n'
+        def ranged(minimum, maximum, certificate=CERTIFICATE, dev=False):
+            return ('Signer (minSdkVersion=' + str(minimum) + (' (dev release=true)' if dev else '') +
+                    ', maxSdkVersion=' + str(maximum) + ') certificate SHA-256 digest: ' + certificate + '\n')
+        for lines in (ranged(33, 2147483647),
+                      ranged(33, 2147483647) + ranged(31, 32),
+                      ranged(33, 2147483647, dev=True) + ranged(31, 32)):
+            with self.subTest(lines=lines), mock.patch.object(m, 'tool', return_value=header + lines):
+                result = m.apk_signature(apk, 'apksigner')
+                self.assertEqual(result['certificate_sha256'], CERTIFICATE)
+                self.assertEqual(result['signer_count'], 1)
+        invalid = (ranged(33, 2147483647) + ranged(31, 32, OTHER_CERTIFICATE),
+                   ranged(0, 32), ranged(33, 32), ranged(33, 2147483648),
+                   ranged(33, 2147483647, '1234'),
+                   ranged(33, 2147483647) + 'Signer #1 certificate SHA-256 digest: ' + CERTIFICATE + '\n',
+                   ranged(33, 2147483647) + 'Signer UNKNOWN certificate SHA-256 digest: ' + CERTIFICATE + '\n',
+                   ranged(33, 2147483647).replace('maxSdkVersion=', 'futureSdkVersion='))
+        for lines in invalid:
+            with self.subTest(lines=lines), mock.patch.object(m, 'tool', return_value=header + lines):
+                with self.assertRaisesRegex(m.VerificationFailure, 'apk_public_certificate_missing_or_ambiguous'):
+                    m.apk_signature(apk, 'apksigner')
+        with mock.patch.object(m, 'tool', return_value=header.replace(': true', ': false') + ranged(33, 2147483647)):
+            with self.assertRaises(m.VerificationFailure):
+                m.apk_signature(apk, 'apksigner')
+
+    def test_numbered_apk_duplicate_certificate_lines_fail_even_when_fingerprints_match(self):
+        _, apk = self.artifacts()
+        line = 'Signer #1 certificate SHA-256 digest: ' + CERTIFICATE + '\n'
+        for extra in (line, line.replace('#1', '#2'), line.replace(CERTIFICATE, OTHER_CERTIFICATE)):
+            with self.subTest(extra=extra), mock.patch.object(m, 'tool', return_value='Verifies\nNumber of signers: 1\n' + line + extra):
+                with self.assertRaises(m.VerificationFailure):
+                    m.apk_signature(apk, 'apksigner')
+
+    def test_signature_failure_diagnostics_contain_only_capped_fixed_counts(self):
+        _, apk = self.artifacts()
+        header = 'Verifies\nNumber of signers: 1\n'
+        unknown = 'Signer SIGNER_ALIAS_SENTINEL certificate SHA-256 digest: ' + CERTIFICATE + '\n'
+        cases = [(unknown, dict(numbered_lines=0, sdk_range_lines=0, unknown_certificate_labels=1, unique_fingerprints=1)),
+                 ('', dict(numbered_lines=0, sdk_range_lines=0, unknown_certificate_labels=0, unique_fingerprints=0)),
+                 (unknown * 129, dict(numbered_lines=0, sdk_range_lines=0, unknown_certificate_labels=128, unique_fingerprints=1)),
+                 ('Signer #1 certificate SHA-256 digest: ' + CERTIFICATE + '\n' +
+                  'Signer #1 certificate SHA-256 digest: ' + OTHER_CERTIFICATE + '\n',
+                  dict(numbered_lines=2, sdk_range_lines=0, unknown_certificate_labels=0, unique_fingerprints=2))]
+        for lines, expected_counts in cases:
+            with self.subTest(expected_counts=expected_counts), mock.patch.object(m, 'tool', return_value=header + lines):
+                report = m.artifact_summary(apk, 'apk', EXPECTED, TOOLS)
+                self.assertFalse(report['verified'])
+                self.assertEqual(report['signature_diagnostics'], expected_counts)
+                self.assertEqual(set(report['signature_diagnostics']), set(m.SIGNATURE_DIAGNOSTIC_FIELDS))
+                self.assertTrue(all(type(n) is int and 0 <= n <= 128 for n in report['signature_diagnostics'].values()))
+                self.assertNotIn('SENTINEL', json.dumps(report))
+                self.assertNotIn(CERTIFICATE, json.dumps(report))
+
+    def test_official_sdk_range_fingerprint_still_matches_aab_public_certificate(self):
+        aab, apk = self.artifacts()
+        def output(arguments):
+            if arguments[0] != 'apksigner':
+                return signature_output(arguments)
+            return ('Verifies\nNumber of signers: 1\n'
+                    'Verified using v3.1 scheme (APK Signature Scheme v3.1): true\n'
+                    'Signer (minSdkVersion=33, maxSdkVersion=2147483647) certificate SHA-256 digest: ' + CERTIFICATE + '\n'
+                    'Signer (minSdkVersion=31, maxSdkVersion=32) certificate SHA-256 digest: ' + CERTIFICATE + '\n')
+        with mock.patch.object(m, 'tool', side_effect=output):
+            report = m.verify_release(aab, apk, EXPECTED, TOOLS)
+        self.assertTrue(report['verified'])
+        self.assertTrue(report['certificates_match'])
+        self.assertNotIn('signature_diagnostics', report['artifacts'][1])
+
     def test_different_aab_and_apk_public_certificates_fail(self):
         aab, apk = self.artifacts()
         def output(args):

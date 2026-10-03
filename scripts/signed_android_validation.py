@@ -22,6 +22,8 @@ INPUT_KEYS = (*SIGNING_KEYS, 'GOOGLE_SERVICES_JSON_BASE64')
 DERIVED_KEYS = {'PONLET_ANDROID_KEYSTORE', 'ANDROID_KEYSTORE_PASSWORD',
                 'ANDROID_KEY_ALIAS', 'ANDROID_KEY_PASSWORD'}
 MARKER = b'PONLET_SIGNED_VALIDATION_GRAPH_OK'
+SIGNATURE_DIAGNOSTIC_FIELDS = ('numbered_lines', 'sdk_range_lines',
+                               'unknown_certificate_labels', 'unique_fingerprints')
 # Only reviewed verifier enum literals may reach a failure log.
 SAFE_ERROR_CODES = frozenset(('aab_apk_public_certificates_differ', 'aab_public_certificate_missing', 'aab_signature_block_missing', 'aab_signature_not_verified', 'aab_signer_count_not_one', 'aab_unsigned_entries_present', 'apk_public_certificate_missing_or_ambiguous', 'apk_signature_not_verified', 'apk_signer_count_not_one', 'artifact_validation_failed', 'firebase_compiled_resource_decode_failed', 'firebase_compiled_resource_table_missing', 'firebase_project_does_not_match', 'firebase_required_resource_missing_blank_or_unresolved', 'invalid_compiled_resource_table', 'invalid_public_certificate_fingerprint', 'invalid_resource_configuration', 'invalid_resource_entry', 'invalid_resource_key_index', 'invalid_resource_key_pool', 'invalid_resource_offsets', 'invalid_resource_string_index', 'invalid_resource_type', 'invalid_resource_value', 'native_abi_not_arm64_only', 'native_elf_not_aarch64', 'release_metadata_does_not_match', 'safe_report_write_failed', 'signature_tool_failed', 'signature_tool_unavailable_or_timed_out', 'static_artifact_checks_failed', 'unknown_native_library_layout', 'unsupported_compiled_resource_table', 'unsupported_resource_type', 'wrong_artifact_extension'))
 
@@ -168,6 +170,38 @@ def report_error_codes(path):
         return sorted({value for value in values if isinstance(value, str) and value in SAFE_ERROR_CODES})
     except (OSError, ValueError, TypeError):
         return []
+
+
+def report_signature_diagnostics(path):
+    try:
+        report = json.loads(path.read_text())
+        if not isinstance(report, dict) or not isinstance(report.get('artifacts'), list):
+            return None
+        values = [artifact['signature_diagnostics'] for artifact in report['artifacts']
+                  if isinstance(artifact, dict) and artifact.get('type') == 'apk'
+                  and 'signature_diagnostics' in artifact]
+        if len(values) != 1 or not isinstance(values[0], dict):
+            return None
+        counts = values[0]
+        if set(counts) != set(SIGNATURE_DIAGNOSTIC_FIELDS):
+            return None
+        if any(type(value) is not int or not 0 <= value <= 128 for value in counts.values()):
+            return None
+        return {field: counts[field] for field in SIGNATURE_DIAGNOSTIC_FIELDS}
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def publish_failure_report(path):
+    payload = {}
+    codes = report_error_codes(path)
+    if codes:
+        payload['artifact_error_codes'] = codes
+    diagnostics = report_signature_diagnostics(path)
+    if diagnostics is not None:
+        payload['signature_diagnostics'] = diagnostics
+    if payload:
+        print(json.dumps(payload, sort_keys=True), file=sys.stderr)
 
 
 def prepare_tauri_settings(repo, metadata, destination):
@@ -352,9 +386,7 @@ def validate(repo, expected, incoming):
                              '--keytool', str(java / 'keytool'), '--report', str(safe_report)],
                             repo, verify_env, work, 'artifact-verification')
             except ValidationError:
-                codes = report_error_codes(safe_report)
-                if codes:
-                    print(json.dumps({'artifact_error_codes': codes}), file=sys.stderr)
+                publish_failure_report(safe_report)
                 raise
             # The verifier owns the reviewed, secret-free report schema. Never echo tool output.
             report = json.loads(safe_report.read_text())

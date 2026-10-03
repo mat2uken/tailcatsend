@@ -89,6 +89,28 @@ AAB/APKはartifactとして保存・移送しない。CI結果はそのrun内の
 
 回帰テストで、同じsourceへhelperを二度実行して内容が変わらないことを検査する。CIのcredential-free stepでも実行する。原submoduleのファイル・HEADを直接変更せず、外部credentialやupload制御も変えない。この修正後の新しい完全SHAで再検証する。
 
+独立レビューに重大指摘なし。回帰テスト1件、workflow actionlint成功。patch構文に必須のcontext prefix（space）とGo indent（tab）だけは通常の空白検査が警告するため、その項目だけをcommand-localで除外し、残りの空白検査を通した。Git設定ファイルを変更していない。
+
+## patch修正版の再検証
+
+| 項目 | 値 |
+| --- | --- |
+| run | [37161248190](https://github.com/mat2uken/tailcatsend/actions/runs/37161248190) |
+| source SHA | `ce787ef4ed7b01f6e4faee579c1dad5c1636c013` |
+| 状態 | FAIL。署名検証jobは23:16:50–23:33:23 UTC。request・完全SHA・patch回帰を含む事前fixtureは通過。配布jobはskipped、always cleanup成功、artifact 0件 |
+
+実署名stepではAAB build 436.646秒、APK build 82.810秒で両方成功した。patch修正後はAPK段の適用失敗が解消した。artifact verificationは3.868秒で失敗し、安全なerrorは `apk_public_certificate_missing_or_ambiguous`。検証log hashは `8664ad16d149993964df1e26c4b3896f60ba5d370502a6e97a9f2be6e1e7c193`。
+
+APK署名toolの正常終了、`Verifies`、署名者数1の確認後に、公開証明書digestの解析で停止した。最終reportが完成していないため、証明書一致・16KB・manifest・compiled Firebase設定の総合PASSとは扱わない。
+
+## APK証明書出力の解析修正
+
+旧解析は `Signer #1` だけを受け付けていた。[Android公式実装](https://android.googlesource.com/platform/tools/apksig/+/refs/heads/main/src/apksigner/java/com/android/apksigner/ApkSignerTool.java)にはv3.1使用時の `Signer (minSdkVersion=..., maxSdkVersion=...)` 表記もある。この公式形式に限定して対応した。CI3の原出力は公開していないため、実際にこの表記だったかは仮説であり、次のCIで修正の効果を確認する。
+
+正常終了・署名検証成功・署名者数1を引き続き要求する。SDK範囲表記はv3.1成功表示と有効なSDK範囲を要求し、複数範囲でも公開fingerprintが全て同じ場合だけ受け付ける。異fingerprint、未知label、形式混在、複数署名者、壊れたdigestを拒否する。失敗時は固定4項目の件数（0..128）のみを出し、原文、alias、所有者、path、digest値を出さない。
+
+独立レビューに重大指摘なし。verifier 17件、helper 16件、patch回帰1件のfixtureとworkflow actionlint、差分空白検査が成功。システムpython3で全scripts 95件を実行すると、Androidと無関係のTestFlightテスト1件だけが未導入の`jwt`で停止した。依存installはしていない。verifier fixture 17件成功。既存の開発署名APKはSDK34/35/36のapksignerで実検証成功し、fingerprintは3版で一致した。このAPKは開発用証明書であり、CIの本番署名候補の証拠には流用しない。署名入力、Firebase構成、build、upload抑止は変更しない。
+
 ## 残る提出準備
 
 1. 署名候補の静的検査を完了し、artifact hash・公開証明書・manifest・16KB結果をこの記録に対応させる。
