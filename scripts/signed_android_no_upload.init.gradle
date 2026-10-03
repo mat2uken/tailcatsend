@@ -1,0 +1,48 @@
+// Validation control only. Product sources and Firebase/build-ID generation remain intact.
+if (System.getenv('PONLET_SIGNED_VALIDATION') != '1') {
+    throw new GradleException('Signed validation control requires explicit opt-in')
+}
+def blocked = { task -> task.name.toLowerCase(Locale.ROOT).startsWith('uploadcrashlytics') }
+gradle.beforeProject { project ->
+    project.tasks.configureEach { task ->
+        if (blocked(task)) {
+            task.enabled = false
+            task.onlyIf { false }
+            task.doFirst { throw new GradleException('Crashlytics upload prohibited') }
+        }
+    }
+}
+gradle.taskGraph.whenReady { graph ->
+    if (graph.allTasks.any { blocked(it) && it.enabled }) {
+        throw new GradleException('Enabled Crashlytics upload task prohibited in any build')
+    }
+}
+gradle.projectsEvaluated {
+    // Gradle also applies init scripts to buildSrc and included builds.
+    // Keep their upload block, but require app/plugins only in our exact Android build.
+    def expectedRoot = System.getenv('PONLET_ANDROID_PROJECT_DIR')
+    if (expectedRoot == null) throw new GradleException('Android validation root missing')
+    if (gradle.rootProject.projectDir.canonicalFile != new File(expectedRoot).canonicalFile) return
+    def app = gradle.rootProject.findProject(':app')
+    if (app == null || !app.plugins.hasPlugin('com.google.gms.google-services') ||
+            !app.plugins.hasPlugin('com.google.firebase.crashlytics')) {
+        throw new GradleException('Signed validation requires both Firebase build plugins')
+    }
+    def release = app.extensions.getByName('android').buildTypes.getByName('release')
+    def config = release.extensions.findByName('firebaseCrashlytics')
+    if (config == null) throw new GradleException('Crashlytics release configuration missing')
+    config.mappingFileUploadEnabled = false
+    config.nativeSymbolUploadEnabled = false
+    gradle.taskGraph.whenReady { graph ->
+        if (config.mappingFileUploadEnabled != false || config.nativeSymbolUploadEnabled != false ||
+                graph.allTasks.any { blocked(it) && it.enabled }) {
+            throw new GradleException('Crashlytics upload suppression not established')
+        }
+        def appTasks = graph.allTasks.findAll { it.project == app }*.name
+        if (!appTasks.any { it.startsWith('process') && it.endsWith('GoogleServices') } ||
+                !appTasks.any { it.startsWith('injectCrashlyticsMappingFileId') }) {
+            throw new GradleException('Firebase resources or Crashlytics build ID task absent')
+        }
+        println('PONLET_SIGNED_VALIDATION_GRAPH_OK')
+    }
+}

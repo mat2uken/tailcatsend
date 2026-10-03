@@ -1,8 +1,23 @@
-name: Android Google Play Deployment (explicit)
+name: Android Signed Validation or Explicit Play Deployment
 
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: Verify signed build only; deploy requires separate explicit confirmation
+        required: true
+        type: choice
+        default: verify
+        options: [verify, deploy]
+      expected_source_sha:
+        description: Exact full checkout SHA for verification (versionCode fixed at 2030000102)
+        required: false
+        type: string
+      confirm_deploy:
+        description: Explicitly authorize Play deployment (leave false for verification)
+        required: true
+        type: boolean
+        default: false
       track:
         description: Google Play release track
         required: true
@@ -10,8 +25,8 @@ on:
         default: internal
         options: [internal, alpha, beta, production]
       previous_version_code:
-        description: Highest versionCode currently present in Play Console across ALL tracks (required upload guard)
-        required: true
+        description: Highest versionCode currently present in Play Console across ALL tracks (required for deploy)
+        required: false
         type: string
 
 permissions:
@@ -24,7 +39,69 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validate-request:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with: { persist-credentials: false }
+      - name: Reject unsafe mode, source, confirmation, or debug logging
+        env:
+          VALIDATION_MODE: ${{ inputs.mode }}
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+          CONFIRM_DEPLOY: ${{ inputs.confirm_deploy }}
+          RUNNER_DEBUG: ${{ runner.debug }}
+        run: python3 scripts/signed_android_validation.py --check-request
+
+  signed-validation:
+    needs: validate-request
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'verify'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: true, persist-credentials: false }
+      - name: Confirm checkout and disabled debug logging before tool setup
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+          RUNNER_DEBUG: ${{ runner.debug }}
+        run: python3 scripts/signed_android_validation.py --check-source
+      - name: Test validation safety controls without credentials
+        run: python3 -m unittest discover -s scripts/tests -p test_signed_android_validation.py -v
+      - uses: actions/setup-java@v5
+        with: { java-version: "17", distribution: temurin }
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.27.x", cache: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: "24" }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: aarch64-linux-android }
+      - uses: android-actions/setup-android@v3
+        with: { packages: platform-tools }
+      - uses: nttld/setup-ndk@v1
+        id: ndk
+        with: { ndk-version: r28b, local-cache: false }
+      - run: cargo install tauri-cli --version 2.10.0 --locked
+      - name: Opaque signing, Firebase release build, and static verification only
+        env:
+          EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+          RUNNER_DEBUG: ${{ runner.debug }}
+          ANDROID_NDK_ROOT: ${{ steps.ndk.outputs.ndk-path }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        run: python3 scripts/signed_android_validation.py
+      - name: Clean only validation-owned private inputs after success or cancellation
+        if: always()
+        run: python3 scripts/signed_android_validation.py --cleanup-owned
+      # No Play credential, artifact/cache upload, Release, app install, or runtime network.
+
   build-and-deploy:
+    needs: validate-request
+    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'deploy' && inputs.confirm_deploy == true
     name: Build Tauri Android App Bundle
     runs-on: ubuntu-latest
     timeout-minutes: 60
