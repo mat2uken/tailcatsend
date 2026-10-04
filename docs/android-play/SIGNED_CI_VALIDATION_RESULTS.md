@@ -5,10 +5,10 @@
 | 項目 | 実施内容 |
 | --- | --- |
 | repository / branch | `mat2uken/tailcatsend` / `feature/android-play-readiness` |
-| CI対象SHA | `21b2ae525675eef5713774a14eb5437f41f2855d` |
+| 最新成功CI対象SHA | `2573f6f4d7a673a955c749e8d17055caad27fb45` |
 | 製品コードの先行比較基準 | `5e0125797c2466918772a6722302d84219a1792a`。署名CI実装commitの追加差分は検証workflow・helper・fixtureで、製品コードの変更は含まない |
 | workflow | 既存登録済み `google_play.yml` のfeature branch版、`mode=verify`、`confirm_deploy=false`、完全SHA入力 |
-| run | [37158561946](https://github.com/mat2uken/tailcatsend/actions/runs/37158561946) |
+| 最新成功run | [37165522441](https://github.com/mat2uken/tailcatsend/actions/runs/37165522441)。先行失敗と原因修正の記録は下に保持 |
 | 上限 | request検査5分、署名検証job90分 |
 | versionCode | `2030000102`固定。これより高い候補を提出する場合は、その候補を再検査する |
 | 署名・Firebase入力 | 既存4署名入力とFirebase構成だけをrunner内で使用。値の表示・ローカルへの移送・新規credential設定なし |
@@ -28,7 +28,7 @@ AAB/APKはartifactとして保存・移送しない。CI結果はそのrun内の
 - AAB/APK実体のversion・manifest・backup・広告関連設定・arm64 native・16KB配置を検査する。Firebase compiled設定は存在・project一致だけを安全にreportし、値は表示しない。
 - 終了・中断時は所有マーカーとinodeを使い、今回生成した入力・設定と私有作業領域をcleanupする。
 
-独立レビューに重大指摘なし。関連fixture 26件成功、workflowのactionlintと差分空白検査成功。fixtureの成功は実署名build成功とは分ける。
+初回実装の独立レビューに重大指摘なし。初回関連fixture 26件成功、workflowのactionlintと差分空白検査成功。後続修正の検査件数は各節に記録する。fixtureの成功は実署名build成功とは分ける。
 
 ## 実行結果
 
@@ -149,9 +149,46 @@ AAB build 291.657秒、APK build 53.075秒で両方成功。artifact verificatio
 
 対応は上記のexact V2形式だけを追加する。単一証明書行・64桁digest・v2成功・v3/v3.1不使用を要求し、署名者1・AABとの証明書一致を保持する。旧形式との混在、重複、未知のV1/V3.0/Hybrid形式は拒否し、source stamp単独をアプリ署名へ採用しない。製品コード、tool選択、credential、upload抑止は変更しない。独立レビューに重大指摘なし、関連38件、全scripts101件の既存環境テスト、workflow actionlint、差分空白検査が成功。新しい完全SHAで実署名候補を再検証する。
 
+## SDK37ラベル修正版の再検証
+
+| 項目 | 値 |
+| --- | --- |
+| run | [37165522441](https://github.com/mat2uken/tailcatsend/actions/runs/37165522441) |
+| source SHA | `2573f6f4d7a673a955c749e8d17055caad27fb45` |
+| 状態 | PASS。署名検証jobは2026-10-04 00:37:50–00:49:19 UTC（11分29秒）。`mode=verify` / `confirm_deploy=false`、90分上限を維持。request成功、配布job skipped、always cleanup成功、Actions artifact 0件 |
+
+実署名stepのsource SHA付きreportを抽出して確認した。事前fixtureのsynthetic JSONを成功根拠に含めない。選択apksignerはbuild-tools 37.0.0。AAB build 295.675秒、APK build 52.689秒、artifact verification 2.397秒で正常終了した。SDK37 V2ラベル修正後、最終reportの `verified=true` / `certificates_match=true` / `errors=[]` を取得した。
+
+| 検査 | 実署名候補の結果 |
+| --- | --- |
+| AAB署名 / APK署名 | 各署名検証PASS、署名者1、両者の公開証明書SHA-256一致 |
+| version / SDK / ABI | versionName `1.0.18`、versionCode `2030000102`、minSdk31、targetSdk36、arm64-v8a |
+| package | verifierが期待値 `jp.yasagure.ponlet` と実体を照合してPASS。公開ログの表示はGitHubのmaskにより `jp.yasagure.***`。maskを解除するための値取得は行わない |
+| native | AAB/APK各9本、全てELF64・AArch64（machine183）・LOAD16KB。対応する9本のSHA-256が全て一致し、GoとRustも一致 |
+| 配置 | AABの16KB指定PASS、APK内native ZIP16KB配置PASS |
+| manifest / backup | カメラ任意、広告ID無効化と広告関連権限除去、受信 `files/received` のcloud除外PASS。D2D復元の動作保証とは分ける |
+| compiled Firebase | Google app ID、期待project、Crashlytics build IDの検査は全てtrue。値を出さず、本番初期化・通信は未検証 |
+| RELRO | 各2警告。DatastoreとCameraXの既存監査警告として保持。LOAD/ZIP検査はPASS、実機でのSDK機能試験とPlay側判定は別途必要 |
+| upload抑止 / cleanup | dry-runと両buildのgraph確認PASS、cleanup step成功、配布job skipped、Actions artifact 0件 |
+
+| 公開可能な実体識別値 | SHA-256 |
+| --- | --- |
+| AAB | `f2c479a5a7573b729c176f9ad8d54b721665520a7886a1db0196d9f15a4d31d2` |
+| APK | `069ca9efdc6cb5249bf5d3c77ef35cb4ef861790de8209092bd054cf952405fb` |
+| 共通公開署名証明書 | `d8dea3cfe16327293fa7fc7510859fd546ebfe50ca622dd87622fbb05f8539f5` |
+| Go libtailcat.so（両候補一致） | `972c6968c66534a7bafcec522dcb42f9f54307141473af190ffa49eb52e9c78e` |
+| Rust libtailsend_tauri_lib.so（両候補一致） | `ca846ad3ca3408597393549607a699661f211d1f3c83a3ce744eacfe3c6556ad` |
+| artifact verification私有log | `8c7b084f45c8879742e0a781ba2b0f883d567c60009839f7c7700c6f3f2268ff`。原文はcleanupで破棄 |
+
+Mac実行ツールの一時的な切断中もCIは継続した。GitHub読み取りconnectorで完了状態と安全なreportを取得し、接続回復後に既存gh認証で同じrun・job・SHA・実署名stepを再確認した。新しいcredentialやGoogle設定変更はない。
+
+独立validatorもGitHubから実署名stepとexact SHAの検証コードを読み、safe report、9本のhash一致、cleanup、配布スキップ、artifact 0件を再確認し、不整合なしと報告した。静的検証の監査であり、Macへ候補を持ち出して再検証した結果ではない。
+
+この成功はrunner内の上記実体に限る。Play App Signing証明書、既存Play版からのupgrade、本番Firebase通信、QR・転送・SAF・復元、Play側16KB判定・審査の合格を示さない。AAB/APKは保存・移送していないので、後続で再生成する候補はhash・署名・設定を改めて検査する。結果を追記する文書だけのcommitは、上記CI対象SHAとは区別する。
+
 ## 残る提出準備
 
-1. 署名候補の静的検査を完了し、artifact hash・公開証明書・manifest・16KB結果をこの記録に対応させる。
-2. 同じ提出候補でAndroid runtime、QR、送受信、SAF、telemetry OFF/ON、復元を確認する。本番Firebase通信や端末使用は別の実施範囲として扱う。
-3. Data safetyと公開privacy/supportの記述を確定する。ローカルHTMLは `publication_ready=false` のまま。
-4. Consoleの未完設定、store listing、対象年齢、無料設定とclosed test条件を完了する。既存内部テスト・iOS審査通過をAndroid本番アクセスの合格として扱わない。
+1. 検査可能なAndroid release候補を改めて生成し、今回の静的合格条件を再確認したうえで、16KB環境の起動、送受信、SAF、telemetry OFF/ONを最小確認する。実カメラQR、cloud復元、Play版upgradeは条件の異なる追加確認として分ける。[runtime最小手順](MINIMAL_RUNTIME_PLAN.md)で審査要件と品質確認を区別する。本番Firebase通信や端末使用は別の実施範囲として扱う。
+2. Data safetyと公開privacy/supportの記述を、Firebase／ML Kitの通信・保存・削除とバックアップ方針に一致させる。ローカルHTMLは `publication_ready=false` のまま。
+3. Consoleの未完設定、store listing/contact、対象年齢、無料設定とclosed test条件を完了する。既存内部テスト・iOS審査通過をAndroid本番アクセスの合格として扱わない。
+4. 許可された配布段階で提出候補のPlay App Signing／upgradeとPlay側16KB判定を確認する。uploadや審査提出は今回行っていない。

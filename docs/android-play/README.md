@@ -1,6 +1,6 @@
 # Ponlet Android Google Play 提出準備
 
-このフォルダは内部レビュー用の草案である。Consoleへの保存、公開ページへの反映、審査提出は行っていない。日英privacy／supportのローカルHTMLだけを改訂した。日付は2026-10-03 UTC。コード調査の基準は `31fafb7aa7b59dd9c530fa1de4187293843512eb`。後続のコード修正と未実行の試験を、既存配布物の状態と混同しない。
+このフォルダは内部レビュー用の草案である。Consoleへの保存、公開ページへの反映、審査提出は行っていない。日英privacy／supportのローカルHTMLを改訂し、後続承認で配布を伴わない署名build検証を実施した。日付は2026-10-03–04 UTC。最新署名CIは `2573f6f4d7a673a955c749e8d17055caad27fb45` / [run37165522441](https://github.com/mat2uken/tailcatsend/actions/runs/37165522441) で静的検査PASS。初回コード調査の基準は `31fafb7aa7b59dd9c530fa1de4187293843512eb`。後続のコード修正と未実行の試験を、既存配布物の状態と混同しない。
 
 | 文書 | 用途 |
 | --- | --- |
@@ -42,14 +42,15 @@
 
 ## 優先順位
 
-1. 16 KB対応の全体確認を完了する。新候補AAB/APKは全9本のLOADとZIP整列、Go／RustのRELRO、カメラ任意設定を確認した。SDK2本のRELRO式は監査警告であり、起動不可やPlay拒否が確認されたブロッカーではない。新候補の9本は16KB／API35のnative dlopen／dlcloseにも合格。アプリ・SDK機能の16KB実行／Play判定は別途確認する。[再評価](RELRO_ASSESSMENT.md)を参照。
-2. 承認された広告ID無効化／広告関連権限除去とcloud受信ファイル除外は未署名候補2030000102の検査で確認済み。署名する提出AABでも再検査し、Data safety・公開ポリシーを一致させる。
-3. Firebase／ML Kitの収集、OFFの効果、保存期間・削除方法に加え、OSバックアップと復元の経路を確認し、日英ポリシーとConsole回答を完成させる。
-4. Android release実機試験と審査員手順の再現を完了する。iOS／macOSの結果はAndroidの合格記録に転用しない。
-5. 本体無料・一般向けの承認を未完アプリ設定へ反映する準備を行い、配布国と具体的なPlay年齢区分を提案する。Consoleは選択しない。closed test条件と本番アクセス要件も残る。
+1. Android releaseの最小機能確認を行う。再生成した検査可能な候補のhash・署名・設定を再確認し、16KB環境で起動、URL接続、双方向テキスト／小ファイル、文書選択・受信ファイルを開く・テキストSAF保存、telemetry OFF／再起動／再ONを確認する。本番Firebase通信と端末操作は追加承認後に限る。iOS／macOSやFirebaseなしの開発pilotの結果を流用しない。
+2. Data safetyと日英privacy/supportを、Firebase／ML Kitの収集・OFF・保持・削除、OSバックアップの説明に一致させる。公開・Console回答に必要な確認と、広い端末／異常系の品質確認を分ける。
+3. 未完アプリ設定、store listing/contact、配布国・具体的なPlay年齢区分・無料設定を確定し、Consoleに表示されたclosed test条件と本番アクセス要件を満たす。内部テスト有効だけでは代用できない。
+4. Playでの導入・upgradeとPlay側16KB判定を、別途許可された配布段階で確認する。SDK2本のRELRO式は監査警告として保持し、それだけで提出不可とは判定しない。[再評価](RELRO_ASSESSMENT.md)を参照。
+
+署名CI内のAAB/APKは、証明書一致、versionCode2030000102、全9本の16KB LOAD、APK ZIP16KB配置、カメラ任意、広告ID関連設定、受信cloud除外、compiled Firebase設定に合格した。AAB/APKの対応native9本はhashも一致。runtime・復元・Play側の判定は未実施。CI実体を保存・移送していないので、後続候補の再検査が必要。[署名CI実施記録](SIGNED_CI_VALIDATION_RESULTS.md)にhashと限定事項を記載する。次段の限定範囲と一括承認案は [runtime最小手順](MINIMAL_RUNTIME_PLAN.md) を参照。
 
 2026-10-03 17:59 UTCにユーザーが承認：Play本体無料、子ども向けを意図しない一般向け、Android受信ファイルのクラウドバックアップ除外、広告ID無効化。Analytics／Crashlyticsは既定ONとOFF操作を維持する。具体的なPlay年齢区分とConsole選択は未実施、D2D移行の対象範囲は拡張しない。 Analytics廃止・初回opt-inへの変更は行わない。
 
-`publication_ready=false`。Google側の保存期間・削除手順とSDK通信、署名を含む提出候補の検証が未完であり、ローカルHTMLをそのまま公開しない。
+`publication_ready=false`。Google側の削除手順・ML Kit保持とSDK通信・提出候補のruntime確認が未完であり、ローカルHTMLをそのまま公開しない。
 
-18:30 UTC前後の後続読み取りでは、対象Firebase／GAのイベント2か月・ユーザー14か月・活動ごとの期限更新ONなどを確認した。[実設定記録](PROJECT_SETTINGS_READONLY.md)と[SDK仕様](SDK_RETENTION_AND_DELETION.md)を分け、未照合の配布Androidへ値を適用していない。日英ローカルHTMLにはAndroid Crashlyticsの次起動OFF反映・端末保持・再ON送信だけを補足し、保存期間の仮値は追加していない。後続文書と補足は独立レビューを完了、重大指摘なし。18:30 UTCの調査段階ではGoogle設定変更・削除API・新runtime試験・workflow追加・CI実行・配布はしていない。後続の署名CI実装・実行は[実施記録](SIGNED_CI_VALIDATION_RESULTS.md)を参照。新署名候補、個別削除手順、ML Kit診断の保持と削除はなお未確認。
+18:30 UTC前後の後続読み取りでは、対象Firebase／GAのイベント2か月・ユーザー14か月・活動ごとの期限更新ONなどを確認した。[実設定記録](PROJECT_SETTINGS_READONLY.md)と[SDK仕様](SDK_RETENTION_AND_DELETION.md)を分け、未照合の配布Androidへ値を適用していない。日英ローカルHTMLにはAndroid Crashlyticsの次起動OFF反映・端末保持・再ON送信だけを補足し、保存期間の仮値は追加していない。後続文書と補足は独立レビューを完了、重大指摘なし。18:30 UTCの調査段階ではGoogle設定変更・削除API・新runtime試験・workflow追加・CI実行・配布はしていない。後続の署名CI実装・実行は[実施記録](SIGNED_CI_VALIDATION_RESULTS.md)を参照。署名候補のcompiled Firebase project一致は最終CIで確認済み。実通信、個別削除手順、ML Kit診断の保持と削除はなお未確認。
