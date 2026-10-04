@@ -1203,12 +1203,9 @@ body {
   opacity: 1;
 }
 .message-menu {
-  top: calc(100% + 0.25rem);
-  right: 0;
-}
-.message-row.outgoing .message-menu {
+  position: fixed;
   right: auto;
-  left: 0;
+  overflow-y: auto;
 }
 .composer-row {
   display: grid;

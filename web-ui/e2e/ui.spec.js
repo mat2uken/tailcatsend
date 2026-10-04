@@ -272,7 +272,7 @@ test("keeps a received pasted message together when copying it", async ({ page }
 
   await page.locator(".message-row.incoming .message-menu-button").click();
   await page
-    .locator(".message-row.incoming .message-menu:not([hidden])")
+    .locator(".message-menu:not([hidden])")
     .getByRole("button", { name: "Copy", exact: true })
     .click();
   expect(await page.evaluate(() => window.__testPonlet.calls)).toContainEqual(["copy", pasted]);
@@ -363,7 +363,7 @@ test("restores clipboard actions, history export and clearing, newest position a
   ]);
   await page.locator(".message-row.outgoing .message-menu-button").click();
   await page
-    .locator(".message-row.outgoing .message-menu:not([hidden])")
+    .locator(".message-menu:not([hidden])")
     .getByRole("button", { name: "Copy", exact: true })
     .click();
   await page.waitForFunction(
@@ -467,9 +467,108 @@ test("keeps message actions focused when their menu opens and closes", async ({ 
   await action.click();
   await expect(menu).toBeVisible();
   await expect(action).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(menu.getByRole("button", { name: "Copy", exact: true })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(menu).toBeHidden();
   await expect(action).toBeFocused();
+});
+
+for (const incoming of [true, false]) {
+  for (const actionName of ["Save", "Share"]) {
+    test(`keeps ${actionName} clickable for the newest ${incoming ? "received" : "sent"} message on a narrow screen`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 360, height: 420 });
+      await installBackend(page, { connected: true });
+      await page.goto("/");
+      await page.getByRole("tab", { name: "Messages" }).click();
+      const text = "first line\n日本語の二行目\nlast line";
+      await page.evaluate(
+        ({ incoming, text }) => {
+          for (let index = 0; index < 12; index++) {
+            window.__testPonlet.text(text, incoming);
+          }
+        },
+        { incoming, text },
+      );
+      await expect(page.locator(".message-row")).toHaveCount(12);
+      await page.locator(".message-menu-button").last().click();
+      const menu = page.locator(".message-menu:not([hidden])");
+      for (const name of ["Copy", "Share", "Save"]) {
+        const action = menu.getByRole("button", { name, exact: true });
+        await expect(action).toBeVisible();
+        expect(
+          await action.evaluate((element) => {
+            const rect = element.getBoundingClientRect();
+            const hit = document.elementFromPoint(
+              rect.x + rect.width / 2,
+              rect.y + rect.height / 2,
+            );
+            return (
+              rect.x >= 0 &&
+              rect.y >= 0 &&
+              rect.right <= innerWidth &&
+              rect.bottom <= innerHeight &&
+              element.contains(hit)
+            );
+          }),
+        ).toBe(true);
+      }
+      await menu.getByRole("button", { name: actionName, exact: true }).click();
+      await expect
+        .poll(() => page.evaluate(() => window.__testPonlet.calls))
+        .toContainEqual([actionName.toLowerCase(), text]);
+      await expect(menu).toHaveCount(0);
+    });
+  }
+}
+
+test("repositions or closes a message menu when the viewport and history change", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 360, height: 740 });
+  await installBackend(page, { connected: true });
+  await page.goto("/");
+  await page.getByRole("tab", { name: "Messages" }).click();
+  await page.evaluate(() => {
+    for (let index = 0; index < 20; index++) {
+      window.__testPonlet.text(`line ${index}\nsecond line`, true);
+    }
+  });
+  await expect(page.locator(".message-row")).toHaveCount(20);
+  const action = page.locator(".message-menu-button").last();
+  await action.click();
+  await page.setViewportSize({ width: 360, height: 380 });
+  const menu = page.locator(".message-menu:not([hidden])");
+  await expect
+    .poll(async () => {
+      const bounds = await menu.boundingBox();
+      return (
+        !bounds ||
+        (bounds.x >= 0 &&
+          bounds.y >= 0 &&
+          bounds.x + bounds.width <= 360 &&
+          bounds.y + bounds.height <= 380)
+      );
+    })
+    .toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  await action.click();
+  await expect(menu).toBeVisible();
+  const bounds = await menu.boundingBox();
+  expect(bounds.x).toBeGreaterThanOrEqual(0);
+  expect(bounds.y).toBeGreaterThanOrEqual(0);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(360);
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(380);
+  await page.locator(".message-log").evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await expect(menu).toHaveCount(0);
+  await action.click();
+  await page.getByRole("tab", { name: "Transfer" }).click();
+  await expect(menu).toHaveCount(0);
 });
 
 test("keeps received file actions focused across unchanged snapshots and updates changed items", async ({

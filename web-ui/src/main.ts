@@ -8,6 +8,7 @@ import {
 } from "./api/application-api";
 import { Session, type Message, type TransferResult } from "./session";
 import { showToast } from "./lib/toast";
+import { placeAnchor } from "./lib/position";
 import { checkForUpdate } from "./update/client";
 import { language, uiText, transportLabel } from "./i18n";
 import { createSettingsDialog } from "./components/settings-dialog";
@@ -745,7 +746,45 @@ van.derive(() => {
     }),
   );
 });
+let activeMessageMenu: { key: string; anchor: HTMLElement; menu: HTMLElement } | null = null;
+function closeMessageMenu(): void {
+  if (activeMessageMenu) {
+    if (activeMessageMenu.menu.contains(document.activeElement)) {
+      activeMessageMenu.anchor.focus({ preventScroll: true });
+    }
+    activeMessageMenu.menu.hidden = true;
+    activeMessageMenu.anchor.parentElement?.append(activeMessageMenu.menu);
+    activeMessageMenu = null;
+  }
+}
+function positionMessageMenu(): void {
+  if (!activeMessageMenu) {
+    return;
+  }
+  const { anchor, menu } = activeMessageMenu;
+  const anchorRect = anchor.getBoundingClientRect();
+  const logRect = log.getBoundingClientRect();
+  if (!anchor.isConnected || anchorRect.bottom <= logRect.top || anchorRect.top >= logRect.bottom) {
+    messageMenuOpen.val = null;
+    closeMessageMenu();
+    return;
+  }
+  menu.style.maxHeight = `${Math.max(0, (window.visualViewport?.height ?? window.innerHeight) - 16)}px`;
+  placeAnchor(anchor, menu, { placement: "bottom-end", offset: 4 });
+}
 van.derive(() => {
+  if (activeMessageMenu?.key !== messageMenuOpen.val) {
+    closeMessageMenu();
+  }
+});
+window.addEventListener("resize", positionMessageMenu, { passive: true });
+window.addEventListener("scroll", positionMessageMenu, { passive: true });
+window.visualViewport?.addEventListener("resize", positionMessageMenu, { passive: true });
+window.visualViewport?.addEventListener("scroll", positionMessageMenu, { passive: true });
+log.addEventListener("scroll", positionMessageMenu, { passive: true });
+van.derive(() => {
+  closeMessageMenu();
+  messageMenuOpen.val = null;
   const previousHeight = log.scrollHeight;
   const previousTop = log.scrollTop;
   const atNewest = previousTop + log.clientHeight >= previousHeight - 24;
@@ -776,7 +815,7 @@ van.derive(() => {
             () => uiText.save,
           );
           const actionMenu = div(
-            { class: "message-menu", hidden: () => messageMenuOpen.val !== key },
+            { class: "message-menu", hidden: true },
             copyMessageButton,
             shareMessageButton,
             saveMessageButton,
@@ -784,9 +823,36 @@ van.derive(() => {
           copyMessageButton.addEventListener("click", () => messageAction("copy", message));
           shareMessageButton.addEventListener("click", () => messageAction("share", message));
           saveMessageButton.addEventListener("click", () => messageAction("save", message));
+          actionButton.addEventListener("keydown", (event) => {
+            if (event.key === "Tab" && !event.shiftKey && activeMessageMenu?.key === key) {
+              event.preventDefault();
+              copyMessageButton.focus();
+            }
+          });
+          actionMenu.addEventListener("keydown", (event) => {
+            if (
+              event.key === "Tab" &&
+              ((event.shiftKey && document.activeElement === copyMessageButton) ||
+                (!event.shiftKey && document.activeElement === saveMessageButton))
+            ) {
+              event.preventDefault();
+              messageMenuOpen.val = null;
+              closeMessageMenu();
+            }
+          });
           actionButton.addEventListener("click", (event) => {
             event.stopPropagation();
-            messageMenuOpen.val = messageMenuOpen.val === key ? null : key;
+            const opening = messageMenuOpen.val !== key;
+            closeMessageMenu();
+            messageMenuOpen.val = opening ? key : null;
+            if (opening) {
+              // The history scroll pane and card backdrop clip positioned descendants.
+              // Render only the active menu at body level, then flip/clamp to the viewport.
+              document.body.append(actionMenu);
+              actionMenu.hidden = false;
+              activeMessageMenu = { key, anchor: actionButton, menu: actionMenu };
+              positionMessageMenu();
+            }
           });
           const bubble = p(
             { class: `message-bubble ${message.incoming ? "incoming" : "outgoing"}` },
@@ -929,7 +995,7 @@ document.addEventListener("click", (event) => {
   if (!target.closest(".chat-menu-wrap")) {
     chatMenuOpen.val = false;
   }
-  if (!target.closest(".message-row")) {
+  if (!target.closest(".message-row, .message-menu")) {
     messageMenuOpen.val = null;
   }
   if (!target.closest(".connection-info-panel, .connection-info-button")) {
