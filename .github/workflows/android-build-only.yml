@@ -66,10 +66,12 @@ jobs:
           cat "$RUNNER_TEMP/android-build-verification.json"
           # This stricter check replaces the old received-only backup policy:
           # retain its exact scope, plus exclude only private deletion state.
+          privacy_status=0
           python3 scripts/verify_android_privacy.py "${artifacts[@]}" \
             --mode "${{ matrix.privacy }}" \
             --build-dir apps/tauri/gen/android/app/build \
-            --report "$RUNNER_TEMP/android-privacy-verification.json"
-          cat "$RUNNER_TEMP/android-privacy-verification.json"
+            --report "$RUNNER_TEMP/android-privacy-verification.json" || privacy_status=$?
+          cat "$RUNNER_TEMP/android-privacy-verification.json" || { test "$privacy_status" -ne 0 || privacy_status=1; }
+          exit "$privacy_status"
       # No artifact publication, signing secrets, Firebase client config,
       # or Play credentials are used by this workflow.
