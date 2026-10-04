@@ -1,11 +1,11 @@
-# 次段のAndroid runtime最小手順（承認済み・実行準備中）
+# 次段のAndroid runtime最小手順（承認済み・限定試験完了）
 
-2026-10-04 UTC。署名CI [37165522441](https://github.com/mat2uken/tailcatsend/actions/runs/37165522441) / source `2573f6f4d7a673a955c749e8d17055caad27fb45` は署名・証明書一致・16KB・manifest・compiled Firebase検査PASS。CIのAAB/APKを保存していないので、次段には再buildと検査済みAPKの移送が必要。後続でユーザーが、APKだけの短期Actions保存・Mac取得後削除・専用AVDと専用Web相手の実通信を伴う最小試験を承認した。実行結果は別記録へ追記する。実機QR・cloud復元・Play upload／upgrade・公開・審査提出は承認範囲外。
+2026-10-04 UTC。署名CI [37165522441](https://github.com/mat2uken/tailcatsend/actions/runs/37165522441) / source `2573f6f4d7a673a955c749e8d17055caad27fb45` は署名・証明書一致・16KB・manifest・compiled Firebase検査PASS。当時はCIのAAB/APKを保存していなかったため、次段に再buildと検査済みAPKの移送が必要だった。後続でユーザーが、APKだけの短期Actions保存・Mac取得後削除・専用AVDと専用Web相手の実通信を伴う最小試験を承認した。再生成・移送・削除・専用AVD基本試験・後始末を完了し、成功・失敗・未確認は [実施記録](SIGNED_RUNTIME_RESULTS.md) に記載した。実機QR・cloud復元・Play upload／upgrade・公開・審査提出は承認範囲外。
 
 ## 承認された限定範囲
 
 1. 専用branchに明示的なruntime候補出力modeを追加し、既存署名入力とFirebase構成で同じrelease AAB/APKを再buildする。90分上限、Play credentialなし、Crashlytics mapping/native upload抑止、秘密入力cleanupを維持する。静的検査PASS後のAPK1本だけをActions artifactへ保存する。安全な検査reportは既存のstdout／job summaryに保持し、artifactへ含めない。保存期間1日、既存gh認証でMacへdownload・hash照合後に当該artifactを削除する。鍵、password、元Firebase構成、私有build logは保存・移送しない。GitHub Release・Playへのuploadは含めない。
-2. 既存API35 arm64/16KB system imageと専用AVD `ponlet-pilot-16k` の方式を再利用する。前回専用AVDは終了済み、現時点の稼働状況は未再確認。ユーザーの既存AVDデータを使わず、空の試験領域・snapshotなし・cameraなし・audioなし・loopbackの対象emulatorだけを使う。物理端末・USB・別AuraGaugeには触れない。
+2. 既存API35 arm64/16KB system imageと専用AVD pilotの方式を再利用する。今回のAVDは空の `ponlet-runtime-16k` とし、試験後に終了を確認した。ユーザーの既存AVDデータを使わず、空の試験領域・snapshotなし・cameraなし・audioなし・loopbackの対象emulatorだけを使う。物理端末・USB・別AuraGaugeには触れない。
 3. Ponletをfresh installし、既定ONで一度起動、OFF→再起動→再ONの保存とSDK初期化を確認する。PonletのFirebase／ML KitとOS由来通信をPID等で分け、送信先と必要最小限の証拠を記録する。故意のcrashや診断queueの大量生成は行わない。DNS／接続情報だけでTLS内の送信内容を完全に証明したとは扱わない。
 4. MacのPonlet Web版を試験相手とし、招待URLで接続、日本語テキストと小さいdummy画像またはPDFを双方向転送する。AndroidのOS文書選択、受信一覧→開く、テキストのSave→SAF文書保存先選択を操作し、byte数／hashを照合する。試験データだけを使い、招待tokenや識別子の生値は共有証拠へ残さない。終了後は今回起動したAVDだけを終了する。
 
@@ -18,7 +18,7 @@ APKにはcompiled Firebase client設定が含まれ、download者が解析でき
 | 経路 | 許可する最小試験で生じ得る情報 | 宛先・限定 |
 | --- | --- | --- |
 | Firebase Analytics／Installations／Sessions | 起動・利用・接続・転送イベント、本文長などの分類値、app-instance／installation等のID、端末・OS・アプリ情報、IP由来の概略位置 | Google LLC、確認済みproject `ponlet-599c4`、リンク先GA property `553139030`／Android stream `15740481045`。compiled project一致はCIで確認、実際のSDK接続先は次段で観測 |
-| Crashlytics／NDK | installation関連ID、session、端末・アプリ情報。偶発crash時はstack trace／診断 | 同じGoogle Firebase project。故意のcrash、native/mapping build upload、Google設定変更は承認案に含めない。OFFは次起動反映、再ONは既存未送信reportを送る場合がある |
+| Crashlytics／NDK | installation関連ID、session、端末・アプリ情報。偶発crash時はstack trace／診断 | 同じGoogle Firebase project。故意のcrash、native/mapping build upload、Google設定変更は承認済み範囲に含めない。OFFは次起動反映、再ONは既存未送信reportを送る場合がある |
 | ML Kit／Play services | QR利用時の機種・OS・アプリ・識別子・性能／API利用状況、モデル取得等 | GoogleのSDKサービス。画像・QR読取結果は端末内処理という実装・SDK仕様と、独立した診断通信を分ける。Firebase OFFで一括停止するとは説明しない |
 | 接続・転送 | dummy本文／ファイルの暗号化転送、接続metadata、IP | 指定した試験相手、`https://tailcat.dev/derpmap.json` とそのmapが列挙するrelay、Web相手 `https://ponlet.mat2uken.app/`。relayの実宛先は試験時に観測し、固定host一覧を推測しない |
 
@@ -26,7 +26,7 @@ APKにはcompiled Firebase client設定が含まれ、download者が解析でき
 
 ## ユーザー操作が必要な追加確認
 
-| 項目 | 最小操作と条件 | 次の一括承認案との関係 |
+| 項目 | 最小操作と条件 | 承認済み範囲との関係 |
 | --- | --- | --- |
 | SAF／受信 | 試験AVDのOS文書pickerでdummy入力と保存先を選び、受信ファイルを対応アプリで開く。これは写真／動画library全体のアクセス許可とは別 | 上記AVD基本試験に含める。未提供のcloud storageや私的ファイルは使わない |
 | 実カメラQR | 指定されたAndroid試験端末でユーザーがカメラ許可／拒否を選び、Mac表示のdummy招待QRを読む。AVDはcameraなしなので代用不可 | 使用できる実機・OS・PAGE_SIZEは既知情報なし。ユーザー自身の操作または指定端末への限定許可を別途必要とする。USB接続は必須にしない |
@@ -39,4 +39,4 @@ APKにはcompiled Firebase client設定が含まれ、download者が解析でき
 
 起動・転送・SAF・OFFの最小試験は、機能と申告の整合を確かめる優先確認。OS／OEMを網羅する復元、巨大ファイル、全ネットワーク条件、故意のcrash、全SDKの異常系を、Googleが指定する提出必須チェック表として扱わない。実カメラQRは主要機能の品質確認として優先し、広い端末matrixやD2D／cloud復元はclosed test中の追加確認にもできる。正確に説明できない挙動は未確認と記録し、未検証の保証を公開文へ書かない。
 
-承認範囲の要約：**検査済みrelease APKだけの短期Actions保存・Mac download後削除、専用16KB AVDへのinstall、実Google／relay通信を伴うdummy転送・SAF・telemetry試験**。実機QR・cloud復元・Play upload／upgrade・公開・審査提出は別段階。承認後の試験を進め、成功・失敗・未確認を別記録へ残す。
+承認範囲の要約：**検査済みrelease APKだけの短期Actions保存・Mac download後削除、専用16KB AVDへのinstall、実Google／relay通信を伴うdummy転送・SAF・telemetry試験**。実機QR・cloud復元・Play upload／upgrade・公開・審査提出は別段階。承認後の限定試験と後始末は完了。初回転送失敗・menu切れ・SDK観測不足を含む [実施記録](SIGNED_RUNTIME_RESULTS.md) を参照。
