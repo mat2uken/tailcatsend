@@ -23,7 +23,11 @@ DERIVED_KEYS = {'PONLET_ANDROID_KEYSTORE', 'ANDROID_KEYSTORE_PASSWORD',
                 'ANDROID_KEY_ALIAS', 'ANDROID_KEY_PASSWORD'}
 MARKER = b'PONLET_SIGNED_VALIDATION_GRAPH_OK'
 SIGNATURE_DIAGNOSTIC_FIELDS = ('numbered_lines', 'sdk_range_lines',
-                               'unknown_certificate_labels', 'unique_fingerprints')
+                               'unknown_certificate_labels', 'unique_fingerprints',
+                               'certificate_digest_tokens', 'indented_certificate_lines',
+                               'certificate_dn_lines', 'signer_label_lines',
+                               'pem_certificate_blocks', 'v2_verified_lines',
+                               'v3_verified_lines', 'v31_verified_lines')
 # Only reviewed verifier enum literals may reach a failure log.
 SAFE_ERROR_CODES = frozenset(('aab_apk_public_certificates_differ', 'aab_public_certificate_missing', 'aab_signature_block_missing', 'aab_signature_not_verified', 'aab_signer_count_not_one', 'aab_unsigned_entries_present', 'apk_public_certificate_missing_or_ambiguous', 'apk_signature_not_verified', 'apk_signer_count_not_one', 'artifact_validation_failed', 'firebase_compiled_resource_decode_failed', 'firebase_compiled_resource_table_missing', 'firebase_project_does_not_match', 'firebase_required_resource_missing_blank_or_unresolved', 'invalid_compiled_resource_table', 'invalid_public_certificate_fingerprint', 'invalid_resource_configuration', 'invalid_resource_entry', 'invalid_resource_key_index', 'invalid_resource_key_pool', 'invalid_resource_offsets', 'invalid_resource_string_index', 'invalid_resource_type', 'invalid_resource_value', 'native_abi_not_arm64_only', 'native_elf_not_aarch64', 'release_metadata_does_not_match', 'safe_report_write_failed', 'signature_tool_failed', 'signature_tool_unavailable_or_timed_out', 'static_artifact_checks_failed', 'unknown_native_library_layout', 'unsupported_compiled_resource_table', 'unsupported_resource_type', 'wrong_artifact_extension'))
 
@@ -204,6 +208,15 @@ def publish_failure_report(path):
         print(json.dumps(payload, sort_keys=True), file=sys.stderr)
 
 
+def apksigner_version_diagnostic(apksigner):
+    # A public SDK directory label is accepted only as three bounded digit groups.
+    # Unknown labels and the tool's actual path are never included in the result.
+    match = re.fullmatch(r'([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})', Path(apksigner).parent.name)
+    if match is None:
+        return {'apksigner_build_tools_version_known': False}
+    return {'apksigner_build_tools_version': [int(part) for part in match.groups()]}
+
+
 def prepare_tauri_settings(repo, metadata, destination):
     build = repo / 'apps/tauri/gen/android/app/tauri.build.gradle.kts'
     if destination.exists() or build.exists():
@@ -379,10 +392,13 @@ def validate(repo, expected, incoming):
             java = Path(base_env['JAVA_HOME']) / 'bin'
             safe_report = work / 'verification.json'
             verify_env = dict(base_env)  # No signing passwords/input/config env for verification.
+            apksigner = find_tool(sdk, 'apksigner')
+            tool_version = apksigner_version_diagnostic(apksigner)
+            print(json.dumps(tool_version, sort_keys=True), file=sys.stderr)
             try:
                 run_private([sys.executable, str(repo / 'scripts/verify_signed_android_release.py'),
                              str(bundles[0]), str(apks[0]), '--expect-version-code', VERSION_CODE,
-                             '--apksigner', find_tool(sdk, 'apksigner'), '--jarsigner', str(java / 'jarsigner'),
+                             '--apksigner', apksigner, '--jarsigner', str(java / 'jarsigner'),
                              '--keytool', str(java / 'keytool'), '--report', str(safe_report)],
                             repo, verify_env, work, 'artifact-verification')
             except ValidationError:
@@ -394,7 +410,7 @@ def validate(repo, expected, incoming):
                 raise ValidationError('artifact verifier did not confirm success')
             summary = {'source_sha': actual, 'version_code': int(VERSION_CODE),
                        'control_sha256': hashlib.sha256(init_source.read_bytes()).hexdigest(),
-                       'build_log_sha256': digests, 'verification': report}
+                       'build_log_sha256': digests, 'verification': report, **tool_version}
             rendered = json.dumps(summary, sort_keys=True, indent=2)
             print(rendered)
             if base_env.get('GITHUB_STEP_SUMMARY'):

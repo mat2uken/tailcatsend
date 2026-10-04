@@ -122,7 +122,8 @@ class GuardTests(unittest.TestCase):
             self.assertEqual(validation.report_error_codes(report), [])
 
     def test_signature_counts_publish_only_exact_fields_and_bounded_integers(self):
-        good = dict(zip(validation.SIGNATURE_DIAGNOSTIC_FIELDS, (0, 128, 1, 2)))
+        good = dict(zip(validation.SIGNATURE_DIAGNOSTIC_FIELDS, (0, 128, 1, 2) * 3))
+        self.assertEqual(len(good), 12)
         with tempfile.TemporaryDirectory() as tmp:
             report = Path(tmp) / 'safe.json'
             report.write_text(json.dumps({'errors': ['PRIVATE_LABEL', 'signature_tool_failed'],
@@ -145,6 +146,7 @@ class GuardTests(unittest.TestCase):
             for invalid in (dict(good, raw_label='PRIVATE_LABEL'),
                             dict(good, path='/PRIVATE_PATH'), dict(good, certificate='PRIVATE_CERT'),
                             {key: value for key, value in good.items() if key != 'numbered_lines'},
+                            dict(list(good.items())[:4]),
                             'PRIVATE_CERT', None, []):
                 report.write_text(json.dumps({'artifacts': [{'type': 'apk', 'signature_diagnostics': invalid}]}))
                 self.assertIsNone(validation.report_signature_diagnostics(report))
@@ -153,6 +155,21 @@ class GuardTests(unittest.TestCase):
                               [{'type': 'apk', 'signature_diagnostics': good}] * 2):
                 report.write_text(json.dumps({'artifacts': artifacts}))
                 self.assertIsNone(validation.report_signature_diagnostics(report))
+
+    def test_apksigner_version_has_only_strict_numeric_parts_or_unknown_boolean(self):
+        for label, numbers in [('35.0.0', [35, 0, 0]), ('1.2.3', [1, 2, 3]),
+                               ('999.123.456', [999, 123, 456]), ('001.002.003', [1, 2, 3])]:
+            value = validation.apksigner_version_diagnostic('/PRIVATE_PATH/' + label + '/apksigner')
+            self.assertEqual(value, {'apksigner_build_tools_version': numbers})
+            self.assertTrue(all(type(number) is int for number in value['apksigner_build_tools_version']))
+            self.assertNotIn('PRIVATE_PATH', json.dumps(value))
+            self.assertNotIn(label, json.dumps(value))
+        for label in ('PRIVATE_CERT', '35.0.0-rc1', '35.0', '1000.0.0', '35.0.0\n',
+                      '３５.0.0', '+35.0.0', '35.0.0 PRIVATE_LABEL'):
+            value = validation.apksigner_version_diagnostic('/PRIVATE_PATH/' + label + '/apksigner')
+            self.assertEqual(value, {'apksigner_build_tools_version_known': False})
+            self.assertNotIn('PRIVATE_', json.dumps(value))
+            self.assertNotIn(label, json.dumps(value))
 
     def test_cancellation_terminates_private_child_process_group(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -275,7 +292,7 @@ echo PONLET_SIGNED_VALIDATION_GRAPH_OK
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             app, env, global_env, temp = self.fixture(root)
-            counts = dict(zip(validation.SIGNATURE_DIAGNOSTIC_FIELDS, (0, 2, 0, 1)))
+            counts = dict(zip(validation.SIGNATURE_DIAGNOSTIC_FIELDS, (0, 2, 0, 1) + (0,) * 8))
             report = {'verified': False, 'errors': [], 'raw_path': '/PRIVATE_PATH',
                       'artifacts': [{'type': 'apk', 'errors': ['apk_public_certificate_missing_or_ambiguous'],
                                      'signature_diagnostics': counts, 'raw_label': 'PRIVATE_LABEL',
@@ -291,6 +308,7 @@ echo PONLET_SIGNED_VALIDATION_GRAPH_OK
             diagnostics = [event for event in events if 'signature_diagnostics' in event]
             self.assertEqual(diagnostics, [{'artifact_error_codes': ['apk_public_certificate_missing_or_ambiguous'],
                                            'signature_diagnostics': counts}])
+            self.assertIn({'apksigner_build_tools_version': [35, 0, 0]}, events)
             self.assertNotIn('PRIVATE_', captured.getvalue())
             self.assertNotIn('TEST_ONLY_INPUT', captured.getvalue())
             self.assertFalse((app / 'google-services.json').exists())

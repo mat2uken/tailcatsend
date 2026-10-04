@@ -1,6 +1,6 @@
 # 配布を伴わない署名build検証
 
-2026-10-03 UTC。ユーザー承認後に実装、独立レビュー、専用branchのpush、手動CI実行を行った。先行の [計画](SIGNED_RELEASE_VALIDATION_PLAN.md) の未実装・未実行という記述は、その計画作成時点の記録である。今回の実施範囲は以下に限る。
+2026-10-03–04 UTC。ユーザー承認後に実装、独立レビュー、専用branchのpush、手動CI実行を行った。先行の [計画](SIGNED_RELEASE_VALIDATION_PLAN.md) の未実装・未実行という記述は、その計画作成時点の記録である。今回の実施範囲は以下に限る。
 
 | 項目 | 実施内容 |
 | --- | --- |
@@ -109,7 +109,25 @@ APK署名toolの正常終了、`Verifies`、署名者数1の確認後に、公�
 
 正常終了・署名検証成功・署名者数1を引き続き要求する。SDK範囲表記はv3.1成功表示と有効なSDK範囲を要求し、複数範囲でも公開fingerprintが全て同じ場合だけ受け付ける。異fingerprint、未知label、形式混在、複数署名者、壊れたdigestを拒否する。失敗時は固定4項目の件数（0..128）のみを出し、原文、alias、所有者、path、digest値を出さない。
 
-独立レビューに重大指摘なし。verifier 17件、helper 16件、patch回帰1件のfixtureとworkflow actionlint、差分空白検査が成功。システムpython3で全scripts 95件を実行すると、Androidと無関係のTestFlightテスト1件だけが未導入の`jwt`で停止した。依存installはしていない。verifier fixture 17件成功。既存の開発署名APKはSDK34/35/36のapksignerで実検証成功し、fingerprintは3版で一致した。このAPKは開発用証明書であり、CIの本番署名候補の証拠には流用しない。署名入力、Firebase構成、build、upload抑止は変更しない。
+独立レビューに重大指摘なし。verifier 17件、helper 16件、patch回帰1件のfixtureとworkflow actionlint、差分空白検査が成功。システムpython3で全scripts 95件を実行すると、Androidと無関係のTestFlightテスト1件だけが未導入の`jwt`で停止した。依存installはしていない。その後、既存 `work/test-venv/bin/python` で最終差分の全96件が成功した。既存の開発署名APKはSDK34/35/36のapksignerで実検証成功し、fingerprintは3版で一致した。このAPKは開発用証明書であり、CIの本番署名候補の証拠には流用しない。署名入力、Firebase構成、build、upload抑止は変更しない。
+
+## 証明書解析修正版の再検証
+
+| 項目 | 値 |
+| --- | --- |
+| run | [37162811567](https://github.com/mat2uken/tailcatsend/actions/runs/37162811567) |
+| source SHA | `108ef1feff27285ba0519769225180ec24a0a364` |
+| 状態 | FAIL。署名検証jobは2026-10-03 23:46:16–2026-10-04 00:02:31 UTC。request成功、配布jobはskipped、always cleanup成功、artifact 0件。`mode=verify` / `confirm_deploy=false`、90分上限を維持 |
+
+AAB build 428.594秒、APK build 82.888秒で両方成功。artifact verificationは3.720秒で同じ `apk_public_certificate_missing_or_ambiguous` により失敗した。検証log hashは `f8279fdbb4d3d51054eaaefde40290d72d5f8801fe7126998a9582fb0393549b`。
+
+固定件数診断は numbered/sdk-range/unknown-label/unique-fingerprint が全て0。正規表現に一致する証明書digest行がないという事実であり、SDK範囲表記への対応だけでは解消しなかった。証明書が存在しない、署名無効、どの出力形式だったかの断定には使わない。原出力は非公開・cleanup済みのまま。次の再試行前に証明書出力とtool選択を切り分ける。最終総合静的PASSは未取得。
+
+## 証明書印字の追加切り分け
+
+CI4の4件数だけでは証明書印字の欠落・indent・表記差を区別できない。追加診断を固定12項目へ拡張し、各整数0..128だけを許可する。DN/digest語句、Signer行、PEM開始、v2/v3/v3.1成功表示の件数を加える。選択したbuild-toolsのversionもstrictな数値3要素に限定して記録し、toolのpathや原文を出さない。
+
+公式のoptional boolean引数を明示し、`verify --verbose true --print-certs true` とする。証明書印字の省略解釈への依存を除くが、これがCI4の根本原因だったとは断定しない。暗号署名成功、署名者1、未知ラベル拒否、全fingerprint一致、AABとの一致の合格条件は維持する。PEMによる代替合格は採用しない。新sourceの再実行は、この診断と明示引数の効果を確かめるために行う。独立レビューに重大指摘なし。verifier19件、helper17件、全scripts99件の既存環境テスト、workflow actionlint、差分空白検査が成功。既存開発署名APKのSDK34/35/36実検証も成功したが、CI署名候補の結果へ流用しない。
 
 ## 残る提出準備
 

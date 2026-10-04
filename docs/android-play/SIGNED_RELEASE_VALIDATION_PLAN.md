@@ -2,6 +2,8 @@
 
 2026-10-03 UTC。これは実装・実行前の計画。workflow追加、push、dispatch、成果物配布、Play／Console／サイト操作は行っていない。鍵・パスワード・Firebase設定の値も読んでいない。
 
+後続で配布なし署名CIを実装・実行した。下記の未実装・未生成・未実行は計画作成時点の記録であり、最新SHAと結果は [署名CI実施記録](SIGNED_CI_VALIDATION_RESULTS.md) を参照する。runtime試験の承認や合格はこの追記に含まない。
+
 ## 比較対象と到達点
 
 対象repoは `mat2uken/tailcatsend`、local branchは `feature/android-play-readiness`。製品コードの基準SHAは `5e0125797c2466918772a6722302d84219a1792a`。今回検証済みのunsigned候補は `jp.yasagure.ponlet`／1.0.18／2030000102／min31／target36／arm64-v8a。

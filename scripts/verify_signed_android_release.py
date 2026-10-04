@@ -21,7 +21,10 @@ _spec = importlib.util.spec_from_file_location('android_static_checks', Path(__f
 static = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(static)
 FIREBASE_NAMES = ('google_app_id', 'project_id', 'com.google.firebase.crashlytics.mapping_file_id')
-SIGNATURE_DIAGNOSTIC_FIELDS = ('numbered_lines', 'sdk_range_lines', 'unknown_certificate_labels', 'unique_fingerprints')
+SIGNATURE_DIAGNOSTIC_FIELDS = ('numbered_lines', 'sdk_range_lines', 'unknown_certificate_labels', 'unique_fingerprints',
+                             'certificate_digest_tokens', 'indented_certificate_lines', 'certificate_dn_lines',
+                             'signer_label_lines', 'pem_certificate_blocks', 'v2_verified_lines',
+                             'v3_verified_lines', 'v31_verified_lines')
 
 
 class VerificationFailure(ValueError):
@@ -72,7 +75,7 @@ def aab_signature(path, jarsigner, keytool):
 
 
 def apk_signature(path, apksigner):
-    output = tool([apksigner, 'verify', '--verbose', '--print-certs', str(path)])
+    output = tool([apksigner, 'verify', '--verbose', 'true', '--print-certs', 'true', str(path)])
     check(bool(re.search(r'(?m)^Verifies\s*$', output)), 'apk_signature_not_verified')
     check(re.findall(r'(?m)^Number of signers:\s*(\d+)\s*$', output) == ['1'], 'apk_signer_count_not_one')
     return {'verified': True, 'signature_present': True, 'signer_count': 1,
@@ -88,6 +91,16 @@ def apk_certificate_sha256(output):
     numbered = r'Signer #\d+'
     sdk_range = r'Signer \(minSdkVersion=\d+(?: \(dev release=true\))?, maxSdkVersion=\d+\)'
     counts = dict.fromkeys(SIGNATURE_DIAGNOSTIC_FIELDS, 0)
+    # These bounded counts distinguish missing certificate printing from label,
+    # indentation or line-ending differences without releasing any tool text.
+    counts['certificate_digest_tokens'] = output.count('certificate SHA-256 digest:')
+    counts['indented_certificate_lines'] = len(re.findall(r'(?m)^[ \t]+Signer[^\r\n]* certificate SHA-256 digest:', output))
+    counts['certificate_dn_lines'] = output.count(' certificate DN:')
+    counts['signer_label_lines'] = len(re.findall(r'(?m)^[ \t]*Signer\b', output))
+    counts['pem_certificate_blocks'] = output.count('-----BEGIN CERTIFICATE-----')
+    counts['v2_verified_lines'] = len(re.findall(r'(?m)^Verified using v2 scheme \(APK Signature Scheme v2\): true\s*$', output))
+    counts['v3_verified_lines'] = len(re.findall(r'(?m)^Verified using v3 scheme \(APK Signature Scheme v3\): true\s*$', output))
+    counts['v31_verified_lines'] = len(re.findall(r'(?m)^Verified using v3\.1 scheme \(APK Signature Scheme v3\.1\): true\s*$', output))
     recognized_fingerprints = set()
     for line in lines:
         label, digest = line.split(' certificate SHA-256 digest:', 1)

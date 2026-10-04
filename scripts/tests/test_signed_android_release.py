@@ -120,6 +120,12 @@ class SignedReleaseTests(unittest.TestCase):
                          'CERT_SUBJECT_SENTINEL', 'SIGNER_ALIAS_SENTINEL', 'FIREBASE_SENTINEL'):
             self.assertNotIn(sentinel, text)
 
+    def test_apksigner_boolean_options_are_explicit(self):
+        _, apk = self.artifacts()
+        with mock.patch.object(m, 'tool', side_effect=signature_output) as tool:
+            self.assertTrue(m.apk_signature(apk, 'apksigner')['verified'])
+        tool.assert_called_once_with(['apksigner', 'verify', '--verbose', 'true', '--print-certs', 'true', str(apk)])
+
     def test_aab_unsigned_exit_zero_is_not_accepted(self):
         aab, _ = self.artifacts(signed=False)
         with mock.patch.object(m, 'tool', return_value='jar is unsigned.\n') as tool:
@@ -211,6 +217,11 @@ class SignedReleaseTests(unittest.TestCase):
                   'Signer #1 certificate SHA-256 digest: ' + OTHER_CERTIFICATE + '\n',
                   dict(numbered_lines=2, sdk_range_lines=0, unknown_certificate_labels=0, unique_fingerprints=2))]
         for lines, expected_counts in cases:
+            expected_counts.update(certificate_digest_tokens=min(len(lines.splitlines()), 128),
+                                   indented_certificate_lines=0, certificate_dn_lines=0,
+                                   signer_label_lines=min(len(lines.splitlines()), 128),
+                                   pem_certificate_blocks=0, v2_verified_lines=0,
+                                   v3_verified_lines=0, v31_verified_lines=0)
             with self.subTest(expected_counts=expected_counts), mock.patch.object(m, 'tool', return_value=header + lines):
                 report = m.artifact_summary(apk, 'apk', EXPECTED, TOOLS)
                 self.assertFalse(report['verified'])
@@ -219,6 +230,30 @@ class SignedReleaseTests(unittest.TestCase):
                 self.assertTrue(all(type(n) is int and 0 <= n <= 128 for n in report['signature_diagnostics'].values()))
                 self.assertNotIn('SENTINEL', json.dumps(report))
                 self.assertNotIn(CERTIFICATE, json.dumps(report))
+
+    def test_missing_certificate_line_diagnostics_distinguish_missing_print_indentation_and_crlf(self):
+        samples = [('Verifies\nNumber of signers: 1\n', {}),
+                   ('  Signer #1 certificate SHA-256 digest: ' + CERTIFICATE + '\n',
+                    dict(certificate_digest_tokens=1, indented_certificate_lines=1, signer_label_lines=1)),
+                   ('Signer #1 certificate SHA-256 digest: ' + CERTIFICATE + '\r\n',
+                    dict(certificate_digest_tokens=1, signer_label_lines=1)),
+                   ('Signer #1 certificate DN: CERT_SUBJECT_SENTINEL\n'
+                    'Signer #1 certificate SHA256 digest: OPAQUE_ANDROID_ID_SENTINEL\n',
+                    dict(certificate_dn_lines=1, signer_label_lines=2)),
+                   ('-----BEGIN CERTIFICATE-----\nCERT_SUBJECT_SENTINEL\n-----END CERTIFICATE-----\n'
+                    'Verified using v3.1 scheme (APK Signature Scheme v3.1): true\n',
+                    dict(pem_certificate_blocks=1, v31_verified_lines=1)),
+                   ('Verified using v2 scheme (APK Signature Scheme v2): true\n'
+                    'Verified using v3 scheme (APK Signature Scheme v3): true\n'
+                    'Verified using v3.1 scheme (APK Signature Scheme v3.1): false\n',
+                    dict(v2_verified_lines=1, v3_verified_lines=1))]
+        for output, overrides in samples:
+            with self.subTest(overrides=overrides), self.assertRaises(m.VerificationFailure) as error:
+                m.apk_certificate_sha256(output)
+            expected = dict.fromkeys(m.SIGNATURE_DIAGNOSTIC_FIELDS, 0)
+            expected.update(overrides)
+            self.assertEqual(error.exception.signature_diagnostics, expected)
+            self.assertNotIn('SENTINEL', json.dumps(error.exception.signature_diagnostics))
 
     def test_official_sdk_range_fingerprint_still_matches_aab_public_certificate(self):
         aab, apk = self.artifacts()
