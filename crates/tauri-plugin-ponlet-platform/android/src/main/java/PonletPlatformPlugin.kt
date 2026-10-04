@@ -16,8 +16,10 @@ import java.io.File
 
 @InvokeArg class FileArgs { lateinit var path: String }
 @InvokeArg class TextArgs { lateinit var text: String }
-@InvokeArg class EnabledArgs { var enabled: Boolean = false }
+@InvokeArg class EnabledArgs { var enabled: Boolean = false; var intent: String = "" }
 @InvokeArg class TelemetryInitArgs { var optOut: Boolean = false }
+@InvokeArg class PrivacyRequest { var scope: String = ""; var confirmed: Boolean = false }
+@InvokeArg class PrivacyRequestArgs { lateinit var request: PrivacyRequest }
 @InvokeArg class EventArgs { lateinit var name: String; var params: Map<String, String> = emptyMap() }
 @InvokeArg class PropertyArgs { lateinit var name: String; lateinit var value: String }
 
@@ -66,25 +68,65 @@ class PonletPlatformPlugin(private val activity: Activity) : Plugin(activity) {
         } catch (error: Exception) { invoke.reject(error.message ?: "Cannot share message") }
     }
 
+    private fun privacyReply(invoke: Invoke, block: () -> org.json.JSONObject) {
+        TelemetryBridge.executor.execute {
+            try {
+                val value = block()
+                val result = JSObject()
+                value.keys().forEach { key -> result.put(key, value.get(key)) }
+                invoke.resolve(result)
+            } catch (error: Exception) {
+                invoke.reject((error as? PrivacyFault)?.code ?: "native_operation_failed")
+            }
+        }
+    }
+
     @Command
     fun telemetryInit(invoke: Invoke) {
-        if (invoke.parseArgs(TelemetryInitArgs::class.java).optOut) {
-            activity.getSharedPreferences("telemetry_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("telemetry_enabled", false).apply()
+        val optOut = invoke.parseArgs(TelemetryInitArgs::class.java).optOut
+        privacyReply(invoke) {
+            org.json.JSONObject().put("enabled", TelemetryBridge.initialize(activity, optOut))
+                .put("language", TelemetryBridge.language()).put("osVersion", TelemetryBridge.osVersion())
         }
-        TelemetryBridge.bootstrap(activity)
+    }
+
+    @Command
+    fun telemetryBeginIntent(invoke: Invoke) {
+        // No context, SDK, storage or serial wait: preempts an in-flight registration at IPC receipt.
         val result = JSObject()
-        result.put("enabled", TelemetryBridge.initAndEnabled(activity))
-        result.put("language", TelemetryBridge.language())
-        result.put("osVersion", TelemetryBridge.osVersion())
+        result.put("intent", TelemetryBridge.receivePrivacyIntent().toString())
         invoke.resolve(result)
     }
 
     @Command
     fun telemetrySetEnabled(invoke: Invoke) {
-        TelemetryBridge.setEnabled(invoke.parseArgs(EnabledArgs::class.java).enabled)
-        invoke.resolve()
+        val args = invoke.parseArgs(EnabledArgs::class.java)
+        val enabled = args.enabled
+        val intent = args.intent.toLongOrNull() ?: return invoke.reject("invalid_telemetry_intent")
+        TelemetryBridge.executor.execute {
+            try {
+                if (!TelemetryBridge.beginDesiredIntent(intent, enabled)) throw PrivacyFault("telemetry_intent_superseded")
+                TelemetryBridge.setEnabled(enabled)
+                invoke.resolve()
+            }
+            catch (error: Exception) { invoke.reject((error as? PrivacyFault)?.code ?: "native_operation_failed") }
+        }
     }
+
+    @Command
+    fun diagnosticsCapabilities(invoke: Invoke) = privacyReply(invoke) { TelemetryBridge.diagnosticsCapabilities(activity) }
+    @Command
+    fun diagnosticsStatus(invoke: Invoke) = privacyReply(invoke) { TelemetryBridge.diagnosticsStatus(activity) }
+    @Command
+    fun diagnosticsRequest(invoke: Invoke) {
+        val request = invoke.parseArgs(PrivacyRequestArgs::class.java).request
+        if (request.confirmed && request.scope in setOf("local", "bound_remote")) TelemetryBridge.receivePrivacyIntent()
+        privacyReply(invoke) { TelemetryBridge.diagnosticsRequest(activity, request.scope, request.confirmed) }
+    }
+    @Command
+    fun diagnosticsRetry(invoke: Invoke) = privacyReply(invoke) { TelemetryBridge.diagnosticsRetry(activity) }
+    @Command
+    fun diagnosticsContinueAfterRestart(invoke: Invoke) = privacyReply(invoke) { TelemetryBridge.diagnosticsContinue(activity) }
 
     @Command
     fun telemetryEvent(invoke: Invoke) {

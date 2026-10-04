@@ -3,6 +3,7 @@ import { createBackend, initializeBrowserBackend } from "@backend";
 import {
   initialSnapshot,
   type PonletBackend,
+  type DiagnosticsBackend,
   type ReceivedItem,
   type SharedPendingItem,
 } from "./api/application-api";
@@ -15,6 +16,7 @@ import { createSettingsDialog } from "./components/settings-dialog";
 import { canScanWithCamera, createScannerDialog } from "./components/scanner-dialog";
 import { createQrView } from "./components/qr-view";
 import "./style.css";
+import "./diagnostics/settings.css";
 
 const {
   a,
@@ -151,6 +153,16 @@ async function perform(action: () => Promise<void>): Promise<void> {
   }
 }
 const settings = createSettingsDialog({
+  getDiagnosticsBackend: () => {
+    const current = backend;
+    return current?.diagnosticsCapabilities &&
+      current.diagnosticsStatus &&
+      current.requestDiagnosticsDeletion &&
+      current.retryDiagnosticsDeletion &&
+      current.diagnosticsContinueAfterRestart
+      ? (current as PonletBackend & DiagnosticsBackend)
+      : undefined;
+  },
   canConfigureTelemetry: () =>
     Boolean(backend?.getTelemetryEnabled && backend?.setTelemetryEnabled),
   getTelemetryEnabled: () => getBackend().getTelemetryEnabled!(),
@@ -161,7 +173,15 @@ const settings = createSettingsDialog({
 });
 const scanner = createScannerDialog();
 const qrView = createQrView({ getBackend, onError: (error) => session?.reportError(error) });
+window.addEventListener("popstate", () => {
+  if (settings.dialog.open) {
+    settings.closeSettings();
+  }
+});
 window.addEventListener("pagehide", (event) => {
+  if (settings.dialog.open) {
+    settings.closeSettings();
+  }
   scanner.closeScanner();
   if (!event.persisted) {
     window.clearInterval(clock);

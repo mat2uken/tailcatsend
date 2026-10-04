@@ -3,7 +3,10 @@
     <cloud-backup>
         <!-- Relative to getFilesDir(): preserve preferences and sibling files. -->
         <exclude domain="file" path="received/" />
+        <exclude domain="sharedpref" path="ponlet_privacy_state.xml" />
     </cloud-backup>
-    <!-- No D2D exclusions: preserve Android's existing eligible-data defaults. -->
-    <device-transfer />
+    <!-- Original telemetry_prefs.xml (opt-out) remains eligible for restore. -->
+    <device-transfer>
+        <exclude domain="sharedpref" path="ponlet_privacy_state.xml" />
+    </device-transfer>
 </data-extraction-rules>

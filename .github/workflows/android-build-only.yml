@@ -3,6 +3,7 @@ name: Android Build Verification (no upload)
 on:
   workflow_dispatch:
   push:
+    branches: ["feature/diagnostics-deletion"]
     tags: ["v*"]
 
 permissions:
@@ -10,7 +11,11 @@ permissions:
 
 jobs:
   verify:
-    name: Build unsigned release AAB and APK
+    name: Build unsigned release AAB and APK (${{ matrix.privacy }})
+    strategy:
+      fail-fast: false
+      matrix:
+        privacy: [default-off, feature-on-closed]
     runs-on: ubuntu-latest
     timeout-minutes: 90
     env:
@@ -18,25 +23,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { submodules: true, persist-credentials: false }
-      - name: Test version guards and build-only credential isolation
-        run: python3 -m unittest discover -s scripts/tests -p test_android_build_readiness.py -v
+      - name: Test Android artifact, privacy, backup, and build-only guards
+        run: python3 -m unittest discover -s scripts/tests -p 'test_android_*.py' -v
       - uses: actions/setup-java@v5
         with: { java-version: "17", distribution: temurin }
       - uses: actions/setup-go@v5
         with: { go-version: "1.27.x", cache: false }
       - uses: actions/setup-node@v4
         with: { node-version: "24" }
+      - name: Test shared Java privacy logic and real Worker handlers offline
+        run: bash scripts/test_android_privacy_pure.sh
       - uses: dtolnay/rust-toolchain@stable
         with: { targets: aarch64-linux-android }
+      - name: Test saved telemetry preference handling in Rust
+        run: cargo test -p tailsend-telemetry --locked
       - uses: android-actions/setup-android@v3
         with: { packages: platform-tools }
       - uses: nttld/setup-ndk@v1
+        id: ndk
         with: { ndk-version: r28b }
       - run: cargo install tauri-cli --version 2.10.0 --locked
       - name: Choose verification-only version code
         run: python3 scripts/android_version_code.py --run-number "$GITHUB_RUN_NUMBER" --attempt "$GITHUB_RUN_ATTEMPT" --previous 2026093037 --github-env "$GITHUB_ENV"
       - name: Build unsigned AAB and APK without Firebase upload
-        run: ./scripts/build_android_verify.sh
+        env:
+          ANDROID_NDK_ROOT: ${{ steps.ndk.outputs.ndk-path }}
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: bash scripts/build_android_privacy_verify.sh "${{ matrix.privacy }}"
       - name: Check every native library, bundle alignment, manifest, and version code
         run: |
           mapfile -t artifacts < <(find apps/tauri/gen/android/app/build/outputs -type f \( -name '*.aab' -o -name '*.apk' \) -print)
@@ -47,8 +61,15 @@ jobs:
           test -n "$apk"
           python3 scripts/verify_android_artifacts.py "${artifacts[@]}" \
             --report "$RUNNER_TEMP/android-build-verification.json" \
-            --require-camera-optional --require-no-ad-id --require-received-cloud-excluded \
+            --require-camera-optional --require-no-ad-id \
             --expect-version-code "$PONLET_ANDROID_VERSION_CODE"
           cat "$RUNNER_TEMP/android-build-verification.json"
+          # This stricter check replaces the old received-only backup policy:
+          # retain its exact scope, plus exclude only private deletion state.
+          python3 scripts/verify_android_privacy.py "${artifacts[@]}" \
+            --mode "${{ matrix.privacy }}" \
+            --build-dir apps/tauri/gen/android/app/build \
+            --report "$RUNNER_TEMP/android-privacy-verification.json"
+          cat "$RUNNER_TEMP/android-privacy-verification.json"
       # No artifact publication, signing secrets, Firebase client config,
       # or Play credentials are used by this workflow.

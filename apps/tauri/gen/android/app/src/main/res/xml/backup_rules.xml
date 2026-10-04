@@ -3,4 +3,6 @@
      Ponlet currently requires API31+, which uses data_extraction_rules instead. -->
 <full-backup-content>
     <exclude domain="file" path="received/" />
+    <!-- Keep existing telemetry opt-out; never restore a queue without its Keystore keys. -->
+    <exclude domain="sharedpref" path="ponlet_privacy_state.xml" />
 </full-backup-content>

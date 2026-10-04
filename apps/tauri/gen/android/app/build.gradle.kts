@@ -28,11 +28,27 @@ val releaseKeystorePassword = if (isBuildOnly) "" else System.getenv("ANDROID_KE
 val releaseKeyAlias = if (isBuildOnly) "" else System.getenv("ANDROID_KEY_ALIAS").orEmpty()
 val releaseKeyPassword = if (isBuildOnly) "" else System.getenv("ANDROID_KEY_PASSWORD").orEmpty()
 
+// Missing means false. A malformed explicit flag must not silently return to legacy collection.
+fun privacyBoolean(name: String): String {
+    val value = providers.gradleProperty(name).orNull ?: return "false"
+    if (value != "true" && value != "false") throw GradleException("$name must be true or false")
+    return value
+}
+val privacyFeatureEnabled = privacyBoolean("ponletPrivacyFeatureEnabled") == "true"
+
 android {
     compileSdk = 36
     namespace = "jp.yasagure.ponlet"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
+        manifestPlaceholders["ponletPrivacyFeatureEnabled"] = privacyFeatureEnabled.toString()
+        manifestPlaceholders["ponletFirebaseAutoInitEnabled"] = (!privacyFeatureEnabled).toString()
+        // Public native configuration only. No credential/App Check token belongs in these properties.
+        for (name in listOf("ApiOrigin", "Audience", "PolicyVersion", "ReceiptDays", "ObservationDays", "RetiredKeyPolicy")) {
+            manifestPlaceholders["ponletPrivacy$name"] = providers.gradleProperty("ponletPrivacy$name").orNull ?: ""
+        }
+        manifestPlaceholders["ponletPrivacyComponentsVerified"] = privacyBoolean("ponletPrivacyComponentsVerified")
+        manifestPlaceholders["ponletPrivacyProtocolVerified"] = privacyBoolean("ponletPrivacyProtocolVerified")
         applicationId = "jp.yasagure.ponlet"
         minSdk = 31
         targetSdk = 36

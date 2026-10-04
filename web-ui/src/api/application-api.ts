@@ -1,3 +1,12 @@
+import type { DiagnosticsBackend } from "./diagnostics-api";
+export type {
+  DiagnosticsBackend,
+  DiagnosticsCapabilities,
+  DiagnosticsDeletionRequest,
+  DiagnosticsReceipt,
+  DiagnosticsStatus,
+} from "./diagnostics-api";
+
 /** Metadata and operations shared by browser and native adapters. */
 export const APPLICATION_API_VERSION = 2 as const;
 
@@ -75,7 +84,7 @@ export type BackendEvent =
       message?: string;
     };
 
-export interface PonletBackend {
+export interface PonletBackend extends Partial<DiagnosticsBackend> {
   cancelScan?: () => Promise<void>;
   cancelTransfer(id: string): Promise<void>;
   copyText(text: string): Promise<void>;

@@ -1,0 +1,38 @@
+.diagnostics-settings {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid currentColor;
+  overflow-wrap: anywhere;
+}
+.diagnostics-settings h3 {
+  margin-block: 0.75rem;
+  font-size: 1rem;
+}
+.diagnostics-settings p {
+  line-height: 1.5;
+}
+.diagnostics-settings button {
+  max-width: 100%;
+  white-space: normal;
+  margin: 0.3rem 0.4rem 0.3rem 0;
+}
+#diagnostics-confirmation {
+  margin-block: 0.8rem;
+  padding: 0.8rem;
+  border: 2px solid currentColor;
+  border-radius: 0.5rem;
+}
+#diagnostics-error {
+  font-weight: 600;
+}
+.diagnostics-settings [hidden] {
+  display: none !important;
+}
+.settings-dialog {
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+}
+
+#diagnostics-previous {
+  white-space: pre-line;
+}

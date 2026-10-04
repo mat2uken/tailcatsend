@@ -22,6 +22,7 @@ pub mod runtime;
 mod scheme;
 pub mod storage;
 mod telemetry;
+mod diagnostics;
 
 pub use commands::*;
 pub use model::*;
@@ -70,6 +71,11 @@ pub fn run() {
             commands::ponlet_share_text,
             commands::ponlet_open_downloads,
             commands::ponlet_open_external,
+            diagnostics::ponlet_diagnostics_capabilities,
+            diagnostics::ponlet_diagnostics_status,
+            diagnostics::ponlet_diagnostics_request,
+            diagnostics::ponlet_diagnostics_retry,
+            diagnostics::ponlet_diagnostics_continue_after_restart,
             commands::ponlet_get_telemetry_enabled,
             commands::ponlet_set_telemetry_enabled,
         ])

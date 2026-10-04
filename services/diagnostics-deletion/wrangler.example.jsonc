@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "ponlet-diagnostics-deletion",
+  "main": "src/entry.mjs",
+  "compatibility_date": "2026-10-04",
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": {"enabled": false},
+  "vars": {"DELETION_ENABLED": "false", "GOOGLE_ADAPTER_MODE": "disabled"},
+  "durable_objects": {"bindings": [{"name": "DIAGNOSTIC_EPOCHS", "class_name": "DiagnosticEpoch"}]},
+  "migrations": [{"tag": "v1", "new_sqlite_classes": ["DiagnosticEpoch"]}]
+  // Inactive example only. Required configuration, a dedicated rate limit
+  // binding, retention choices, verified least IAM, route and server secrets
+  // must be approved and supplied separately. No deployment script is provided.
+}

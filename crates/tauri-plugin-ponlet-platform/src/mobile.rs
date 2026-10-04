@@ -54,6 +54,29 @@ pub struct SharedItem {
 }
 
 impl<R: Runtime> PonletPlatform<R> {
+    #[cfg(target_os = "android")]
+    pub fn diagnostics_call(&self, command: &str, args: serde_json::Value) -> Result<serde_json::Value, String> {
+        match command {
+            "diagnosticsCapabilities" | "diagnosticsStatus" | "diagnosticsRequest" |
+            "diagnosticsRetry" | "diagnosticsContinueAfterRestart" => self.0
+                .run_mobile_plugin(command, args)
+                .map_err(|_| "native_privacy_unavailable".to_string()),
+            _ => Err("invalid_native_command".to_string()),
+        }
+    }
+    #[cfg(target_os = "android")]
+    pub fn begin_telemetry_intent(&self) -> Result<String, String> {
+        #[derive(Deserialize)]
+        struct Intent { intent: String }
+        let result: Intent = self.0.run_mobile_plugin("telemetryBeginIntent", serde_json::json!({}))
+            .map_err(|_| "native_setting_unavailable".to_string())?;
+        Ok(result.intent)
+    }
+    #[cfg(target_os = "android")]
+    pub fn set_telemetry_checked(&self, enabled: bool, intent: String) -> Result<(), String> {
+        self.0.run_mobile_plugin("telemetrySetEnabled", serde_json::json!({"enabled": enabled, "intent": intent}))
+            .map_err(|_| "telemetry_setting_not_persisted".to_string())
+    }
     pub fn open_received(&self, path: &str) -> Result<(), String> {
         self.0
             .run_mobile_plugin("openReceived", serde_json::json!({"path": path}))
@@ -114,9 +137,20 @@ impl<R: Runtime> TelemetryBackend for MobileTelemetry<R> {
         );
     }
     fn set_collection_enabled(&self, enabled: bool) {
-        let _: Result<(), _> = self.0.run_mobile_plugin(
-            "telemetrySetEnabled",
-            serde_json::json!({"enabled": enabled}),
-        );
+        #[cfg(target_os = "android")]
+        {
+            #[derive(Deserialize)]
+            struct Intent { intent: String }
+            let started: Result<Intent, _> = self.0.run_mobile_plugin("telemetryBeginIntent", serde_json::json!({}));
+            if let Ok(started) = started {
+                let _: Result<(), _> = self.0.run_mobile_plugin("telemetrySetEnabled",
+                    serde_json::json!({"enabled": enabled, "intent": started.intent}));
+            }
+        }
+        #[cfg(target_os = "ios")]
+        {
+            let _: Result<(), _> = self.0.run_mobile_plugin(
+                "telemetrySetEnabled", serde_json::json!({"enabled": enabled}));
+        }
     }
 }

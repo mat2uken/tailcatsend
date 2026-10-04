@@ -27,6 +27,35 @@
         android:label="@string/app_name"
         android:theme="@style/Theme.tailsend_tauri"
         android:usesCleartextTraffic="${usesCleartextTraffic}">
+        <!-- Feature builds block Firebase's eager default-app initialization before Application.onCreate. -->
+        <provider android:name="com.google.firebase.provider.FirebaseInitProvider"
+            android:enabled="${ponletFirebaseAutoInitEnabled}" tools:replace="android:enabled" />
+        <!-- Feature-only known background upload entries; check actual resolved AAR manifest before release. -->
+        <receiver android:name="com.google.android.gms.measurement.AppMeasurementReceiver"
+            android:enabled="${ponletFirebaseAutoInitEnabled}" tools:replace="android:enabled" />
+        <service android:name="com.google.android.gms.measurement.AppMeasurementService"
+            android:enabled="${ponletFirebaseAutoInitEnabled}" tools:replace="android:enabled" />
+        <service android:name="com.google.android.gms.measurement.AppMeasurementJobService"
+            android:enabled="${ponletFirebaseAutoInitEnabled}" tools:replace="android:enabled" />
+        <service android:name="com.google.android.datatransport.runtime.scheduling.jobscheduling.JobInfoSchedulerService"
+            android:enabled="${ponletFirebaseAutoInitEnabled}" tools:replace="android:enabled" />
+        <receiver android:name="com.google.android.datatransport.runtime.scheduling.jobscheduling.AlarmManagerSchedulerBroadcastReceiver"
+            android:enabled="${ponletFirebaseAutoInitEnabled}" tools:replace="android:enabled" />
+        <provider android:name="jp.yasagure.ponlet.platform.PrivacyStartupProvider"
+            android:authorities="${applicationId}.ponlet.privacy.startup"
+            android:exported="false" android:initOrder="1000" />
+        <meta-data android:name="firebase_analytics_collection_enabled" android:value="false" tools:replace="android:value" />
+        <meta-data android:name="firebase_crashlytics_collection_enabled" android:value="false" tools:replace="android:value" />
+        <meta-data android:name="ponlet_privacy_feature_enabled" android:value="${ponletPrivacyFeatureEnabled}" />
+        <meta-data android:name="ponlet_privacy_api_origin" android:value="${ponletPrivacyApiOrigin}" />
+        <meta-data android:name="ponlet_privacy_audience" android:value="${ponletPrivacyAudience}" />
+        <meta-data android:name="ponlet_privacy_policy_version" android:value="${ponletPrivacyPolicyVersion}" />
+        <meta-data android:name="ponlet_privacy_receipt_days" android:value="${ponletPrivacyReceiptDays}" />
+        <meta-data android:name="ponlet_privacy_observation_days" android:value="${ponletPrivacyObservationDays}" />
+        <meta-data android:name="ponlet_privacy_retired_key_policy" android:value="${ponletPrivacyRetiredKeyPolicy}" />
+        <meta-data android:name="ponlet_privacy_components_verified" android:value="${ponletPrivacyComponentsVerified}" />
+        <meta-data android:name="ponlet_privacy_protocol_verified" android:value="${ponletPrivacyProtocolVerified}" />
+        <meta-data android:name="ponlet_privacy_backup_rules_version" android:value="1" />
         <meta-data android:name="google_analytics_adid_collection_enabled"
             android:value="false" />
         <meta-data android:name="google_analytics_default_allow_ad_personalization_signals"

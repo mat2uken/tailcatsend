@@ -16,6 +16,7 @@ import {
   RawBinaryTransport,
   SchemeBinaryTransport,
 } from "../ipc";
+import { createDiagnosticsNativeBackend } from "./diagnostics-native";
 import { startJsonNotifications } from "./json-notifications";
 
 type TauriFile = File & { path?: string };
@@ -263,6 +264,7 @@ export function createBackend(): PonletBackend {
   };
 
   return {
+    ...createDiagnosticsNativeBackend(invoke),
     snapshot: async () =>
       validateSnapshot(await call<BackendSnapshot>(Opcode.Snapshot, "ponlet_snapshot")),
     subscribe: (listener) => {

@@ -62,6 +62,13 @@ pub fn set_enabled(enabled: bool) {
     }
 }
 
+/// Reflects an already acknowledged native setting without sending it a second time.
+/// Platform callers must first wait for durable persistence and native operation success.
+/// This is not a replacement for `set_enabled` in ordinary callers.
+pub fn reflect_native_enabled(enabled: bool) {
+    ENABLED.store(enabled, Ordering::SeqCst);
+}
+
 pub fn is_enabled() -> bool {
     ENABLED.load(Ordering::Relaxed)
 }
@@ -128,6 +135,7 @@ mod tests {
     type RecordedEvent = (String, Vec<(String, String)>);
 
     static EVENT_COUNT: AtomicUsize = AtomicUsize::new(0);
+    static COLLECTION_COUNT: AtomicUsize = AtomicUsize::new(0);
     static PROPERTY_COUNT: AtomicUsize = AtomicUsize::new(0);
     static LAST_PARAMS: Mutex<Option<RecordedEvent>> = Mutex::new(None);
 
@@ -144,7 +152,7 @@ mod tests {
         fn set_user_property(&self, _name: &str, _value: &str) {
             PROPERTY_COUNT.fetch_add(1, AtomicOrdering::SeqCst);
         }
-        fn set_collection_enabled(&self, _enabled: bool) {}
+        fn set_collection_enabled(&self, _enabled: bool) { COLLECTION_COUNT.fetch_add(1, AtomicOrdering::SeqCst); }
     }
 
     // The global state is process-wide, so everything is asserted in order
@@ -171,7 +179,14 @@ mod tests {
             LAST_PARAMS.lock().unwrap().clone()
         );
 
+        let collection_before = COLLECTION_COUNT.load(AtomicOrdering::SeqCst);
+        reflect_native_enabled(false);
+        assert!(!is_enabled());
+        reflect_native_enabled(true);
+        assert!(is_enabled());
+        assert_eq!(collection_before, COLLECTION_COUNT.load(AtomicOrdering::SeqCst));
         set_enabled(false);
+        assert_eq!(collection_before + 1, COLLECTION_COUNT.load(AtomicOrdering::SeqCst));
         log_event("app_start", &[]);
         set_user_property("k", "v");
         assert_eq!(2, EVENT_COUNT.load(AtomicOrdering::SeqCst));

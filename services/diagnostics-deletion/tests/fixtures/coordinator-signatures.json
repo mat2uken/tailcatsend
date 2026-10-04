@@ -1,0 +1,57 @@
+{
+  "source": "RFC 7515 Appendices A.2 and A.3 public example keys; synthetic offline signatures, no real credentials",
+  "publicJwk": {
+    "kty": "EC",
+    "crv": "P-256",
+    "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+    "y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0"
+  },
+  "kid": "oKIywvGUpTVTyxMQ3bwIIeQUudfr_CkLMjCE19ECD-U",
+  "now": 1791072000000,
+  "epochId": "epoch_0000000000000000000000000000000000000000003",
+  "analyticsUserId": "ga_0000000000000000000000000000000000000000004",
+  "crashlyticsUserId": "crash_0000000000000000000000000000000000000000005",
+  "appCheckToken": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6InJmYzc1MTUtcnNhLWZpeHR1cmUifQ.eyJpc3MiOiJodHRwczovL2ZpcmViYXNlYXBwY2hlY2suZ29vZ2xlYXBpcy5jb20vMTIzNDU2Nzg5MCIsImF1ZCI6WyJwcm9qZWN0cy8xMjM0NTY3ODkwIl0sInN1YiI6IjE6MTIzNDU2Nzg5MDphbmRyb2lkOjAxMjM0NTY3ODlhYmNkZWYiLCJpYXQiOjE3OTEwNzE5NDAsImV4cCI6MTc5MTA3NTU0MH0.ZHtOq4i4fB1JCbwxQPVHznm8aZKyvLv7QTHEeSrHi0IL08lEZY0OoefI-wv0wlDLGd78M61D86yQercAjnabP0HwckIgjOTtiLTydb1XqdD1a7fMc_BiEoH253f-lFQ71GwUMhIiZMAhXvQ3-OmfeVdwwwqBzNPbzDo-yLKTNDqaPCA2sWydX_QxVj82UBbwAP_6q1z3mzdoY6EW6de9yqY8QPtaFbh5Y_yxQ7107MS23lvxDiXuiboRdoQRwZWXSfC30taiFYiMjF71BojW-_W1UiRKT2mj1tKxRpLR28-mrs8s8ct5Hkc9xGiS_nCBA7f-QuenBOPoUEwlDO6xeg",
+  "enroll": {
+    "method": "POST",
+    "path": "/v1/enrollments",
+    "body": "{\"schemaVersion\":1,\"enrollmentRequestId\":\"22222222-2222-4222-8222-222222222222\",\"platform\":\"android\",\"publicJwk\":{\"kty\":\"EC\",\"crv\":\"P-256\",\"x\":\"f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU\",\"y\":\"x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0\"}}",
+    "challenge": {
+      "challengeId": "chg_0000000000000000000000000000000000000000001",
+      "nonce": "nonce_0000000000000000000000000000000000000000002",
+      "ownerKey": "oKIywvGUpTVTyxMQ3bwIIeQUudfr_CkLMjCE19ECD-U",
+      "method": "POST",
+      "path": "/v1/enrollments",
+      "expiresAt": 1791072300000
+    },
+    "proof": "eyJhbGciOiJFUzI1NiIsInR5cCI6InBvbmxldC1wcml2YWN5K2p3dCIsImtpZCI6Im9LSXl3dkdVcFRWVHl4TVEzYndJSWVRVXVkZnJfQ2tMTWpDRTE5RUNELVUifQ.eyJhdWQiOiJodHRwczovL3ByaXZhY3kuZXhhbXBsZS50ZXN0IiwibWV0aG9kIjoiUE9TVCIsInBhdGgiOiIvdjEvZW5yb2xsbWVudHMiLCJib2R5U2hhMjU2IjoiTGQyemszQkxsREc4Q3dHNU5uQ3NJSXB2cURLakd6VnlxRjFsb3ZZU2UycyIsImNoYWxsZW5nZUlkIjoiY2hnXzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDEiLCJub25jZSI6Im5vbmNlXzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDIiLCJleHAiOjE3OTEwNzIzMDB9.CQxKchUNwuIH8gM_PFBZaK1f0gk5oPLlldGPQ3dKsHih-VwjsIJK6ft49HSC4-UNREW67sh4by7WS_ZvSZ2YDA"
+  },
+  "create": {
+    "method": "POST",
+    "path": "/v1/requests",
+    "body": "{\"schemaVersion\":1,\"requestId\":\"11111111-1111-4111-8111-111111111111\",\"epochId\":\"epoch_0000000000000000000000000000000000000000003\",\"intent\":\"delete_bound_diagnostics_and_stop\",\"policyVersion\":\"fixture_v1\",\"clientState\":{\"futureTelemetry\":\"disabled_persisted\",\"analyticsLocal\":\"reset_requested\",\"crashlyticsLocal\":\"delete_queued\"}}",
+    "challenge": {
+      "challengeId": "chg_0000000000000000000000000000000000000000006",
+      "nonce": "nonce_0000000000000000000000000000000000000000007",
+      "ownerKey": "oKIywvGUpTVTyxMQ3bwIIeQUudfr_CkLMjCE19ECD-U",
+      "method": "POST",
+      "path": "/v1/requests",
+      "expiresAt": 1791072300000
+    },
+    "proof": "eyJhbGciOiJFUzI1NiIsInR5cCI6InBvbmxldC1wcml2YWN5K2p3dCIsImtpZCI6Im9LSXl3dkdVcFRWVHl4TVEzYndJSWVRVXVkZnJfQ2tMTWpDRTE5RUNELVUifQ.eyJhdWQiOiJodHRwczovL3ByaXZhY3kuZXhhbXBsZS50ZXN0IiwibWV0aG9kIjoiUE9TVCIsInBhdGgiOiIvdjEvcmVxdWVzdHMiLCJib2R5U2hhMjU2Ijoia29QUlBhcTlGZlZ1SzVGMmtIR1BEN2pGUEZfUk5EZzVaVjFtcFFCbkdxVSIsImNoYWxsZW5nZUlkIjoiY2hnXzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDYiLCJub25jZSI6Im5vbmNlXzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDciLCJleHAiOjE3OTEwNzIzMDAsImVwb2NoSWQiOiJlcG9jaF8wMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAzIn0.ZUEGyvoIFZMIcmWDrW4vEmlaMtA4eygNiyIeZKz_bvxuZRlJksEQorv_amYWPzDvIpnr5tyZoPilXmS4vaOj-Q"
+  },
+  "status": {
+    "method": "GET",
+    "path": "/v1/requests/11111111-1111-4111-8111-111111111111",
+    "body": "",
+    "challenge": {
+      "challengeId": "chg_0000000000000000000000000000000000000000008",
+      "nonce": "nonce_0000000000000000000000000000000000000000009",
+      "ownerKey": "oKIywvGUpTVTyxMQ3bwIIeQUudfr_CkLMjCE19ECD-U",
+      "method": "GET",
+      "path": "/v1/requests/11111111-1111-4111-8111-111111111111",
+      "expiresAt": 1791072300000
+    },
+    "proof": "eyJhbGciOiJFUzI1NiIsInR5cCI6InBvbmxldC1wcml2YWN5K2p3dCIsImtpZCI6Im9LSXl3dkdVcFRWVHl4TVEzYndJSWVRVXVkZnJfQ2tMTWpDRTE5RUNELVUifQ.eyJhdWQiOiJodHRwczovL3ByaXZhY3kuZXhhbXBsZS50ZXN0IiwibWV0aG9kIjoiR0VUIiwicGF0aCI6Ii92MS9yZXF1ZXN0cy8xMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJib2R5U2hhMjU2IjoiNDdERVFwajhIQlNhLV9USW1XLTVKQ2V1UWVSa201Tk1wSldaRzNoU3VGVSIsImNoYWxsZW5nZUlkIjoiY2hnXzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDgiLCJub25jZSI6Im5vbmNlXzAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDkiLCJleHAiOjE3OTEwNzIzMDAsImVwb2NoSWQiOiJlcG9jaF8wMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAzIn0.jmQh6XyJFqAYQTEc8xFAWVw7MPJA4e555mHfJqdTpTzHQCo0EfzdMNaWZx7c1HjxeGGWTz2qu8HnfUDCCqocQg"
+  }
+}

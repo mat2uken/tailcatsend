@@ -204,13 +204,30 @@ pub async fn ponlet_open_external(app: AppHandle, url: String) -> Result<(), Str
 
 #[tauri::command]
 pub async fn ponlet_get_telemetry_enabled(app: AppHandle) -> Result<bool, String> {
+    #[cfg(target_os = "android")]
+    let _settings = crate::telemetry::SETTINGS_SERIAL.lock().await;
     crate::telemetry::initialize(app, false).await?;
     Ok(tailsend_telemetry::is_enabled())
 }
 
 #[tauri::command]
 pub async fn ponlet_set_telemetry_enabled(app: AppHandle, enabled: bool) -> Result<(), String> {
-    crate::telemetry::initialize(app, false).await?;
+    // Receive native intent BEFORE OnceCell initialization can wait on enrollment/network.
+    #[cfg(target_os = "android")]
+    let intent = crate::telemetry::begin_android_intent(app.clone()).await?;
+    #[cfg(target_os = "android")]
+    let _settings = crate::telemetry::SETTINGS_SERIAL.lock().await;
+    crate::telemetry::initialize(app.clone(), false).await?;
+    #[cfg(target_os = "android")]
+    {
+        use tauri_plugin_ponlet_platform::PonletPlatformExt;
+        let native_app = app.clone();
+        tokio::task::spawn_blocking(move || native_app.ponlet_platform().set_telemetry_checked(enabled, intent))
+            .await.map_err(|_| "native_setting_unavailable".to_string())??;
+    }
+    #[cfg(target_os = "android")]
+    tailsend_telemetry::reflect_native_enabled(enabled);
+    #[cfg(not(target_os = "android"))]
     tailsend_telemetry::set_enabled(enabled);
     Ok(())
 }
