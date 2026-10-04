@@ -7,6 +7,8 @@
 
 新候補の未署名AAB `versionCode=2030000102` は親担当の最終artifact validatorで確認済み。compiled manifestの広告ID取得・広告personalization flagsは両方false、3広告関連権限は不在。compiled resourcesからbackup XMLを解決し、API31+のcloudでは `received/` だけを除外、SharedPreferencesと隣接ファイルを保持、空のD2D規則は既存の対象を保持することを確認した。これはOS復元試験・実通信・署名・Play配布の成功を意味しない。詳細は [承認後の方針検証](POLICY_VALIDATION_RESULTS.md) を参照。
 
+2026-10-04の後続署名検証では、最新source `c7408ea0e0d767b9ac482b30acb6e42aa6fba81e` のAAB/APKについて、上記flags／権限／cloud規則に加え、compiled Firebase project一致・google app ID存在・Crashlytics build ID存在を確認した。Mac APKも独立再検証済み。以下の未署名段階の記録と、既存Play内部テスト版2026093037は区別する。[最新検証](MENU_FIX_RESULTS.md)と[公開前の最小判断](PUBLICATION_DECISIONS.md)を参照。
+
 ## 収集と送信の実装
 
 | 経路 | 確認できた事実 | 根拠 |
@@ -15,12 +17,12 @@
 | Firebase Crashlytics / NDK | Java／nativeのクラッシュ報告。SDKはinstallation UUID、端末・アプリ状態等を扱う。推移的なInstallations／Sessionsも開示検討対象 | 同Gradleと [Firebase公式開示資料](https://firebase.google.com/docs/android/play-data-disclosure) |
 | ML Kit barcode scanning | QR画像と読取結果は端末内で処理。SDKの機種・アプリ・識別子・性能・使用状況等の診断送信は別に存在する | `vendor/tauri-plugin-barcode-scanner/android/build.gradle.kts:35–42`、`BarcodeScannerPlugin.kt:231–305`、[ML Kit開示資料](https://developers.google.com/ml-kit/android-data-disclosure) |
 | テキスト・ファイル転送 | ユーザー指定の相手への暗号化転送。独自Analytics引数に本文・ファイル名・パス・鍵・招待URLを渡さない | `crates/tailsend-telemetry/src/lib.rs:8–13,95–100`、`service.rs:398–460`、`apps/tauri/src/storage.rs:305–338` |
-| ネットワーク | DERP map取得、暗号化パケットのリレー、Firebase／ML Kitへの通信。各運用者のアクセスログやConsole設定は未検証 | `apps/tauri/src/model.rs:3–4`、`tailcat/bridge/native/bridge.go:444–474,652–665` |
+| ネットワーク | DERP map取得、暗号化パケットのリレー、Firebase／ML Kitへの通信。relay運用者のアクセスログは未確認。Firebase／GAの読み取り設定は別記録、実SDK payloadは未確定 | `apps/tauri/src/model.rs:3–4`、`tailcat/bridge/native/bridge.go:444–474,652–665` |
 | Android OSバックアップ／端末移行 | 方針確認前の候補はバックアップ指定なし。新候補ではAPI31+のcloud backupから受信 `files/received` を除外する承認済み。設定やD2Dの既存対象は全体無効化しない。実行は端末設定・条件・OEM挙動に依存し、実際の転送・復元は未確認 | `apps/tauri/gen/android/app/src/main/AndroidManifest.xml` のapplication、`storage.rs:416–426`、`TelemetryBridge.kt:79–85`、[Android Auto Backup資料](https://developer.android.com/identity/data/autobackup) |
 
 Androidの初期manifestはAnalytics／Crashlyticsを無効にするが、Ponletの初期化時に既定ONの保存値を反映する。これは初回opt-inではない。OFF操作はAnalytics／Crashlyticsに適用され、SharedPreferencesに保存される。ML Kitを同じスイッチで止める処理は確認されていない。
 
-AndroidのOS既定ではfilesDirとSharedPreferencesがバックアップ対象になり得る。承認後の新候補は `dataExtractionRules` でAPI31+のcloud backupから受信 `files/received` だけを除外する。D2D移行は既存の対象範囲を維持し、OS／OEM条件に従う。legacy XMLでolder APIのbackup／transfer共通除外を定義する場合も、minSdk31の現行製品ではolder API経路へ到達しない。設定やSDK保存情報のbackup、既存クラウドコピーの削除、Data safety分類・適用除外は未評価。未署名候補のrule検査は上記のとおり合格。署名する提出AABの再検査と復元試験は残る。SDKテレメトリOFFはOSバックアップ全体停止を意味しない。
+AndroidのOS既定ではfilesDirとSharedPreferencesがバックアップ対象になり得る。承認後の新候補は `dataExtractionRules` でAPI31+のcloud backupから受信 `files/received` だけを除外する。D2D移行は既存の対象範囲を維持し、OS／OEM条件に従う。legacy XMLでolder APIのbackup／transfer共通除外を定義する場合も、minSdk31の現行製品ではolder API経路へ到達しない。設定やSDK保存情報のbackup、既存クラウドコピーの削除、Data safety分類・適用除外は未評価。未署名候補のrule検査は上記のとおり合格。後続署名候補の再検査は合格済み。実復元は未実施で、全OEM復元の保証には使わない。SDKテレメトリOFFはOSバックアップ全体停止を意味しない。
 
 現行の独自イベントは `app_start`, `session_created`, `peer_connected`, `transfer_started`, `transfer_completed`, `transfer_cancelled`, `text_message_sent`, `text_message_received`, `error`。独自パラメータはplatform、OS version、app version、language、transport、direction、file_count、length_bucket、reason、category。旧ポリシーの `app_end`, `transfer_failed`、転送時間・合計バイト数は、このコードの送信箇所では確認できない。SDK自動イベントをこの一覧だけで網羅したと扱わない。
 
@@ -36,13 +38,13 @@ AndroidのOS既定ではfilesDirとSharedPreferencesがバックアップ対象�
 | おおよその現在地 | AnalyticsのIP由来概略位置を含めて収集ありを検討 | GPS権限がなくても自動収集があり得る。GA property・配布地域の設定とSDKの挙動を確認 |
 | 氏名・メール・電話・アカウント情報 | アプリ内の通常利用で収集する実装は見つからない | サポートメールで本人が送る情報と、アプリの自動送信を分ける |
 | 写真／動画／ファイル／メッセージ | 開発者が読めないE2EE転送に対する開示の例外を検討。OSバックアップ経路は未評価 | [Playの定義](https://support.google.com/googleplay/android-developer/answer/10787469)でE2EE、ユーザー開始の共有、OSバックアップ、第三者サービス提供者の扱いを確認。転送本文をAnalyticsへ送らない事実だけで全設問を決めない |
-| 保存期間／一時的処理 | SDKの解析・診断を「一時的処理のみ」とは申告しない。読み取り対象GAの実期間はevent2／user14か月、reset ON | 接続先を配布Androidと照合する。Crashlytics90日後に削除処理開始、GA集計・ML Kitを一つの最大期間へまとめない。SDKメモ参照 |
+| 保存期間／一時的処理 | SDKの解析・診断を「一時的処理のみ」とは申告しない。読み取り対象GAの実期間はevent2／user14か月、reset ON | 新署名候補のFirebase project構成は照合済み。既存Play配布版の同一性は未確認。Crashlytics90日後に削除処理開始、GA集計・ML Kitを一つの最大期間へまとめない。SDKメモ参照 |
 | 収集が任意か必須か | Analytics／CrashlyticsはOFF可能。全SDK一括で「任意」とは断定しない | ML Kit診断はFirebaseスイッチと別。各データ種別・機能ごとにConsoleの任意／必須の定義と照合する |
 | データの共有 | Googleへの送信あり。ただしConsole上の「共有」は提供者の役割と設定で判断 | サービス提供者の除外を適用できるか、Google Signals／Adsリンク／data sharing設定／その他第三者を確認。自動的に「共有なし」としない |
-| 転送中の暗号化 | はいを候補とする | SDKはTLS／HTTPS、転送はE2EE。全通信経路と新候補の通信観測で確認 |
+| 転送中の暗号化 | はいを候補とする | SDK公式仕様はTLS／HTTPS、転送内容はE2EE。コード・SDK資料・Console設問で全収集経路の暗号化を照合し、実payload網羅観測と区別する。未知の経路が残れば「はい」を確定しない |
 | 削除を要求できるか | **要確認、未回答** | サーバー個人データなしという旧文言を根拠に「不要」としない。診断・識別子の保存、OSバックアップの別コピーと復元、実行可能な削除手順を確認 |
 
-Google資料は最新SDKの一般説明であり、特定AABの実通信を証明しない。保存期間と削除・OFFの仕様は [SDK調査メモ](SDK_RETENTION_AND_DELETION.md)、GAの実期間・Signals・共有設定は [project読み取り](PROJECT_SETTINGS_READONLY.md) を参照。後者は配布Androidとの接続先照合が未完であり、個別削除窓口の実行手順も未確定。[Analytics開示資料](https://support.google.com/analytics/answer/11582702)はapp-instance ID、Advertising ID、IP由来概略位置、lifecycle events等を列挙する。IAP自動イベントは該当購入がない限り、SDKの機能だけを理由に購入履歴収集ありとしない。
+Google資料は最新SDKの一般説明であり、特定AABの実通信を証明しない。保存期間と削除・OFFの仕様は [SDK調査メモ](SDK_RETENTION_AND_DELETION.md)、GAの実期間・Signals・共有設定は [project読み取り](PROJECT_SETTINGS_READONLY.md) を参照。後者の読み取り対象projectと新署名候補の構成は後続CIで一致を確認した。既存Play配布Androidの接続先まで照合した結果ではない。個別削除窓口の実行手順は未確定。[Analytics開示資料](https://support.google.com/analytics/answer/11582702)はapp-instance ID、Advertising ID、IP由来概略位置、lifecycle events等を列挙する。IAP自動イベントは該当購入がない限り、SDKの機能だけを理由に購入履歴収集ありとしない。
 
 ## 広告IDの履歴と承認済み方針
 
@@ -73,12 +75,12 @@ jp.yasagure.ponlet.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
 
 広告ID無効化の公式案内：[Analytics Android設定](https://firebase.google.com/docs/analytics/android/configure-data-collection)。metadataだけと権限除去だけの効果を混同せず、最終manifestと通信を検査する。新候補から広告IDを外しても、既存公開／テスト版での収集とConsole全体の回答範囲は提出時に確認する。
 
-## 提出前に確定する記録
+## 提出対象の根拠と追加品質試験
 
 - 新候補のsource SHA、versionCode、AAB SHA-256、merged permissions、広告ID取得／広告personalization flags、cloud／D2D backup rules、resolved SDK一覧。
-- Firebase／GAの実設定はproject読み取り記録へ一部確認済み。配布Androidとの接続先照合、Crash Insights、個別削除手順、ML Kit保持期間・削除、過去exportはなお未確定。秘密の値は記載しない。
-- ON／OFF／再起動／QR／クラッシュ／再ONごとの通信結果とSDK診断の内容。ファイル名・本文・招待情報を送信データに含めない確認。
-- OSバックアップ有効／無効、cloudの受信ファイル除外とD2D既存範囲、データ削除／アンインストール後の復元について、内部受信ファイル・設定と削除範囲を確認。機種・OEM・OS設定ごとの差を記録。
+- Firebase／GAの実設定はproject読み取り記録へ一部確認済み。新署名候補の構成照合は後続CIで完了。既存Play配布版の同一性、Crash Insights、個別削除手順、ML Kit保持期間・削除、過去exportはなお未確定。秘密の値は記載しない。
+- 追加品質試験：ON／OFF／再起動／QR／クラッシュ／再ONごとの通信結果とSDK診断の内容は、実行済み／未実施を分けて記録する。独自引数に本文・ファイル名・招待情報を渡さない実装と、全SDK payloadの観測を区別する。限定した説明の公開に網羅試験を一律必須としない。
+- 追加品質試験：OSバックアップ有効／無効、cloudの受信ファイル除外とD2D既存範囲、データ削除／アンインストール後の復元は、実行済み／未実施と機種・OEM・OS設定ごとの差を記録する。compiled規則の説明と全OEM復元保証を分け、未実施の動作は保証しない。
 - [privacy草案](PRIVACY_SUPPORT_DRAFTS.md)の未確定欄を埋めた内容と、日英公開ページの最終取得記録。
 - Console保存後の表示と、新AABとの一致。現在の未完フォームを完了済みとして記録しない。
 

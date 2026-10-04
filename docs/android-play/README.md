@@ -15,6 +15,8 @@
 | [個別menu修正・追試](MENU_FIX_RESULTS.md) | 最新c7408ea0の回帰・署名検査、個別SAF保存／Share chooser、初回timeoutの追加調査 |
 | [runtime最小手順](MINIMAL_RUNTIME_PLAN.md) | 承認済み範囲と別段階の実機・復元・Play確認 |
 | [開発署名16KBローカルpilot](LOCAL_DEV_PILOT_RESULTS.md) | Firebaseなしの実アプリ起動、設定保存・再起動、scratch保存。配布候補・実転送・SDK通信は別検証 |
+| [初回timeout限定追試](TIMEOUT_RETEST_RESULTS.md) | 最新APKで3条件各1回は成功。前回DERP表示下idleのtimeout原因は未特定 |
+| [公開前の最小判断](PUBLICATION_DECISIONS.md) | 配布国・対象年齢と削除相談の運用、検証限界を付けて確定できる事項 |
 | [Data safety回答草案](DATA_SAFETY_DRAFT.md) | Firebase／ML Kit／転送内容、広告ID、収集・共有・任意性の判断材料 |
 | [日英privacy／support修正草案](PRIVACY_SUPPORT_DRAFTS.md) | 公開ページの差し替え候補と、公開前に埋める必要がある項目 |
 | [Console回答草案](CONSOLE_ANSWERS_DRAFT.md) | 未完のアプリ設定、課金・対象年齢等の要決定事項 |
@@ -45,9 +47,9 @@
 
 ## 優先順位
 
-1. Consoleに表示されたclosed testの12人・連続14日と本番アクセス要件を満たす準備を進める。確認時点は0人で、内部テスト有効だけでは代用できない。未完設定、store listing/contact、配布国・具体的Play年齢区分・無料設定も確定する。
+1. Consoleに表示されたclosed testの12人・連続14日と本番アクセス要件は残る。12人確保は所有者が別途検討する事項として扱い、募集・招待は行わない。確認時点は0人で、内部テスト有効だけでは代用できない。未完設定、store listing/contact、配布国・具体的Play年齢区分・無料設定も確定する。
 2. Data safetyと日英privacy/supportを、Firebase／ML Kitの収集・OFF・保持・削除、OSバックアップの説明に一致させる。SDK宛先・queue・backend削除は今回の観測では確定せず、公開可能な説明と運用手順を詰める。全Google通信停止や一律削除の保証を書かない。
-3. P2のメッセージ単位menu切れは修正し、共通UIの回帰19件と最新署名APKの個別Save／Share chooser追試で確認済み。初回ファイルdial失敗はfresh／再利用client条件で追試する。前回734d9590で基本起動・URL接続・双方向dummy転送・履歴SAF保存・OFF再起動保存を確認。最新c7408ea0では起動・URL接続・受信dummyテキスト・個別Save／Share chooserを追試した。ただし初回転送のFAILと再試行PASSを両方残し、一般的な安定性を保証しない。実カメラQRは未実施。
+3. P2のメッセージ単位menu切れは修正し、共通UIの回帰19件と最新署名APKの個別Save／Share chooser追試で確認済み。初回ファイルdial失敗は3条件各1回で限定追試し、今回は再現せず。DERP表示下のtext後idleは未検証で原因未特定。無根拠なretryは追加しない。前回734d9590で基本起動・URL接続・双方向dummy転送・履歴SAF保存・OFF再起動保存を確認。最新c7408ea0では起動・URL接続・受信dummyテキスト・個別Save／Share chooserを追試した。ただし初回転送のFAILと再試行PASSを両方残し、一般的な安定性を保証しない。実カメラQRは未実施。
 4. 別途許可された配布段階で、新AABのPlay側16KB判定とPlayでの導入・upgradeを確認する。SDK2本のRELRO式は監査警告として保持し、それだけで提出不可とは判定しない。[再評価](RELRO_ASSESSMENT.md)を参照。広いOEM復元・異常系確認は品質試験として分ける。
 
 今回の署名AAB/APKは、証明書一致、versionCode2030000102、全9本の16KB LOAD、APK ZIP16KB配置、カメラ任意、広告ID関連設定、受信cloud除外、compiled Firebase設定に合格した。対応native9本はhashも一致。APKはCIとMacで独立再検証し、専用API35/16KB AVDで候補ごとに上記範囲を試験した。短期Actions artifactはMac照合後に削除、専用AVD／Web相手も終了済み。[前回runtime記録](SIGNED_RUNTIME_RESULTS.md)と[最新menu追試](MENU_FIX_RESULTS.md)に、各候補のhash・失敗・限定事項・後始末を記載する。cloud復元・Play側判定は未実施。iOS／macOSやFirebaseなしpilotの結果でAndroidを保証しない。

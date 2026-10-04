@@ -6,7 +6,7 @@
 
 Git管理下の公開client設定 `apps/tauri/gen/apple/tailsend-tauri_iOS/GoogleService-Info.plist` から `PROJECT_ID=ponlet-599c4`、`BUNDLE_ID=jp.yasagure.ponlet` だけを読み取った。apikey等は出力していない。Webの `dist/assets/firebase-config.js` はPLACEHOLDERのままであり、Webから実projectを特定した結果ではない。
 
-[Firebase全般](https://console.firebase.google.com/u/0/project/ponlet-599c4/settings/general/android:jp.yasagure.ponlet) は同じproject ID／名称ponletで、Android登録 `ponlet-android / jp.yasagure.ponlet` とiOS・Web登録を表示した。対象packageはローカル新AABと一致する。この事実は、秘匿されたCIのAndroid client構成や新署名済み候補が同projectを使用することまで保証しない。後段で候補の公開project IDのみを照合する必要がある。
+[Firebase全般](https://console.firebase.google.com/u/0/project/ponlet-599c4/settings/general/android:jp.yasagure.ponlet) は同じproject ID／名称ponletで、Android登録 `ponlet-android / jp.yasagure.ponlet` とiOS・Web登録を表示した。対象packageはローカル新AABと一致する。このread-only確認時点では署名候補の構成照合は未完だった。後続の新署名候補c7408ea0はCI／Macでcompiled Firebase project構成一致を確認済み（[最新検証](MENU_FIX_RESULTS.md)）。既存Play配布版の同一性やSDK実payloadの受領はこの静的結果から保証しない。
 
 [Firebase Analytics統合](https://console.firebase.google.com/u/0/project/ponlet-599c4/settings/integrations/analytics) により、GA account `1119752`／property `553139030`（名称ponlet-599c4）、Android stream `15740481045` へリンクしていることを確認した。GA側の確認は、この表示済みリンクからだけ進めた。
 
@@ -45,7 +45,7 @@ Google側の広告パーソナライズ全体を無効にするか、共有・�
 
 ## なお未確定の項目
 
-- 新署名済みAndroid候補の公開project ID／app registration照合、OFF／再ON・初回起動の実通信。
+- 新署名候補c7408ea0のcompiled Firebase project構成一致は後続CI／Macで確認済み（[最新検証](MENU_FIX_RESULTS.md)）。既存Play配布版の同一性と、OFF／再ON・初回起動のSDK payloadは未確定。
 - individual deletionを実際に受け付ける手順、本人データに結び付ける識別方法、Googleでの完了確認。現行アプリには診断データ削除機能がない。
 - ML Kit診断の正確な保持期間・個別削除手段、OS／OEM／旧cloud backupのコピー削除。
 - data sharingのGoogle Play上の分類／service-provider例外の最終評価。共有設定ONから直ちにすべての収集をPlayの「共有あり」と機械的に決めない。

@@ -62,9 +62,9 @@ AnalyticsのOFFと広告設定は [Android configure-data-collection](https://fi
 
 `crates/tauri-plugin-ponlet-platform/android/src/main/java/TelemetryBridge.kt:49–57,79–85,102–105` は既定true、保存値の読出し、収集切替と保存を実装している。今回の読み取りでは `resetAnalyticsData`、`deleteUnsentReports`、`sendUnsentReports`、`FirebaseInstallations.delete`、カスタム `setUserId` の呼出しは見つからない。barcode依存は `vendor/tauri-plugin-barcode-scanner/android/build.gradle.kts:42` のplay-services版18.1.0。最新版向け公式開示を、この版の実通信を観測した記録に置き換えない。
 
-親担当は既存認証の読み取りで、公開追跡中のiOS設定に記載されたFirebase projectにAndroid package `jp.yasagure.ponlet` が登録され、GA連携が有効なことを確認した。Ads／BigQuery／Play／Cloud Loggingはリンク操作ボタン表示で未接続と報告された。これは調査時のそのprojectの状態であり、署名された配布Android成果物が同じprojectに接続することまでは照合していない。CI設定・秘密値を読む代わりに、所有者と承認された方法で成果物／project／Android app／GA propertyの対応を確認する。
+親担当は既存認証の読み取りで、公開追跡中のiOS設定に記載されたFirebase projectにAndroid package `jp.yasagure.ponlet` が登録され、GA連携が有効なことを確認した。Ads／BigQuery／Play／Cloud Loggingはリンク操作ボタン表示で未接続と報告された。この読み取り時点では署名Android成果物との照合は未完だった。後続の署名候補c7408ea0では、CIとMac検査でcompiled Firebase project構成一致・google app ID存在・Crashlytics build ID存在を確認済み（[最新検証](MENU_FIX_RESULTS.md)）。既存Play配布版2026093037の同一性やSDK payload／backend受領を確認した結果ではない。署名秘密や元Firebase JSONの値は文書へ転記しない。
 
-親担当の読み取りで、GA account1119752／property553139030（ponlet-599c4）の以下の状態を確認した。根拠画面・時刻は [プロジェクト設定の読み取り記録](PROJECT_SETTINGS_READONLY.md) を参照。これは観測値であり、一般既定値ではない。また配布Androidの接続先照合は未完のため、この値を公開HTMLへ一括適用しない。
+親担当の読み取りで、GA account1119752／property553139030（ponlet-599c4）の以下の状態を確認した。根拠画面・時刻は [プロジェクト設定の読み取り記録](PROJECT_SETTINGS_READONLY.md) を参照。これは観測値であり、一般既定値ではない。新署名候補のproject構成一致は後続検査済み。ただし既存Play配布版、全platform／全SDKの最大保持期間へ一括適用しない。
 
 | 読み取り対象 | そのproject／accountの観測値 | 適用上の注意 |
 | --- | --- | --- |
@@ -86,10 +86,10 @@ OFFについて短く明示できる日英案：
 
 > On Android, this changes Firebase collection settings. Crashlytics applies OFF on the next app launch and keeps crash information locally while disabled. Turning it on again sends previously unsent reports. OFF does not delete past data or stop ML Kit diagnostics.
 
-この補足はローカルHTMLへ反映可能だが、未確認の固定保存期間は入れない。`publication_ready=false` を維持する。将来の公開前に、以下を完了する。
+この補足はローカルHTMLへ反映可能だが、未確認の固定保存期間は入れない。`publication_ready=false` を維持する。公開前の最小判断は [整理](PUBLICATION_DECISIONS.md) を参照。以下は申告の根拠と追加品質試験を分けて進める。未検証の全通信停止・全queue破棄・全OEM復元を保証する文は確定しない。
 
-1. 配布Android成果物・Firebase project・GA propertyの一致と、期間／reset／Signals／広告連携／共有／exportの実設定を読み取り記録する。
-2. 許可された試験配布で、OFF直後／次回起動／offline queue／OFF中crash／再ONを分けて観測する。テスト端末・SDK版・通信・レポートの時刻を記録し、収集ON/OFFのUI値だけで判定しない。
+1. 新署名候補のFirebase構成一致は確認済み。期間／reset／Signals／広告連携／共有／exportの読み取り時点と、既存Play配布版への適用範囲を区別する。
+2. 追加品質試験として、許可された範囲でOFF直後／次回起動／offline queue／OFF中crash／再ONを分けて観測する。テスト端末・SDK版・通信・レポートの時刻を記録し、収集ON/OFFのUI値だけで判定しない。
 3. Firebase Supportに、Crashlyticsの個別UUID／FIDの照合・削除対象・完了期間と、ML Kit barcode18.1.0診断の保持・無効化・個別削除を確認する。現在は問い合わせを送っていない。
 4. 本人のデータを安全に特定し、削除要求を実行・完了確認できる窓口を確立する。IDリセットやアンインストール後は旧IDの特定が難しくなることも扱う。診断削除のためにファイル本文や招待鍵を要求しない。
 5. 保存期間は種類ごとに説明し、集計・追加コピー・OS backupを分ける。受信cloud除外はD2Dや旧版コピーを一括削除する処理ではない。
