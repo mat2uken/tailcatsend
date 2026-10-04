@@ -3,6 +3,7 @@
 import argparse
 import contextlib
 import base64
+import codecs
 import hashlib
 import json
 import os
@@ -322,10 +323,13 @@ def audit_runtime_apk(apk, incoming, signing, firebase):
     private_pem = re.compile(rb'-----BEGIN ((?:RSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY)-----\s+[A-Za-z0-9+/=\s]{16,32768}-----END \1-----')
 
     def possible_json(prefix):
-        for encoding in ('utf-8-sig', 'utf-16', 'utf-16-le', 'utf-16-be', 'utf-32'):
+        for encoding in ('utf-8-sig', 'utf-16', 'utf-16-le', 'utf-16-be',
+                         'utf-32', 'utf-32-le', 'utf-32-be'):
             try:
-                first = prefix.decode(encoding).lstrip()
-                if not first or first.startswith('{'):
+                # Prefixes can end inside a codepoint. Hold that trailing byte
+                # sequence instead of misclassifying a valid JSON object as binary.
+                first = codecs.getincrementaldecoder(encoding)().decode(prefix, final=False).lstrip()
+                if not first or first.startswith(('{', '[')):
                     return True
             except UnicodeError:
                 pass
@@ -575,14 +579,26 @@ def validate(repo, expected, incoming):
                     output.write('### Signed Android build validation\n\n```json\n' + rendered + '\n```\n')
             completed = True
     finally:
-        if exported and not completed:
-            cleanup_export(repo, incoming['RUNNER_TEMP'])
-        if created_config:
-            config.unlink(missing_ok=True)
-        if created_settings:
-            settings.unlink(missing_ok=True)
-            (app / 'tauri.build.gradle.kts').unlink(missing_ok=True)
-        os.umask(old_mask)
+        # Each owned-file cleanup is independent: an export or filesystem error
+        # must not strand restored Firebase inputs or prevent umask restoration.
+        cleanup_failed = False
+        try:
+            if exported and not completed:
+                try:
+                    cleanup_export(repo, incoming['RUNNER_TEMP'])
+                except (ValidationError, OSError, ValueError, TypeError):
+                    cleanup_failed = True
+            paths = ([config] if created_config else []) + (
+                [settings, app / 'tauri.build.gradle.kts'] if created_settings else [])
+            for path in paths:
+                try:
+                    path.unlink(missing_ok=True)
+                except OSError:
+                    cleanup_failed = True
+        finally:
+            os.umask(old_mask)
+        if cleanup_failed:
+            raise ValidationError('owned final cleanup failed') from None
 
 
 def main():

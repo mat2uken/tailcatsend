@@ -416,6 +416,31 @@ echo PONLET_SIGNED_VALIDATION_GRAPH_OK
             validation.cleanup_owned(root, temp)
             self.assertEqual(list(temp.iterdir()), [])
 
+    def test_summary_and_export_cleanup_failure_still_remove_inputs_and_restore_umask(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            app, env, _, temp = self.fixture(root)
+            env.update(VALIDATION_MODE='runtime', GITHUB_STEP_SUMMARY=str(root))  # Directory: controlled write failure.
+            original_umask = os.umask(0o077)
+            os.umask(original_umask)
+            captured = io.StringIO()
+            try:
+                with patch.object(subprocess, 'check_output', return_value=SHA), \
+                        patch.object(validation, 'export_runtime_apk', return_value={'fixture': True}), \
+                        patch.object(validation, 'cleanup_export', side_effect=validation.ValidationError('FIXTURE')), \
+                        contextlib.redirect_stdout(captured), contextlib.redirect_stderr(captured), \
+                        self.assertRaises(validation.ValidationError):
+                    validation.validate(root, SHA, env)
+                self.assertFalse((app / 'google-services.json').exists())
+                self.assertFalse((app / 'tauri.build.gradle.kts').exists())
+                self.assertFalse((app.parent / 'tauri.settings.gradle').exists())
+                self.assertEqual(list(temp.iterdir()), [])
+                observed = os.umask(original_umask)
+                self.assertEqual(observed, original_umask)
+                self.assertNotIn('TEST_ONLY_INPUT', captured.getvalue())
+            finally:
+                os.umask(original_umask)
+
 
 class RuntimeAuditTests(unittest.TestCase):
     def fixture(self, root):
@@ -562,6 +587,24 @@ class RuntimeAuditTests(unittest.TestCase):
             self.assertFalse(config.exists())
             self.assertFalse(private.exists())
             self.assertTrue(export.exists())
+
+    def test_large_utf32be_json_and_split_utf8_prefix_are_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            signing, firebase, incoming = self.fixture(root)
+            apk = root / 'app.apk'
+            cases = [
+                (' ' * (17 * 1024 * 1024) + '{"project_info":{},"client":[]}').encode('utf-32-be'),
+                b'{"x":"' + b'a' * (65535 - 6) + 'あ'.encode() + b'a' * (17 * 1024 * 1024)
+                + b'","project_info":{},"client":[]}',
+            ]
+            self.assertEqual(cases[1][65535:65536], 'あ'.encode()[:1])
+            for data in cases:
+                self.assertIn('project_info', json.loads(data))  # Valid client-config shaped JSON.
+                with zipfile.ZipFile(apk, 'w', zipfile.ZIP_DEFLATED) as z:
+                    z.writestr('renamed.bin', data)
+                with self.assertRaises(validation.ValidationError):
+                    validation.audit_runtime_apk(apk, incoming, signing, firebase)
 
 
 if __name__ == '__main__':
