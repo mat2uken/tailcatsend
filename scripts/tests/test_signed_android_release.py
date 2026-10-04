@@ -126,6 +126,66 @@ class SignedReleaseTests(unittest.TestCase):
             self.assertTrue(m.apk_signature(apk, 'apksigner')['verified'])
         tool.assert_called_once_with(['apksigner', 'verify', '--verbose', 'true', '--print-certs', 'true', str(apk)])
 
+    def test_sdk37_exact_v2_single_label_preserves_aab_certificate_match(self):
+        aab, apk = self.artifacts()
+        header = ('Verifies\nNumber of signers: 1\n'
+                  'Verified using v2 scheme (APK Signature Scheme v2): true\n'
+                  'Verified using v3 scheme (APK Signature Scheme v3): false\n'
+                  'Verified using v3.1 scheme (APK Signature Scheme v3.1): false\n')
+        line = 'V2 Signer: certificate SHA-256 digest: ' + CERTIFICATE + '\n'
+        def output(arguments):
+            return header + line if arguments[0] == 'apksigner' else signature_output(arguments)
+        with mock.patch.object(m, 'tool', side_effect=output):
+            report = m.verify_release(aab, apk, EXPECTED, TOOLS)
+        self.assertTrue(report['verified'])
+        self.assertTrue(report['certificates_match'])
+        def different_certificate(arguments):
+            return header + line.replace(CERTIFICATE, OTHER_CERTIFICATE) if arguments[0] == 'apksigner' else signature_output(arguments)
+        with mock.patch.object(m, 'tool', side_effect=different_certificate):
+            report = m.verify_release(aab, apk, EXPECTED, TOOLS)
+        self.assertFalse(report['verified'])
+        self.assertEqual(report['errors'], ['aab_apk_public_certificates_differ'])
+        bad_headers = [header.replace('Number of signers: 1', 'Number of signers: 2'),
+                       header.replace('v2): true', 'v2): false'),
+                       header.replace('v3): false', 'v3): true'),
+                       header.replace('v3.1): false', 'v3.1): true'),
+                       header.replace('Verified using v3 scheme (APK Signature Scheme v3): false\n', ''),
+                       header.replace('Verified using v3.1 scheme (APK Signature Scheme v3.1): false\n', ''),
+                       header + 'Verified using v2 scheme (APK Signature Scheme v2): false\n']
+        for bad_header in bad_headers:
+            with self.subTest(header=bad_header), mock.patch.object(m, 'tool', return_value=bad_header + line):
+                with self.assertRaises(m.VerificationFailure) as error:
+                    m.apk_signature(apk, 'apksigner')
+                if hasattr(error.exception, 'signature_diagnostics'):
+                    self.assertEqual(error.exception.signature_diagnostics['unknown_certificate_labels'], 0)
+        for extra in (line,
+                      'Signer #1 certificate SHA-256 digest: ' + CERTIFICATE + '\n',
+                      'V1 Signer: certificate SHA-256 digest: ' + CERTIFICATE + '\n',
+                      'V3.0 Signer: certificate SHA-256 digest: ' + CERTIFICATE + '\n',
+                      'V3.1 Signer: (minSdkVersion=33, maxSdkVersion=2147483647) certificate SHA-256 digest: ' + CERTIFICATE + '\n',
+                      'V3.2 Hybrid PQC Signer: certificate SHA-256 digest: ' + OTHER_CERTIFICATE + '\n',
+                      'UNKNOWN_LABEL_SENTINEL certificate SHA-256 digest: ' + CERTIFICATE + '\n'):
+            with self.subTest(extra=extra), mock.patch.object(m, 'tool', return_value=header + line + extra):
+                with self.assertRaises(m.VerificationFailure):
+                    m.apk_signature(apk, 'apksigner')
+        for invalid_line in (line.replace(CERTIFICATE, '1234'), line.replace('V2 Signer:', 'v2 signer:'),
+                             line.replace(CERTIFICATE, CERTIFICATE + '00')):
+            with self.subTest(invalid_line=invalid_line), mock.patch.object(m, 'tool', return_value=header + invalid_line):
+                with self.assertRaises(m.VerificationFailure):
+                    m.apk_signature(apk, 'apksigner')
+
+    def test_source_stamp_is_excluded_but_cannot_supply_the_apk_certificate(self):
+        _, apk = self.artifacts()
+        header = 'Verifies\nNumber of signers: 1\n'
+        signer = 'Signer #1 certificate SHA-256 digest: ' + CERTIFICATE + '\n'
+        for prefix in ('Source Stamp Signer', 'Source Stamp Signer:'):
+            stamp = prefix + ' certificate SHA-256 digest: ' + OTHER_CERTIFICATE + '\n'
+            with self.subTest(prefix=prefix), mock.patch.object(m, 'tool', return_value=header + signer + stamp):
+                self.assertEqual(m.apk_signature(apk, 'apksigner')['certificate_sha256'], CERTIFICATE)
+            with mock.patch.object(m, 'tool', return_value=header + stamp):
+                with self.assertRaises(m.VerificationFailure):
+                    m.apk_signature(apk, 'apksigner')
+
     def test_aab_unsigned_exit_zero_is_not_accepted(self):
         aab, _ = self.artifacts(signed=False)
         with mock.patch.object(m, 'tool', return_value='jar is unsigned.\n') as tool:
@@ -234,7 +294,8 @@ class SignedReleaseTests(unittest.TestCase):
     def test_missing_certificate_line_diagnostics_distinguish_missing_print_indentation_and_crlf(self):
         samples = [('Verifies\nNumber of signers: 1\n', {}),
                    ('  Signer #1 certificate SHA-256 digest: ' + CERTIFICATE + '\n',
-                    dict(certificate_digest_tokens=1, indented_certificate_lines=1, signer_label_lines=1)),
+                    dict(certificate_digest_tokens=1, indented_certificate_lines=1, signer_label_lines=1,
+                         unknown_certificate_labels=1, unique_fingerprints=1)),
                    ('Signer #1 certificate SHA-256 digest: ' + CERTIFICATE + '\r\n',
                     dict(certificate_digest_tokens=1, signer_label_lines=1)),
                    ('Signer #1 certificate DN: CERT_SUBJECT_SENTINEL\n'

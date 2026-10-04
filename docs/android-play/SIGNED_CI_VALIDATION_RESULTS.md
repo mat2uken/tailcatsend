@@ -129,6 +129,26 @@ CI4の4件数だけでは証明書印字の欠落・indent・表記差を区別�
 
 公式のoptional boolean引数を明示し、`verify --verbose true --print-certs true` とする。証明書印字の省略解釈への依存を除くが、これがCI4の根本原因だったとは断定しない。暗号署名成功、署名者1、未知ラベル拒否、全fingerprint一致、AABとの一致の合格条件は維持する。PEMによる代替合格は採用しない。新sourceの再実行は、この診断と明示引数の効果を確かめるために行う。独立レビューに重大指摘なし。verifier19件、helper17件、全scripts99件の既存環境テスト、workflow actionlint、差分空白検査が成功。既存開発署名APKのSDK34/35/36実検証も成功したが、CI署名候補の結果へ流用しない。
 
+## 印字診断補強版の再検証
+
+| 項目 | 値 |
+| --- | --- |
+| run | [37164330828](https://github.com/mat2uken/tailcatsend/actions/runs/37164330828) |
+| source SHA | `96ce3d880c85be09b31de1a28438a5f0cc8dfef8` |
+| 状態 | FAIL。署名検証jobは2026-10-04 00:14:38–00:26:21 UTC。配布jobはskipped、always cleanup成功、artifact 0件。`mode=verify` / `confirm_deploy=false`、90分上限を維持 |
+
+AAB build 291.657秒、APK build 53.075秒で両方成功。artifact verification 2.472秒、同じ証明書解析errorで失敗。検証log hash `f5a09c8b56cbce16dd604c9ca39b51897202de848686be513003df2f0d87101e`。
+
+選択apksignerのbuild-toolsは37.0.0。証明書digest語句とDNの件数は各1、indent件数0、Signer行件数0。v2署名成功表示1、v3/v3.1は0。証明書印字がないという仮説はこのrunでは否定され、既知のSigner接頭辞に一致しない表記へ切り分けられた。SDK37の公式実装を照合して最小修正を決める。明示booleanだけでは解消していない。
+
+## SDK37の正式な証明書ラベルへの最小対応
+
+[Google公式配布manifest](https://dl.google.com/android/repository/repository2-3.xml)が列挙する [SDK37 Linux ZIP](https://dl.google.com/android/repository/build-tools_r37_linux.zip) を一時領域で読み取り、manifestのSHA-1 `70954e99f4c3d9d46ee70fa32624672fe7cd6ebe` と実体が一致することを確認した。ZIP SHA-256 `01af179347cbcd9c208b7f8171f7b21f6dd1d2f85bcd15e88caa51d5d7b86060`、ZIP内apksigner.jar SHA-256 `2defad215d7ff52968a409cde528cdaef7918b115e276b8e3378ca7a178e4180`、Pkg.Revision 37.0.0。
+
+既存`javap`でbytecodeを読むと、v3/v3.1不使用・v2成功時のprefixが `V2 `、単一証明書時に `Signer:` を連結し、`V2 Signer: certificate SHA-256 digest:` になる。source stampは `Source Stamp Signer:` の別分岐。SDK37を配置・実行・署名に使用せず、静的照合だけを行った。独立レビューでもZIP/checksum、ZIP内jarと解析対象jarの一致を再計算した。CI5のversionと件数診断はこの形式と一致するが、CI側jarのhashそのものは未計測なので同一実体とは断定しない。
+
+対応は上記のexact V2形式だけを追加する。単一証明書行・64桁digest・v2成功・v3/v3.1不使用を要求し、署名者1・AABとの証明書一致を保持する。旧形式との混在、重複、未知のV1/V3.0/Hybrid形式は拒否し、source stamp単独をアプリ署名へ採用しない。製品コード、tool選択、credential、upload抑止は変更しない。独立レビューに重大指摘なし、関連38件、全scripts101件の既存環境テスト、workflow actionlint、差分空白検査が成功。新しい完全SHAで実署名候補を再検証する。
+
 ## 残る提出準備
 
 1. 署名候補の静的検査を完了し、artifact hash・公開証明書・manifest・16KB結果をこの記録に対応させる。

@@ -84,10 +84,13 @@ def apk_signature(path, apksigner):
 
 def apk_certificate_sha256(output):
     # ApkSignerTool prints SDK-range labels for v3.1 and numbered labels for
-    # earlier schemes. Inspect every signer certificate line, including unknown
+    # earlier schemes. SDK37 uses "V2 Signer:" for a single v2 signer (confirmed
+    # from the official build-tools_r37_linux.zip, apksigner.jar SHA256
+    # 2defad215d7ff52968a409cde528cdaef7918b115e276b8e3378ca7a178e4180).
+    # Inspect every signer certificate line, including unknown
     # labels, so no additional or malformed certificate can silently be ignored.
     # https://android.googlesource.com/platform/tools/apksig/+/refs/heads/main/src/apksigner/java/com/android/apksigner/ApkSignerTool.java
-    lines = re.findall(r'(?m)^Signer[^\r\n]* certificate SHA-256 digest:[^\r\n]*$', output)
+    lines = re.findall(r'(?m)^(?!Source Stamp Signer:? certificate SHA-256 digest:)[^\r\n]* certificate SHA-256 digest:[^\r\n]*$', output)
     numbered = r'Signer #\d+'
     sdk_range = r'Signer \(minSdkVersion=\d+(?: \(dev release=true\))?, maxSdkVersion=\d+\)'
     counts = dict.fromkeys(SIGNATURE_DIAGNOSTIC_FIELDS, 0)
@@ -105,8 +108,10 @@ def apk_certificate_sha256(output):
     for line in lines:
         label, digest = line.split(' certificate SHA-256 digest:', 1)
         key = ('numbered_lines' if re.fullmatch(numbered, label) else
-               'sdk_range_lines' if re.fullmatch(sdk_range, label) else 'unknown_certificate_labels')
-        counts[key] += 1
+               'sdk_range_lines' if re.fullmatch(sdk_range, label) else
+               None if label == 'V2 Signer:' else 'unknown_certificate_labels')
+        if key is not None:
+            counts[key] += 1
         if re.fullmatch('[0-9a-fA-F]{64}', digest.strip()):
             recognized_fingerprints.add(digest.strip().lower())
     counts['unique_fingerprints'] = len(recognized_fingerprints)
@@ -115,13 +120,15 @@ def apk_certificate_sha256(output):
         check(bool(lines), 'apk_public_certificate_missing_or_ambiguous')
         certificates, modes = set(), set()
         for line in lines:
-            match = re.fullmatch(r'Signer (?P<label>#\d+|\(minSdkVersion=\d+(?: \(dev release=true\))?, maxSdkVersion=\d+\))'
+            match = re.fullmatch(r'(?P<label>Signer (?:#\d+|\(minSdkVersion=\d+(?: \(dev release=true\))?, maxSdkVersion=\d+\))|V2 Signer:)'
                                  r' certificate SHA-256 digest:\s*(?P<digest>[0-9a-fA-F]{64})\s*', line)
             check(match is not None, 'apk_public_certificate_missing_or_ambiguous')
             label = match['label']
-            if label.startswith('#'):
-                check(label == '#1', 'apk_public_certificate_missing_or_ambiguous')
+            if label.startswith('Signer #'):
+                check(label == 'Signer #1', 'apk_public_certificate_missing_or_ambiguous')
                 modes.add('numbered')
+            elif label == 'V2 Signer:':
+                modes.add('v2_single')
             else:
                 minimum, maximum = (int(n) for n in re.findall(r'SdkVersion=(\d+)', label))
                 check(1 <= minimum <= maximum <= 2147483647, 'apk_public_certificate_missing_or_ambiguous')
@@ -130,6 +137,12 @@ def apk_certificate_sha256(output):
         check(len(certificates) == 1 and len(modes) == 1, 'apk_public_certificate_missing_or_ambiguous')
         if modes == {'numbered'}:
             check(len(lines) == 1, 'apk_public_certificate_missing_or_ambiguous')
+        elif modes == {'v2_single'}:
+            scheme_values = {scheme: re.findall(r'(?m)^Verified using ' + re.escape(scheme) +
+                             r' scheme \(APK Signature Scheme ' + re.escape(scheme) + r'\): (true|false)\s*$', output)
+                             for scheme in ('v2', 'v3', 'v3.1')}
+            check(len(lines) == 1 and scheme_values == {'v2': ['true'], 'v3': ['false'], 'v3.1': ['false']},
+                  'apk_public_certificate_missing_or_ambiguous')
         else:
             check(bool(re.search(r'(?m)^Verified using v3\.1 scheme \(APK Signature Scheme v3\.1\): true\s*$', output)),
                   'apk_public_certificate_missing_or_ambiguous')
