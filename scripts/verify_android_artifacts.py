@@ -89,8 +89,15 @@ def string(fields, number, default=''):
 
 
 def proto_value(attribute):
-    raw = field(attribute, 3, 2)
-    compiled = protobuf(field(attribute, 6, 2, b''))
+    # XmlAttribute.value is an implicit-presence proto3 string. An empty
+    # uncompiled value is omitted on the wire; it still means an empty string.
+    # Distinguish an absent compiled_item from a present but unsupported Item.
+    # AOSP tools/aapt2/Resources.proto: XmlAttribute fields 3 and 6.
+    raw = field(attribute, 3, 2, b'')
+    compiled_data = field(attribute, 6, 2)
+    if compiled_data is None:
+        return raw.decode('utf-8')
+    compiled = protobuf(compiled_data)
     if 1 in compiled:
         reference = protobuf(field(compiled, 1, 2))
         resource_id = field(reference, 2, 0, 0)
@@ -108,8 +115,6 @@ def proto_value(attribute):
         for key in (6, 7):
             if key in primitive:
                 return str(field(primitive, key, 0))
-    if raw is not None and not compiled:
-        return raw.decode('utf-8')
     # An unresolved compiled reference must not be interpreted as a raw boolean.
     return '@unresolved'
 
