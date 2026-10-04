@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import zipfile
 from unittest.mock import patch
 
 SCRIPTS = Path(__file__).resolve().parents[1]
@@ -20,9 +21,10 @@ SHA = '5e0125797c2466918772a6722302d84219a1792a'
 class GuardTests(unittest.TestCase):
     def test_unknown_modes_incomplete_source_and_unconfirmed_deploy_stop(self):
         validation.request('verify', SHA, 'false')
+        validation.request('runtime', SHA, 'false')
         validation.request('deploy', '', 'true')
         for mode, source, confirm in [('other', SHA, 'true'), ('', SHA, 'false'),
-                                      ('verify', SHA[:8], 'false'), ('verify', SHA + '\n', 'false'),
+                                      ('verify', SHA[:8], 'false'), ('runtime', SHA[:8], 'false'), ('verify', SHA + '\n', 'false'),
                                       ('deploy', SHA, 'false'), ('deploy', SHA, 'TRUE')]:
             with self.assertRaises(validation.ValidationError):
                 validation.request(mode, source, confirm)
@@ -280,6 +282,7 @@ echo PONLET_SIGNED_VALIDATION_GRAPH_OK
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             app, env, global_env, temp = self.fixture(root, fail=True)
+            env['VALIDATION_MODE'] = 'runtime'
             captured = io.StringIO()
             with patch.object(subprocess, 'check_output', return_value=SHA + '\n'), contextlib.redirect_stderr(captured), self.assertRaises(validation.ValidationError):
                 validation.validate(root, SHA, env)
@@ -293,6 +296,7 @@ echo PONLET_SIGNED_VALIDATION_GRAPH_OK
             root = Path(tmp)
             app, env, global_env, temp = self.fixture(root)
             counts = dict(zip(validation.SIGNATURE_DIAGNOSTIC_FIELDS, (0, 2, 0, 1) + (0,) * 8))
+            env['VALIDATION_MODE'] = 'runtime'
             report = {'verified': False, 'errors': [], 'raw_path': '/PRIVATE_PATH',
                       'artifacts': [{'type': 'apk', 'errors': ['apk_public_certificate_missing_or_ambiguous'],
                                      'signature_diagnostics': counts, 'raw_label': 'PRIVATE_LABEL',
@@ -366,7 +370,7 @@ echo PONLET_SIGNED_VALIDATION_GRAPH_OK
         # Pure source check complements execution fixtures; no YAML dependency required.
         workflow = (SCRIPTS.parent / '.github/workflows/google_play.yml').read_text()
         job = workflow.split('  signed-validation:', 1)[1].split('  build-and-deploy:', 1)[0]
-        for forbidden in ('PLAY_CONFIG_JSON', 'upload-artifact', 'upload-google-play', 'cache: npm',
+        for forbidden in ('PLAY_CONFIG_JSON', 'upload-google-play', 'cache: npm',
                           'cache-dependency-path', 'gh release', 'setup_android_signing.sh'):
             self.assertNotIn(forbidden, job)
         self.assertIn('cache: false', job)
@@ -374,11 +378,190 @@ echo PONLET_SIGNED_VALIDATION_GRAPH_OK
         self.assertIn("inputs.mode == 'verify'", job)
         self.assertIn("inputs.confirm_deploy == true", workflow)
         self.assertIn('default: verify', workflow)
+        self.assertEqual(job.count('uses: actions/upload-artifact@v4'), 1)
+        self.assertIn("if: success() && inputs.mode == 'runtime'", job)
+        self.assertIn('path: ${{ runner.temp }}/ponlet-runtime-export/ponlet-release.apk', job)
+        self.assertIn('retention-days: 1', job)
+        self.assertIn('if-no-files-found: error', job)
+        self.assertIn('if: always()', job)
         init = (SCRIPTS / 'signed_android_no_upload.init.gradle').read_text()
         self.assertIn('gradle.taskGraph.whenReady', init)
         self.assertIn('blocked(it) && it.enabled', init)
         self.assertIn('mappingFileUploadEnabled = false', init)
         self.assertIn('nativeSymbolUploadEnabled = false', init)
+
+    def test_runtime_exports_only_digest_bound_apk_after_private_cleanup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            app, env, global_env, temp = self.fixture(root)
+            env['VALIDATION_MODE'] = 'runtime'
+            script = root / 'scripts/build_tauri_mobile.sh'
+            content = script.read_text().replace(
+                'echo FIXTURE > apps/tauri/gen/android/app/build/outputs/apk/universal/release/app.apk',
+                "python3 -c \"import zipfile; z=zipfile.ZipFile('apps/tauri/gen/android/app/build/outputs/apk/universal/release/app.apk','w'); z.writestr('resources.arsc',b'compiled Firebase ponlet-599c4'); z.close()\"")
+            script.write_text(content)
+            (root / 'scripts/verify_signed_android_release.py').write_text(
+                "import sys,json,hashlib\nfrom pathlib import Path\n"
+                "Path(sys.argv[sys.argv.index('--report')+1]).write_text(json.dumps({'verified':True,'artifacts':[{'type':'apk','sha256':hashlib.sha256(Path(sys.argv[2]).read_bytes()).hexdigest()}]}))\n")
+            captured = io.StringIO()
+            with patch.object(subprocess, 'check_output', return_value=SHA), contextlib.redirect_stdout(captured), contextlib.redirect_stderr(io.StringIO()):
+                validation.validate(root, SHA, env)
+            export = temp / 'ponlet-runtime-export'
+            self.assertEqual({p.name for p in export.iterdir()}, {'ponlet-release.apk', 'ownership.json'})
+            self.assertFalse((app / 'google-services.json').exists())
+            self.assertEqual(list(temp.glob('ponlet-signed-validation-*')), [])
+            self.assertEqual(global_env.read_text(), 'UNCHANGED=1\n')
+            self.assertNotIn('TEST_ONLY_INPUT', captured.getvalue())
+            self.assertTrue(json.loads(captured.getvalue())['runtime_export_audit']['archive_private_input_scan_passed'])
+            validation.cleanup_owned(root, temp)
+            self.assertEqual(list(temp.iterdir()), [])
+
+
+class RuntimeAuditTests(unittest.TestCase):
+    def fixture(self, root):
+        key = root / 'fixture.keystore'
+        key.write_bytes(b'FAKE_PRIVATE_KEYSTORE_CONTENT')
+        signing = {'PONLET_ANDROID_KEYSTORE': str(key), 'ANDROID_KEYSTORE_PASSWORD': 'password-sentinel',
+                   'ANDROID_KEY_PASSWORD': 'key-password-sentinel', 'ANDROID_KEY_ALIAS': 'ponlet'}
+        firebase = b'{"project_info":{"project_id":"fixture"},"client":[]}'
+        incoming = {'ANDROID_KEYSTORE_BASE64': base64.b64encode(key.read_bytes()).decode(),
+                    'GOOGLE_SERVICES_JSON_BASE64': base64.b64encode(firebase).decode()}
+        return signing, firebase, incoming
+
+    def test_compiled_client_public_certificate_and_pem_constants_allowed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            signing, firebase, incoming = self.fixture(root)
+            apk = root / 'app.apk'
+            with zipfile.ZipFile(apk, 'w') as z:
+                z.writestr('resources.arsc', b'ponlet fixture compiled API key')
+                z.writestr('META-INF/CERT.RSA', b'PUBLIC_DER_CERTIFICATE')
+                z.writestr('lib/arm64-v8a/crypto.so', b'-----BEGIN PRIVATE KEY-----\x00-----END PRIVATE KEY-----')
+            result = validation.audit_runtime_apk(apk, incoming, signing, firebase)
+            self.assertEqual(result['short_alias_literal_scan'], 'not-performed')
+
+    def test_raw_or_compressed_private_inputs_names_json_and_pem_rejected_silently(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            signing, firebase, incoming = self.fixture(root)
+            cases = [('payload.bin', signing['ANDROID_KEYSTORE_PASSWORD'].encode()),
+                     ('payload.bin', incoming['ANDROID_KEYSTORE_BASE64'].encode()),
+                     ('payload.bin', incoming['GOOGLE_SERVICES_JSON_BASE64'].encode()),
+                     ('payload.bin', (root / 'fixture.keystore').read_bytes()),
+                     ('payload.bin', firebase), ('renamed.bin', b'{ "client": [], "project_info": {} }'),
+                     ('renamed.bin', b' ' * 70000 + b'{ "client": [], "project_info": {} }'),
+                     ('renamed.bin', b'\xef\xbb\xbf' + b'{ "client": [], "project_info": {} }'),
+                     ('renamed.bin', '{ "client": [], "project_info": {} }'.encode('utf-16')),
+                     ('renamed.bin', '{ "client": [], "project_info": {} }'.encode('utf-16-be')),
+                     ('google-services.json', b'{}'), ('private.jks', b'{}'),
+                     ('signing.env', b'{}'), ('ponlet-cert.pem', b'PUBLIC'),
+                     ('payload.bin', b'ANDROID_KEY_PASSWORD = hidden'),
+                     ('payload.bin', b'{"storePassword": "hidden"}'),
+                     ('payload.bin', b'-----BEGIN PRIVATE KEY-----\n' + b'A' * 64 + b'\n-----END PRIVATE KEY-----'),
+                     ('payload.bin', b'x' * 65530 + signing['ANDROID_KEY_PASSWORD'].encode()),
+                     ('password-sentinel/file', b'harmless')]
+            for name, data in cases:
+                apk = root / 'app.apk'
+                with zipfile.ZipFile(apk, 'w', zipfile.ZIP_DEFLATED) as z:
+                    z.writestr(name, data)
+                captured = io.StringIO()
+                with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(captured), self.assertRaises(validation.ValidationError):
+                    validation.audit_runtime_apk(apk, incoming, signing, firebase)
+                self.assertEqual(captured.getvalue(), '')
+
+    def test_corrupt_duplicate_archive_and_digest_mismatch_never_export(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            signing, firebase, incoming = self.fixture(root)
+            apk = root / 'app.apk'
+            apk.write_bytes(b'not an APK')
+            with self.assertRaises(validation.ValidationError):
+                validation.audit_runtime_apk(apk, incoming, signing, firebase)
+
+            with zipfile.ZipFile(apk, 'w') as z:
+                z.writestr('safe', b'safe')
+            with self.assertRaises(validation.ValidationError):
+                validation.export_runtime_apk(root, root, apk, {'artifacts': [{'type': 'apk', 'sha256': '0' * 64}]}, incoming, signing, firebase)
+            self.assertFalse((root / 'ponlet-runtime-export').exists())
+            with zipfile.ZipFile(apk, 'a') as z:
+                with unittest.mock.patch('warnings.warn'):
+                    z.writestr('safe', b'again')
+            with self.assertRaises(validation.ValidationError):
+                validation.audit_runtime_apk(apk, incoming, signing, firebase)
+
+    def test_encrypted_crc_invalid_and_unknown_parser_errors_fail_without_raw_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            signing, firebase, incoming = self.fixture(root)
+            apk = root / 'app.apk'
+            with zipfile.ZipFile(apk, 'w') as z:
+                z.writestr('safe', b'CRC_FIXTURE_CONTENT')
+            original = apk.read_bytes()
+            encrypted = bytearray(original)
+            for header, offset in ((b'PK\x03\x04', 6), (b'PK\x01\x02', 8)):
+                index = encrypted.index(header) + offset
+                encrypted[index] |= 1
+            corrupt = original.replace(b'CRC_FIXTURE_CONTENT', b'CRC_FIXTURE_CORRUPT')
+            for data in (bytes(encrypted), corrupt):
+                apk.write_bytes(data)
+                with self.assertRaises(validation.ValidationError):
+                    validation.audit_runtime_apk(apk, incoming, signing, firebase)
+            apk.write_bytes(original)
+            with patch.object(validation.zipfile, 'ZipFile', side_effect=Exception('PRIVATE_PARSER_SECRET')):
+                with self.assertRaises(validation.ValidationError) as caught:
+                    validation.audit_runtime_apk(apk, incoming, signing, firebase)
+                self.assertNotIn('PRIVATE', str(caught.exception))
+
+    def test_wrapped_inputs_long_alias_and_short_password_are_checked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            signing, firebase, incoming = self.fixture(root)
+            compact = incoming['ANDROID_KEYSTORE_BASE64']
+            incoming['ANDROID_KEYSTORE_BASE64'] = ' \t' + compact[:10] + '\r\n' + compact[10:]
+            signing['ANDROID_KEY_ALIAS'] = 'LONG_ALIAS_SENTINEL_16'
+            signing['ANDROID_KEY_PASSWORD'] = 'xy'
+            apk = root / 'app.apk'
+            for payload in (compact.encode(), incoming['ANDROID_KEYSTORE_BASE64'].encode(),
+                            signing['ANDROID_KEY_ALIAS'].encode(), b'xy'):
+                with zipfile.ZipFile(apk, 'w', zipfile.ZIP_DEFLATED) as z:
+                    z.writestr('payload', payload)
+                with self.assertRaises(validation.ValidationError):
+                    validation.audit_runtime_apk(apk, incoming, signing, firebase)
+
+    def test_cleanup_preserves_unowned_directory_and_removes_owned_cancelled_export(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            directory = root / 'ponlet-runtime-export'
+            directory.mkdir()
+            (directory / 'original').write_text('original')
+            validation.cleanup_export(root, root)
+            self.assertEqual((directory / 'original').read_text(), 'original')
+            (directory / 'original').unlink()
+            stat = directory.stat()
+            (directory / 'ownership.json').write_text(json.dumps({'repo': str(root.resolve()), 'device': stat.st_dev, 'inode': stat.st_ino}))
+            (directory / 'export.tmp').write_text('cancelled')
+            validation.cleanup_export(root, root)
+            self.assertFalse(directory.exists())
+
+    def test_bad_export_marker_cannot_skip_private_input_cleanup(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            app = root / 'apps/tauri/gen/android/app'
+            app.mkdir(parents=True)
+            config = app / 'google-services.json'
+            config.write_text('PRIVATE_CONFIG_FIXTURE')
+            private = root / 'ponlet-signed-validation-fixture'
+            private.mkdir()
+            (private / 'private.log').write_text('PRIVATE_LOG_FIXTURE')
+            validation.record_ownership(private, root, [config])
+            export = root / 'ponlet-runtime-export'
+            export.mkdir()
+            (export / 'ownership.json').write_text('malformed')
+            with self.assertRaises(validation.ValidationError):
+                validation.cleanup_owned(root, root)
+            self.assertFalse(config.exists())
+            self.assertFalse(private.exists())
+            self.assertTrue(export.exists())
 
 
 if __name__ == '__main__':

@@ -4,11 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Verify signed build only; deploy requires separate explicit confirmation
+        description: Verify only, export one APK for approved runtime testing, or explicitly deploy
         required: true
         type: choice
         default: verify
-        options: [verify, deploy]
+        options: [verify, runtime, deploy]
       expected_source_sha:
         description: Exact full checkout SHA for verification (versionCode fixed at 2030000102)
         required: false
@@ -56,7 +56,7 @@ jobs:
 
   signed-validation:
     needs: validate-request
-    if: github.event_name == 'workflow_dispatch' && inputs.mode == 'verify'
+    if: github.event_name == 'workflow_dispatch' && (inputs.mode == 'verify' || inputs.mode == 'runtime')
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -87,6 +87,7 @@ jobs:
       - run: cargo install tauri-cli --version 2.10.0 --locked
       - name: Opaque signing, Firebase release build, and static verification only
         env:
+          VALIDATION_MODE: ${{ inputs.mode }}
           EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
           RUNNER_DEBUG: ${{ runner.debug }}
           ANDROID_NDK_ROOT: ${{ steps.ndk.outputs.ndk-path }}
@@ -96,10 +97,20 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
         run: python3 scripts/signed_android_validation.py
-      - name: Clean only validation-owned private inputs after success or cancellation
+      - name: Export only the verified APK for approved runtime testing
+        if: success() && inputs.mode == 'runtime'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ponlet-Runtime-APK
+          path: ${{ runner.temp }}/ponlet-runtime-export/ponlet-release.apk
+          retention-days: 1
+          if-no-files-found: error
+          overwrite: false
+      - name: Clean validation-owned inputs and runtime export after success or cancellation
         if: always()
         run: python3 scripts/signed_android_validation.py --cleanup-owned
-      # No Play credential, artifact/cache upload, Release, app install, or runtime network.
+      # Verify exports nothing. Runtime exports only the audited APK, never AAB,
+      # report, logs, private input or config. No cache/Release/Play/app install/network.
 
   build-and-deploy:
     needs: validate-request

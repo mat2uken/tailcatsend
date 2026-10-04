@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import zipfile
 
 VERSION_CODE = '2030000102'
 SIGNING_KEYS = ('ANDROID_KEYSTORE_BASE64', 'ANDROID_KEYSTORE_PASSWORD',
@@ -52,9 +53,9 @@ def source_guard(repo, expected, incoming):
 
 
 def request(mode, source, confirm):
-    if mode not in ('verify', 'deploy'):
+    if mode not in ('verify', 'runtime', 'deploy'):
         raise ValidationError('unsupported mode')
-    if mode == 'verify' and not re.fullmatch(r'[0-9a-f]{40}', source):
+    if mode in ('verify', 'runtime') and not re.fullmatch(r'[0-9a-f]{40}', source):
         raise ValidationError('verify requires a complete lowercase source SHA')
     if mode == 'deploy' and confirm != 'true':
         raise ValidationError('deploy requires explicit confirmation')
@@ -283,7 +284,146 @@ def record_ownership(work, repo, paths):
     temporary.replace(marker)
 
 
+def cleanup_export(repo, runner_temp):
+    directory = Path(runner_temp) / 'ponlet-runtime-export'
+    if not directory.exists() or directory.is_symlink():
+        return
+    marker = directory / 'ownership.json'
+    if not marker.is_file() or marker.is_symlink():
+        return  # A caller-owned directory is never removed.
+    try:
+        record = json.loads(marker.read_text())
+        info = directory.stat()
+        if record != {'repo': str(repo.resolve()), 'device': info.st_dev, 'inode': info.st_ino}:
+            raise ValidationError('runtime export ownership mismatch')
+        if any(p.name not in ('ownership.json', 'ponlet-release.apk', 'export.tmp') or p.is_symlink()
+               or not p.is_file() for p in directory.iterdir()):
+            raise ValidationError('runtime export contains unowned files')
+        shutil.rmtree(directory)
+    except (OSError, ValueError, TypeError):
+        raise ValidationError('runtime export cleanup failed') from None
+
+
+def audit_runtime_apk(apk, incoming, signing, firebase):
+    # This checks specified representations of known private CI inputs. Compiled
+    # Firebase strings and the public APK signing certificate remain permitted.
+    needles = [Path(signing['PONLET_ANDROID_KEYSTORE']).read_bytes(), firebase]
+    for key in ('ANDROID_KEYSTORE_BASE64', 'GOOGLE_SERVICES_JSON_BASE64'):
+        needles.extend((incoming[key].encode(), re.sub(r'[ \t\r\n]', '', incoming[key]).encode()))
+    for key in ('ANDROID_KEYSTORE_PASSWORD', 'ANDROID_KEY_PASSWORD'):
+        needles.append(signing[key].encode())  # Passwords are checked at every length.
+    alias = signing['ANDROID_KEY_ALIAS'].encode()
+    if len(alias) >= 16:
+        needles.append(alias)
+    if any(not value for value in needles):
+        raise ValidationError('runtime audit input missing')
+    tail_length = max(max(map(len, needles)), 65536)
+    assignments = re.compile(rb'(?:PONLET_ANDROID_KEYSTORE|ANDROID_KEYSTORE_BASE64|ANDROID_KEYSTORE_PASSWORD|ANDROID_KEY_ALIAS|ANDROID_KEY_PASSWORD|GOOGLE_SERVICES_JSON_BASE64|PLAY_CONFIG_JSON|storePassword|keyPassword|keyAlias|storeFile)["\s]{0,32}[=:]')
+    private_pem = re.compile(rb'-----BEGIN ((?:RSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY)-----\s+[A-Za-z0-9+/=\s]{16,32768}-----END \1-----')
+
+    def possible_json(prefix):
+        for encoding in ('utf-8-sig', 'utf-16', 'utf-16-le', 'utf-16-be', 'utf-32'):
+            try:
+                first = prefix.decode(encoding).lstrip()
+                if not first or first.startswith('{'):
+                    return True
+            except UnicodeError:
+                pass
+        return False
+
+    def scan(stream, collect_json=False):
+        tail = b''
+        collected = bytearray()
+        while True:
+            chunk = stream.read(65536)
+            if not chunk:
+                break
+            data = tail + chunk
+            if any(value in data for value in needles) or assignments.search(data) or private_pem.search(data):
+                raise ValidationError('runtime private input detected')
+            tail = data[-tail_length:]
+            if collect_json:
+                collected.extend(chunk)
+                if len(collected) > 16 * 1024 * 1024:
+                    if possible_json(bytes(collected[:65536])):
+                        raise ValidationError('runtime JSON audit size exceeded')
+                    # Large binary entries still receive the full literal/PEM scan.
+                    collect_json = False
+                    collected.clear()
+        if collect_json:
+            try:
+                value = json.loads(collected)
+            except (ValueError, UnicodeError):
+                return
+            if isinstance(value, dict) and 'project_info' in value and 'client' in value:
+                raise ValidationError('runtime raw Firebase configuration detected')
+
+    try:
+        if apk.is_symlink() or not apk.is_file():
+            raise ValidationError('runtime APK input is not a regular file')
+        with apk.open('rb') as stream:
+            scan(stream)  # Includes ZIP names and the APK signing block.
+        with zipfile.ZipFile(apk) as archive:
+            seen = set()
+            total = 0
+            for info in archive.infolist():
+                name = info.filename
+                leaf = name.rsplit('/', 1)[-1].lower()
+                total += info.file_size
+                if (name in seen or info.flag_bits & 1 or '..' in name.split('/') or name.startswith('/')
+                        or '\\' in name or (info.external_attr >> 16) & 0o170000 == 0o120000
+                        or total > 1024 * 1024 * 1024 or info.file_size > 256 * 1024 * 1024
+                        or leaf in ('google-services.json', 'signing.env', 'ponlet-cert.pem', '.env', 'ownership.json', 'credentials.json')
+                        or leaf.endswith(('.jks', '.keystore', '.p12', '.pfx', '.key', '.p8', '.pk8', '.pkcs12'))):
+                    raise ValidationError('runtime archive audit rejected')
+                seen.add(name)
+                with archive.open(info) as stream:
+                    # JSON's byte parser handles BOM/UTF16/UTF32, renames, and
+                    # arbitrary leading whitespace. Parse every bounded entry.
+                    scan(stream, True)
+    except ValidationError:
+        raise
+    except Exception:
+        # Decompressors and ZIP parsers can raise other errors. No exception text
+        # or private ZIP path may reach a runner traceback on an audit failure.
+        raise ValidationError('runtime archive audit failed') from None
+    return {'archive_private_input_scan_passed': True, 'password_literal_scan': 'all-lengths',
+            'alias_literal_minimum_bytes': 16, 'short_alias_literal_scan': 'not-performed',
+            'raw_and_expanded_archive_scan': True, 'raw_firebase_json_scan': True}
+
+
+def export_runtime_apk(repo, runner_temp, apk, report, incoming, signing, firebase):
+    entries = [a for a in report.get('artifacts', []) if isinstance(a, dict) and a.get('type') == 'apk']
+    if (len(entries) != 1 or not isinstance(entries[0].get('sha256'), str)
+            or not re.fullmatch(r'[0-9a-f]{64}', entries[0]['sha256'])):
+        raise ValidationError('runtime verified APK digest missing')
+    audit = audit_runtime_apk(apk, incoming, signing, firebase)
+    directory = Path(runner_temp) / 'ponlet-runtime-export'
+    directory.mkdir(mode=0o700)  # Exclusive; never overwrite a pre-existing export.
+    info = directory.stat()
+    (directory / 'ownership.json').write_text(json.dumps(
+        {'repo': str(repo.resolve()), 'device': info.st_dev, 'inode': info.st_ino}))
+    try:
+        digest = hashlib.sha256()
+        with apk.open('rb') as source, (directory / 'export.tmp').open('xb') as destination:
+            while chunk := source.read(65536):
+                digest.update(chunk)
+                destination.write(chunk)
+        if digest.hexdigest() != entries[0]['sha256']:
+            raise ValidationError('runtime APK differs from verified digest')
+        (directory / 'export.tmp').replace(directory / 'ponlet-release.apk')
+        return audit
+    except BaseException:
+        cleanup_export(repo, runner_temp)
+        raise
+
+
 def cleanup_owned(repo, runner_temp):
+    export_error = False
+    try:
+        cleanup_export(repo, runner_temp)
+    except (ValidationError, OSError, ValueError, TypeError):
+        export_error = True  # Private-input fallback must still run independently.
     allowed = {repo / 'apps/tauri/gen/android/app/google-services.json',
                repo / 'apps/tauri/gen/android/tauri.settings.gradle',
                repo / 'apps/tauri/gen/android/app/tauri.build.gradle.kts'}
@@ -311,10 +451,17 @@ def cleanup_owned(repo, runner_temp):
         except (OSError, ValueError, TypeError, AttributeError):
             # Never remove an original file or print an untrusted marker on uncertainty.
             raise ValidationError('owned cleanup could not be established')
+    if export_error:
+        raise ValidationError('runtime export cleanup failed')
 
 
 def validate(repo, expected, incoming):
     actual = source_guard(repo, expected, incoming)
+    mode = incoming.get('VALIDATION_MODE', 'verify')
+    if mode not in ('verify', 'runtime'):
+        raise ValidationError('unsupported validation mode')
+    if mode == 'runtime' and (Path(incoming['RUNNER_TEMP']) / 'ponlet-runtime-export').exists():
+        raise ValidationError('existing runtime export must remain untouched')
     if not all(incoming.get(key) for key in INPUT_KEYS):
         raise ValidationError('required signing or Firebase input missing')
     if incoming.get('PONLET_ANDROID_BUILD_ONLY'):
@@ -329,6 +476,8 @@ def validate(repo, expected, incoming):
     old_mask = os.umask(0o077)
     created_config = False
     created_settings = False
+    exported = False
+    completed = False
     settings = app.parent / 'tauri.settings.gradle'
     try:
         with tempfile.TemporaryDirectory(prefix='ponlet-signed-validation-', dir=incoming['RUNNER_TEMP']) as temp:
@@ -411,12 +560,23 @@ def validate(repo, expected, incoming):
             summary = {'source_sha': actual, 'version_code': int(VERSION_CODE),
                        'control_sha256': hashlib.sha256(init_source.read_bytes()).hexdigest(),
                        'build_log_sha256': digests, 'verification': report, **tool_version}
+            if mode == 'runtime':
+                try:
+                    summary['runtime_export_audit'] = export_runtime_apk(
+                        repo, incoming['RUNNER_TEMP'], apks[0], report, incoming, signing, firebase)
+                except ValidationError:
+                    print(json.dumps({'runtime_export_error': 'audit-or-digest-rejected'}), file=sys.stderr)
+                    raise
+                exported = True
             rendered = json.dumps(summary, sort_keys=True, indent=2)
             print(rendered)
             if base_env.get('GITHUB_STEP_SUMMARY'):
                 with open(base_env['GITHUB_STEP_SUMMARY'], 'a') as output:
                     output.write('### Signed Android build validation\n\n```json\n' + rendered + '\n```\n')
+            completed = True
     finally:
+        if exported and not completed:
+            cleanup_export(repo, incoming['RUNNER_TEMP'])
         if created_config:
             config.unlink(missing_ok=True)
         if created_settings:

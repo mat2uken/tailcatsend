@@ -1,15 +1,15 @@
-# 次段のAndroid runtime最小手順（未実行）
+# 次段のAndroid runtime最小手順（承認済み・実行準備中）
 
-2026-10-04 UTC。署名CI [37165522441](https://github.com/mat2uken/tailcatsend/actions/runs/37165522441) / source `2573f6f4d7a673a955c749e8d17055caad27fb45` は署名・証明書一致・16KB・manifest・compiled Firebase検査PASS。CIのAAB/APKを保存していないので、次段には再buildと検査済みAPKの移送が必要。現時点で新しいupload・移送・Firebase実通信・端末操作を行っていない。
+2026-10-04 UTC。署名CI [37165522441](https://github.com/mat2uken/tailcatsend/actions/runs/37165522441) / source `2573f6f4d7a673a955c749e8d17055caad27fb45` は署名・証明書一致・16KB・manifest・compiled Firebase検査PASS。CIのAAB/APKを保存していないので、次段には再buildと検査済みAPKの移送が必要。後続でユーザーが、APKだけの短期Actions保存・Mac取得後削除・専用AVDと専用Web相手の実通信を伴う最小試験を承認した。実行結果は別記録へ追記する。実機QR・cloud復元・Play upload／upgrade・公開・審査提出は承認範囲外。
 
-## まず一括承認できる限定範囲
+## 承認された限定範囲
 
-1. 専用branchに明示的なruntime候補出力modeを追加し、既存署名入力とFirebase構成で同じrelease AAB/APKを再buildする。90分上限、Play credentialなし、Crashlytics mapping/native upload抑止、秘密入力cleanupを維持する。静的検査PASS後のAPKと安全な検査reportだけをActions artifactへ保存する案とする。保存期間1日、既存gh認証でMacへdownload・hash照合後に当該artifactを削除する。鍵、password、元Firebase構成、私有build logは保存・移送しない。GitHub Release・Playへのuploadは含めない。
+1. 専用branchに明示的なruntime候補出力modeを追加し、既存署名入力とFirebase構成で同じrelease AAB/APKを再buildする。90分上限、Play credentialなし、Crashlytics mapping/native upload抑止、秘密入力cleanupを維持する。静的検査PASS後のAPK1本だけをActions artifactへ保存する。安全な検査reportは既存のstdout／job summaryに保持し、artifactへ含めない。保存期間1日、既存gh認証でMacへdownload・hash照合後に当該artifactを削除する。鍵、password、元Firebase構成、私有build logは保存・移送しない。GitHub Release・Playへのuploadは含めない。
 2. 既存API35 arm64/16KB system imageと専用AVD `ponlet-pilot-16k` の方式を再利用する。前回専用AVDは終了済み、現時点の稼働状況は未再確認。ユーザーの既存AVDデータを使わず、空の試験領域・snapshotなし・cameraなし・audioなし・loopbackの対象emulatorだけを使う。物理端末・USB・別AuraGaugeには触れない。
 3. Ponletをfresh installし、既定ONで一度起動、OFF→再起動→再ONの保存とSDK初期化を確認する。PonletのFirebase／ML KitとOS由来通信をPID等で分け、送信先と必要最小限の証拠を記録する。故意のcrashや診断queueの大量生成は行わない。DNS／接続情報だけでTLS内の送信内容を完全に証明したとは扱わない。
 4. MacのPonlet Web版を試験相手とし、招待URLで接続、日本語テキストと小さいdummy画像またはPDFを双方向転送する。AndroidのOS文書選択、受信一覧→開く、テキストのSave→SAF文書保存先選択を操作し、byte数／hashを照合する。試験データだけを使い、招待tokenや識別子の生値は共有証拠へ残さない。終了後は今回起動したAVDだけを終了する。
 
-**artifactの公開範囲も承認対象。** このrepositoryは公開で、Actions artifactはGitHubへログインしrepo read権限を持つ人がdownloadできる。[GitHub公式説明](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts)。1日保存やdownload直後の削除は、期間中の第三者downloadを防ぐ保証ではない。上記はAPKをこの範囲へ置くことを含む一括承認案であり、現時点の承認ではない。署名秘密は移送しない。別の非公開保管先を選ぶ場合、その場所と既存の利用可否を先に確定する。
+**artifactの公開範囲も承認対象。** このrepositoryは公開で、Actions artifactはGitHubへログインしrepo read権限を持つ人がdownloadできる。[GitHub公式説明](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/download-workflow-artifacts)。1日保存やdownload直後の削除は、期間中の第三者downloadを防ぐ保証ではない。後続のユーザー承認にはAPKをこの範囲へ置くことも含まれる。署名秘密は移送しない。別の非公開保管先を選ぶ場合、その場所と既存の利用可否を先に確定する。
 
 APKにはcompiled Firebase client設定が含まれ、download者が解析できる。保存・移送から除外するのは元JSONファイル、署名秘密と私有logであり、APK内のclient設定が読めなくなるという意味ではない。
 
@@ -39,4 +39,4 @@ APKにはcompiled Firebase client設定が含まれ、download者が解析でき
 
 起動・転送・SAF・OFFの最小試験は、機能と申告の整合を確かめる優先確認。OS／OEMを網羅する復元、巨大ファイル、全ネットワーク条件、故意のcrash、全SDKの異常系を、Googleが指定する提出必須チェック表として扱わない。実カメラQRは主要機能の品質確認として優先し、広い端末matrixやD2D／cloud復元はclosed test中の追加確認にもできる。正確に説明できない挙動は未確認と記録し、未検証の保証を公開文へ書かない。
 
-一括承認案の要約：**検査済みrelease APKだけの短期Actions保存・Mac download後削除、専用16KB AVDへのinstall、実Google／relay通信を伴うdummy転送・SAF・telemetry試験**。実機QR・cloud復元・Play upload／upgrade・公開・審査提出は別段階。現在は計画のみ。
+承認範囲の要約：**検査済みrelease APKだけの短期Actions保存・Mac download後削除、専用16KB AVDへのinstall、実Google／relay通信を伴うdummy転送・SAF・telemetry試験**。実機QR・cloud復元・Play upload／upgrade・公開・審査提出は別段階。承認後の試験を進め、成功・失敗・未確認を別記録へ残す。
