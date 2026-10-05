@@ -9,7 +9,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>プライバシーポリシー — Ponlet</title>
-    <meta name="description" content="Ponlet のプライバシーポリシーです。端末間P2P通信、DERPリレー中継、End-to-End暗号化により、サーバーにファイルや個人データを一切保存しないゼロデータ保持（Zero Data Retention）方針を採用しています。">
+    <meta name="description" content="Ponlet のプライバシーポリシーです。端末間の暗号化転送、Androidの保存・QR読取、FirebaseとML Kitの解析・診断について説明します。">
     <link rel="icon" type="image/png" sizes="32x32" href="favicon.png">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
@@ -52,7 +52,7 @@
             <div class="hero-meta">
                 <div class="hero-meta-item">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                    最終改定日: 2026年9月8日
+                    最終改定日: 2026年10月5日
                 </div>
                 <div class="hero-meta-item">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
@@ -70,9 +70,9 @@
                 </svg>
             </div>
             <div class="promise-content">
-                <h2>ゼロデータ保持方針 (Zero Data Retention)</h2>
+                <h2>転送内容と解析・診断データ</h2>
                 <p>
-                    通信は可能な限り直接P2P（WireGuard / WebRTC DataChannel）で接続されますが、NAT越えが困難な環境等ではDERPリレーサーバーを経由してパケットが中継されます。リレーを経由する場合でもWireGuardによりエンドツーエンドで暗号化（E2EE）されているため、サーバーが通信内容（ファイルデータやテキスト）を閲覧・保存することは技術的に不可能です（ゼロデータ保持）。
+                    通信は可能な限り直接P2P（WireGuard / WebRTC DataChannel）で接続されますが、NAT越えが困難な環境等ではDERPリレーサーバーを経由してパケットが中継されます。リレーを経由する場合でもWireGuardによりエンドツーエンドで暗号化（E2EE）されているため、リレーは復号鍵を持ちません。転送内容を開発者のファイル保存サーバーへ蓄積する仕組みはありません。解析・診断データやOSのバックアップは、転送パケットとは別に扱います。
                 </p>
             </div>
         </div>
@@ -84,12 +84,12 @@
                 目次
             </div>
             <ul class="toc-list">
-                <li><a href="#section-1">1. 基本理念とゼロデータ保持</a></li>
+                <li><a href="#section-1">1. 基本理念とデータの区別</a></li>
                 <li><a href="#section-2">2. 通信の仕組みとDERPリレー</a></li>
                 <li><a href="#section-3">3. 端末ローカルデータの管理</a></li>
                 <li><a href="#section-4">4. テレメトリ(利用状況の送信)について</a></li>
-                <li><a href="#section-5">5. 第三者提供・トラッキングの排除</a></li>
-                <li><a href="#section-6">6. Google Play・法的準拠・子どものプライバシー</a></li>
+                <li><a href="#section-5">5. 第三者サービスと広告用途</a></li>
+                <li><a href="#section-6">6. Google Playと子どものプライバシー</a></li>
                 <li><a href="#section-7">7. アプリ情報とお問い合わせ</a></li>
             </ul>
         </div>
@@ -98,36 +98,36 @@
         <section id="section-1" class="policy-section">
             <div class="section-header">
                 <span class="section-num">01</span>
-                <h2 class="section-title">基本理念とゼロデータ保持</h2>
-                <span class="section-sub">Overview & Zero Data Retention</span>
+                <h2 class="section-title">基本理念とデータの区別</h2>
+                <span class="section-sub">Overview & Data Handling</span>
             </div>
             <p>
-                本プライバシーポリシーは、Ponlet（以下「本アプリ」）におけるデータ取り扱い方針を定めるものです。本アプリはAndroid版（パッケージ名：<code>jp.yasagure.ponlet</code>）、Web版、iOS版、およびデスクトップ版（macOS/Windows/Linux）を含みます。
+                本プライバシーポリシーは、Ponlet（以下「本アプリ」）におけるデータ取り扱い方針を定めるものです。本アプリはAndroid版（パッケージ名：<code>jp.yasagure.ponlet</code>）、Web版、iOS版、およびデスクトップ版（macOS/Windows/Linux）を含みます。本ページのAndroid転送ベータに関する説明は、無料・広告なしの1.0.18（versionCode 2030000102）を対象とします。通常利用にアカウントの作成やログインはありません。
             </p>
             <p>
-                本アプリはユーザーのプライバシー保護を最優先として設計されています。中央集権的なストレージサーバーを持たず、サーバー管理者がユーザーの送受信データを収集・閲覧・蓄積しない「ゼロデータ保持（Zero Data Retention）」を徹底しています。
+                本アプリは、ユーザーが選んだ相手へファイルとテキストを暗号化して転送します。開発者が転送内容を保存・閲覧するための中央ストレージサーバーは運営していません。一方、品質改善の解析・診断データはGoogleへ送信されます。
             </p>
             <div class="info-grid">
                 <div class="info-card">
-                    <span class="badge-pill danger">収集しません</span>
+                    <span class="badge-pill danger">登録不要</span>
                     <div class="info-card-header">
                         <div class="info-card-title">アカウント・個人識別情報</div>
                     </div>
-                    <p>会員登録やログインは一切不要です。氏名、メールアドレス、電話番号などの個人情報を取得・要求することはありません。</p>
+                    <p>通常利用に会員登録やログインは不要で、氏名、メールアドレス、電話番号の入力を求めません。解析SDKが扱うインストール識別子等は「4. テレメトリ」で説明します。</p>
                 </div>
                 <div class="info-card">
-                    <span class="badge-pill danger">保存しません</span>
+                    <span class="badge-pill danger">転送用保存サーバーなし</span>
                     <div class="info-card-header">
                         <div class="info-card-title">ファイル内容・メッセージ</div>
                     </div>
-                    <p>送受信された写真、書類、テキストなどの内容は端末間のみに存在し、サーバー上に保管・蓄積されることはありません。</p>
+                    <p>送受信された写真、書類、テキストの内容を開発者の転送用保存サーバーへ蓄積する仕組みはありません。端末内の保存や外部への書き出し、OSによる移行・バックアップは別に扱います。</p>
                 </div>
                 <div class="info-card">
                     <span class="badge-pill success">オプトアウト制</span>
                     <div class="info-card-header">
                         <div class="info-card-title">テレメトリ(利用状況の送信)</div>
                     </div>
-                    <p>品質改善を目的とした限定されたテレメトリをオプトアウト式で提供しています（既定はON、設定画面からOFFにできます）。広告配信SDKは導入しておらず、ファイル名・メッセージ本文など通信内容は一切送信されません。詳細は「4. テレメトリ」をご覧ください。</p>
+                    <p>品質改善を目的とした限定されたテレメトリをオプトアウト式で提供しています（既定はON、設定画面からOFFにできます）。広告配信SDKは導入しておらず、ファイル名・メッセージ本文などの転送内容を独自の解析イベントへ渡しません。詳細は「4. テレメトリ」をご覧ください。</p>
                 </div>
             </div>
         </section>
@@ -143,8 +143,8 @@
                 本アプリの通信は可能な限り直接P2P（WireGuard / WebRTC DataChannel）で行われます。一方、厳格なファイアウォール環境や対称型NAT配下など、端末同士の直接接続が困難な場合は、パケットを中継するDERP（Designated Encrypted Relay for Packets）リレーサーバーを経由します。
             </p>
             <ul>
-                <li><strong>エンドツーエンド暗号化（E2EE）:</strong> 通信パケットは端末同士のWireGuardプロトコルによりエンドツーエンドで暗号化されています。DERPリレーサーバーは暗号化された不透明なパケットをそのまま中継するのみであり、復号鍵を持ちません。そのため中継サーバーであっても通信内容を閲覧・改ざんすることは技術的に不可能です。</li>
-                <li><strong>一時的な接続情報の揮発性処理:</strong> 接続確立のために一時的に扱われるネットワーク情報（SDP、ICE候補等）はメモリ上でのみ処理され、接続完了または切断と同時に破棄されます。ストレージへの記録やアクセスログへの蓄積は行われません。</li>
+                <li><strong>エンドツーエンド暗号化（E2EE）:</strong> DERPを通る転送パケットは端末間でWireGuardにより暗号化され、リレーは復号鍵を持ちません。解析・診断の送信はこの転送とは別の通信です。</li>
+                <li><strong>接続情報:</strong> 端末間の接続には、IPアドレス、ポート、セッションの公開鍵、接続経路等の情報を扱います。通信相手や接続・中継サービスは、接続に必要なネットワーク情報や通信の時間・量を扱います。これらは暗号化したファイルやメッセージの内容とは別で、すべての接続情報が秘匿されることや、サービス側に一切保持されないことを保証するものではありません。</li>
                 <li><strong>招待リンクと共有鍵の安全性:</strong> 招待URL内の認証トークンはURLハッシュフラグメント（<code>#i=...</code>）に含まれます。Webブラウザの標準仕様により、フラグメント部分はホスティングサーバー（Cloudflare Pages等）へのリクエストには送信されず、サーバーのアクセスログに記録されません。</li>
             </ul>
         </section>
@@ -157,7 +157,7 @@
                 <span class="section-sub">Local Data Storage</span>
             </div>
             <p>
-                送受信されたファイルおよびテキストデータは、すべてユーザー自身の端末ローカル環境でのみ管理されます。
+                送受信されたファイルおよびテキストデータは端末内で管理されます。ユーザーによる書き出しやOSのバックアップ・端末移行によるコピーは、この保存先とは別に扱います。
             </p>
             <div class="info-grid">
                 <div class="info-card">
@@ -172,9 +172,15 @@
                     <div class="info-card-header">
                         <div class="info-card-title">端末の指定ストレージ</div>
                     </div>
-                    <p>Android、iOS、デスクトップ版では、ユーザーが指定・許可したローカル保存領域（ダウンロードフォルダ等）に直接書き込まれます。アプリが外部サーバーへデータを無断送信することはありません。</p>
+                    <p>Androidの受信ファイルはPonletのアプリ内部保存領域に保存され、公開のダウンロードフォルダへ自動保存されません。「開く」を選ぶと、対応するアプリに対象ファイルの読み取り権限を渡します。iOSとデスクトップ版では、それぞれのアプリ保存領域やダウンロードフォルダ等を利用します。</p>
                 </div>
             </div>
+            <p>
+                Android転送ベータ1.0.18（versionCode 2030000102）は、Android 12（API31）以降のOSクラウドバックアップから受信ファイルを除外する設定です。端末間移行（D2D）の既存の対象範囲は変えません。アプリ設定のバックアップやD2Dのコピー・復元は端末設定、OS、メーカーの動作に依存します。この変更は旧版のバックアップコピーを削除するものではありません。
+            </p>
+            <p>
+                Androidのカメラは、ユーザーが「カメラで読取」を選んだ際に招待QRを読むために使用し、読取時に権限を要求します。画像とQR読取結果はML Kitで端末内処理され、Googleへ送るために使用しません。送信ファイルはAndroidの文書選択画面でユーザーが選んだものを読み取ります。テキストのコピー・貼り付け・共有もユーザーの操作で行います。
+            </p>
         </section>
 
         <!-- Section 4: Telemetry -->
@@ -190,35 +196,36 @@
             <ul>
                 <li><strong>Google Analytics for Firebase（Analytics）:</strong> iOS / Android / Web で利用します。</li>
                 <li><strong>Firebase Crashlytics:</strong> iOS / Android で利用します。クラッシュ発生時のレポート送信（ネイティブクラッシュのスタックトレースを含む）に使用します。</li>
+                <li><strong>AndroidのML Kit（QR読取）:</strong> 機種、OS、アプリ情報、インストールに関する識別子、性能やAPI利用状況等の診断データをGoogleへ送る場合があります。画像と読取結果の端末内処理とは別で、FirebaseのテレメトリOFFスイッチでは停止しません。</li>
                 <li><strong>Google Analytics 4 Measurement Protocol（直接HTTP POST）:</strong> Desktop 版のみで利用します。環境変数で設定した場合に限り有効になります。</li>
             </ul>
             <p>
-                <strong>送信されるイベント:</strong> <code>app_start</code>、<code>session_created</code>、<code>peer_connected</code>、<code>transfer_started</code>、<code>transfer_completed</code>、<code>transfer_cancelled</code>、<code>transfer_failed</code>、<code>text_message_sent</code> / <code>text_message_received</code>、<code>app_end</code>、<code>error</code>
+                <strong>Android版が独自に送るイベント:</strong> <code>app_start</code>、<code>session_created</code>、<code>peer_connected</code>、<code>transfer_started</code>、<code>transfer_completed</code>、<code>transfer_cancelled</code>、<code>text_message_sent</code> / <code>text_message_received</code>、<code>error</code>
             </p>
             <p>
-                <strong>送信されるパラメータ:</strong> プラットフォーム名、OSバージョン、アプリバージョン、言語設定、転送ファイル数、合計バイト数、転送時間、トランスポート種別（P2P直接 / 中継）、メッセージ長の区切り（桁）、エラーカテゴリ
+                <strong>Android版の独自パラメータ:</strong> プラットフォーム名、OSバージョン、アプリバージョン、言語設定、ファイル数、通信経路、送受信の方向、メッセージ長の区分、取消理由とエラーの分類。SDKの自動収集はこの一覧とは別です。
             </p>
             <div class="info-grid">
                 <div class="info-card">
-                    <span class="badge-pill danger">送信しません</span>
+                    <span class="badge-pill danger">独自イベントの対象外</span>
                     <div class="info-card-header">
                         <div class="info-card-title">テレメトリに含まれない情報</div>
                     </div>
-                    <p>ファイル名・ファイル内容、メッセージ本文、ピアの識別情報、位置情報は送信しません。また、セッション鍵や招待URLに関する情報、その他個人を特定できる情報も一切送信しません。IPアドレスに基づく追加情報を自前で収集することもありません。</p>
+                    <p>Ponletの独自イベントにはファイル名、ファイル内容、メッセージ本文、ピアのアドレス、セッション鍵、招待URLを渡しません。AndroidのFirebase Analyticsは、アプリインスタンス識別子、アプリの利用イベント、IPアドレスに基づく概略位置等を扱います。ログインがなくてもSDK識別子は存在します。</p>
                 </div>
                 <div class="info-card">
                     <span class="badge-pill success">クラッシュレポート</span>
                     <div class="info-card-header">
                         <div class="info-card-title">Crashlytics に含まれ得るもの</div>
                     </div>
-                    <p>スタックトレース、端末種別、OSバージョン、アプリのバージョンが含まれる場合があります。</p>
+                    <p>スタックトレース、端末・アプリの状態、OSとアプリのバージョン、インストールに関する識別子等が含まれる場合があります。Androidでは依存SDKの識別子やセッション情報も確認対象です。</p>
                 </div>
                 <div class="info-card">
                     <span class="badge-pill success">オプトアウト方法</span>
                     <div class="info-card-header">
                         <div class="info-card-title">テレメトリを OFF にする</div>
                     </div>
-                    <p>アプリ上部の設定（歯車アイコン）を開き、「テレメトリを許可」をOFFにしてください。Web版ではブラウザストレージの設定に、Desktop版では設定の永続化に保存されます。OFF中は Analytics を含め、テレメトリを一切送信しません。Crashlytics についても、OFFにした後のクラッシュは送信されません。</p>
+                    <p>アプリ上部の設定（歯車アイコン）で「テレメトリを許可」をOFFにすると、Firebase AnalyticsとCrashlyticsの収集設定を無効にします。Androidではこの選択をアプリ設定に保存します。Web版はブラウザストレージ、Desktop版はアプリ設定を利用します。AndroidのCrashlyticsのOFFは次回起動から反映され、OFF中のクラッシュ情報は端末に保持されます。再ONすると未送信の情報も送信されます。AndroidのQR読取SDKの診断はこのスイッチとは別です。OFF操作は、既に保存された解析・診断データの削除やOSバックアップ全体の停止を意味しません。</p>
                 </div>
             </div>
             <p>
@@ -227,20 +234,30 @@
             <p>
                 テレメトリ機能の利用に伴い、本ポリシーは対象サービス（Firebase 等）とともに更新されることがあります。重要な変更がある場合は本ページにて告知します。
             </p>
+            <h3>Android版の解析・診断データの保持</h3>
+            <p>
+                Google Analyticsのユーザー・イベントデータには、Google Analyticsで設定した保持期間が適用されます。継続利用によって保持期限が更新される場合があり、標準の集計レポートには同じ保持期限が適用されない場合があります。詳細は <a href="https://support.google.com/analytics/answer/7667196?hl=ja" target="_blank" rel="noopener noreferrer">Google Analyticsのデータ保持</a> をご確認ください。
+            </p>
+            <p>
+                Firebase Crashlyticsは、クラッシュのスタックトレース、minidumpから抽出したデータ、関連識別子を90日保持した後、稼働中システムとバックアップからの削除処理を開始します。元のNDK minidumpはクラッシュ処理の間だけ一時的に保存されます。詳細は <a href="https://firebase.google.com/support/privacy" target="_blank" rel="noopener noreferrer">Firebaseのプライバシー情報</a> をご確認ください。ML Kit診断についてPonlet独自の一律の削除期限は設けておらず、Googleのサービス方針に従います。転送内容を保存するサーバーがないことやテレメトリをOFFにすることは、これらのデータが直ちに削除されるという意味ではありません。
+            </p>
         </section>
 
         <!-- Section 5 -->
         <section id="section-5" class="policy-section">
             <div class="section-header">
                 <span class="section-num">05</span>
-                <h2 class="section-title">第三者提供・トラッキングの排除</h2>
-                <span class="section-sub">No Third-Party Sharing & Analytics</span>
+                <h2 class="section-title">第三者サービスと広告用途</h2>
+                <span class="section-sub">Third-Party Services</span>
             </div>
             <p>
-                本アプリは、広告配信事業者、データブローカー、マーケティング企業を含むいかなる第三者に対しても、ユーザーデータの販売、提供、共有を行いません。テレメトリ機能を有効にしている場合を除き、本アプリがユーザーデータを第三者へ送信することはありません（テレメトリ有効時は前項のとおり Google LLC へ利用状況データが送信されます）。
+                Android転送ベータ1.0.18（versionCode 2030000102）はFirebase Analyticsの広告ID取得と広告パーソナライズを無効にし、広告ID・AdServices広告ID・広告アトリビューションの3権限を含みません。アプリインスタンス識別子、IP由来の概略位置、クラッシュやML Kitの診断は引き続き扱います。旧内部テスト版1.0.18（versionCode 2026093037）には広告ID関連権限が含まれるため、この広告IDに関する説明は旧版へ適用しません。
             </p>
             <p>
-                また、サーバー側に送受信データやユーザーの個人情報が保持されていないため、公的機関等からの照会・要請があった場合でも、提供可能な通信データは存在しません。
+                本アプリには広告表示機能がなく、利用データを広告・マーケティングやデータブローカーへの販売に利用する方針ではありません。Firebaseと、AndroidのML KitはGoogle LLCのサービスです。テレメトリの収集設定、QR読取SDKの診断、端末間の転送はそれぞれ別の経路です。
+            </p>
+            <p>
+                開発者は転送したファイルやメッセージを保存するサーバーを運営していません。ただし、これをGoogle等のサービスが解析・診断データを保持しないという保証にはしません。
             </p>
         </section>
 
@@ -248,15 +265,15 @@
         <section id="section-6" class="policy-section">
             <div class="section-header">
                 <span class="section-num">06</span>
-                <h2 class="section-title">Google Play・法的準拠・子どものプライバシー</h2>
-                <span class="section-sub">Compliance & Children's Privacy</span>
+                <h2 class="section-title">Google Playと子どものプライバシー</h2>
+                <span class="section-sub">Google Play & Children's Privacy</span>
             </div>
             <p>
-                本プライバシーポリシーは、Google Play デベロッパープログラムポリシー、個人情報保護法、および国際的なプライバシー基準に準拠するよう作成されています。
+                本ページではAndroid版を含むアプリのデータ取り扱いを説明します。Google Playのストア上のデータ開示は、配布する版の構成と各サービスの実際の設定に合わせて確認します。
             </p>
             <ul>
-                <li><strong>子どものプライバシー:</strong> 本アプリは13歳未満の児童を含む、すべてのユーザーから個人を特定できる情報を収集しません。テレメトリにも個人を特定できる情報は含まれません。COPPA等の関係法令を遵守しています。</li>
-                <li><strong>データの削除と開示請求:</strong> サーバー上に保存される個人データが存在しないため、サーバー側でのアカウント削除やデータ消去の申請手続きは不要です。端末ローカルに保存されたデータは、ユーザー自身がファイルを削除するか、アプリをアンインストールすることで完全に消去されます。</li>
+                <li><strong>子どものプライバシー:</strong> Android版は一般利用者向けで、子ども向けを意図したアプリではありません。これはSDK識別子や診断情報を収集しないという意味ではありません。</li>
+                <li><strong>データの削除とお問い合わせ:</strong> このAndroid転送ベータには、Googleに送信済みの解析・診断データを利用者単位で特定し、削除を依頼する機能・手順はありません。テレメトリをOFFにしても過去の送信済みデータは削除されません。Androidのアプリデータの消去やアンインストールは現在の端末内のアプリデータを削除しますが、別アプリ、外部保存先、他端末、既存バックアップ、Google側のデータまで同時に削除するものではありません。データの取り扱いに関するお問い合わせは <a href="mailto:app-support@mat2uken.app">app-support@mat2uken.app</a> へご連絡ください。お問い合わせにファイル本文、パスワード、招待QR・URLを送る必要はありません。</li>
             </ul>
         </section>
 
@@ -304,3 +321,4 @@
 
 </body>
 </html>
+
