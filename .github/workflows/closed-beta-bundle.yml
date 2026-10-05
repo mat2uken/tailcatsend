@@ -1,0 +1,89 @@
+name: Signed Closed Beta Bundle (no Play upload)
+
+on:
+  push:
+    branches: ["feature/closed-beta-bundle"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ponlet-closed-beta-bundle
+  cancel-in-progress: false
+
+jobs:
+  signed-bundle:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/feature/closed-beta-bundle'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: true, persist-credentials: false, fetch-depth: 0 }
+      - name: Confirm reviewed product source and disabled debug logging
+        env:
+          EXPECTED_SOURCE_SHA: ${{ github.sha }}
+          VALIDATION_MODE: bundle
+          RUNNER_DEBUG: ${{ runner.debug }}
+        run: |
+          python3 scripts/signed_android_validation.py --check-request
+          python3 scripts/signed_android_validation.py --check-source
+          python3 - <<'PY'
+          import subprocess
+          baseline = 'c7408ea0e0d767b9ac482b30acb6e42aa6fba81e'
+          allowed = {
+              '.github/workflows/closed-beta-bundle.yml',
+              'scripts/signed_android_validation.py',
+              'scripts/tests/test_signed_android_validation.py',
+          }
+          changed = set(subprocess.check_output(
+              ['git', 'diff', '--name-only', baseline, 'HEAD'], text=True).splitlines())
+          if not changed or not changed <= allowed:
+              raise SystemExit('Product source differs from the reviewed beta candidate')
+          print('Product files match reviewed candidate ' + baseline)
+          PY
+      - name: Test validation and export safety controls without credentials
+        run: |
+          python3 -m unittest discover -s scripts/tests -p test_signed_android_validation.py -v
+          python3 -m unittest discover -s scripts/tests -p test_tailcat_patch_idempotence.py -v
+          python3 -m unittest discover -s scripts/tests -p test_signed_android_release.py -v
+          python3 -m unittest discover -s scripts/tests -p test_android_build_readiness.py -v
+      - uses: actions/setup-java@v5
+        with: { java-version: "17", distribution: temurin }
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.27.x", cache: false }
+      - uses: actions/setup-node@v4
+        with: { node-version: "24" }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: aarch64-linux-android }
+      - uses: android-actions/setup-android@v3
+        with: { packages: platform-tools }
+      - uses: nttld/setup-ndk@v1
+        id: ndk
+        with: { ndk-version: r28b, local-cache: false }
+      - run: cargo install tauri-cli --version 2.10.0 --locked
+      - name: Opaque signing and verification of the reviewed candidate
+        env:
+          VALIDATION_MODE: bundle
+          EXPECTED_SOURCE_SHA: ${{ github.sha }}
+          RUNNER_DEBUG: ${{ runner.debug }}
+          ANDROID_NDK_ROOT: ${{ steps.ndk.outputs.ndk-path }}
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          GOOGLE_SERVICES_JSON_BASE64: ${{ secrets.GOOGLE_SERVICES_JSON_BASE64 }}
+        run: python3 scripts/signed_android_validation.py
+      - name: Retain only the verified signed bundle for authorized closed beta
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ponlet-Closed-Beta-AAB
+          path: ${{ runner.temp }}/ponlet-bundle-export/ponlet-release.aab
+          retention-days: 1
+          if-no-files-found: error
+          overwrite: false
+      - name: Clean owned signing inputs and bundle export
+        if: always()
+        run: python3 scripts/signed_android_validation.py --cleanup-owned

@@ -1,5 +1,6 @@
 import base64
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -22,9 +23,12 @@ class GuardTests(unittest.TestCase):
     def test_unknown_modes_incomplete_source_and_unconfirmed_deploy_stop(self):
         validation.request('verify', SHA, 'false')
         validation.request('runtime', SHA, 'false')
+        validation.request('bundle', SHA, 'false')
         validation.request('deploy', '', 'true')
         for mode, source, confirm in [('other', SHA, 'true'), ('', SHA, 'false'),
                                       ('verify', SHA[:8], 'false'), ('runtime', SHA[:8], 'false'), ('verify', SHA + '\n', 'false'),
+                                      ('bundle', SHA[:8], 'false'), ('bundle', SHA.upper(), 'false'),
+                                      ('bundle', SHA + '\n', 'false'),
                                       ('deploy', SHA, 'false'), ('deploy', SHA, 'TRUE')]:
             with self.assertRaises(validation.ValidationError):
                 validation.request(mode, source, confirm)
@@ -442,6 +446,111 @@ echo PONLET_SIGNED_VALIDATION_GRAPH_OK
                 os.umask(original_umask)
 
 
+class BundleBuildTests(unittest.TestCase):
+    def fixture(self, root, payload=b'compiled Firebase ponlet-599c4', digest=None):
+        app, env, global_env, temp = OpaqueBuildTests().fixture(root)
+        env['VALIDATION_MODE'] = 'bundle'
+        script = root / 'scripts/build_tauri_mobile.sh'
+        builder = root / 'scripts/fixture_bundle.py'
+        builder.write_text("import zipfile\nwith zipfile.ZipFile(" +
+                           repr(str(app / 'build/outputs/bundle/universalRelease/app.aab')) +
+                           ", 'w', zipfile.ZIP_DEFLATED) as archive:\n"
+                           "    archive.writestr('base/resources.pb', " + repr(payload) + ")\n")
+        script.write_text(script.read_text().replace(
+            'echo FIXTURE > apps/tauri/gen/android/app/build/outputs/bundle/universalRelease/app.aab',
+            'python3 scripts/fixture_bundle.py'))
+        (root / 'scripts/verify_signed_android_release.py').write_text(
+            "import sys,json,hashlib,os\nfrom pathlib import Path\n"
+            "assert not any(k in os.environ for k in ('ANDROID_KEYSTORE_BASE64', 'GOOGLE_SERVICES_JSON_BASE64', 'ANDROID_KEYSTORE_PASSWORD', 'ANDROID_KEY_ALIAS', 'ANDROID_KEY_PASSWORD', 'PONLET_ANDROID_KEYSTORE', 'GITHUB_ENV', 'PLAY_CONFIG_JSON'))\n"
+            "assert Path(sys.argv[1]).suffix == '.aab' and Path(sys.argv[2]).suffix == '.apk'\n"
+            "digest = " + (repr(digest) if digest is not None else "hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest()") + "\n"
+            "Path(sys.argv[sys.argv.index('--report')+1]).write_text(json.dumps({'verified':True,'artifacts':[{'type':'aab','verified':True,'sha256':digest},{'type':'apk','verified':True,'sha256':hashlib.sha256(Path(sys.argv[2]).read_bytes()).hexdigest()}]}))\n"
+            "print('PRIVATE_VERIFIER_SENTINEL')\n")
+        return app, env, global_env, temp
+
+    def test_bundle_exports_only_verified_aab_and_cleans_private_inputs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            app, env, global_env, temp = self.fixture(root)
+            captured = io.StringIO()
+            diagnostics = io.StringIO()
+            with patch.object(subprocess, 'check_output', return_value=SHA), contextlib.redirect_stdout(captured), contextlib.redirect_stderr(diagnostics):
+                validation.validate(root, SHA, env)
+            export = temp / 'ponlet-bundle-export'
+            self.assertEqual({p.name for p in export.iterdir()}, {'ponlet-release.aab', 'ownership.json'})
+            report = json.loads(captured.getvalue())
+            self.assertTrue(report['bundle_export_audit']['archive_private_input_scan_passed'])
+            entry = next(a for a in report['verification']['artifacts'] if a['type'] == 'aab')
+            self.assertEqual(entry['sha256'], hashlib.sha256((export / 'ponlet-release.aab').read_bytes()).hexdigest())
+            self.assertEqual(report['source_sha'], SHA)
+            self.assertEqual(report['version_code'], 2030000102)
+            self.assertFalse((temp / 'ponlet-runtime-export').exists())
+            self.assertFalse((app / 'google-services.json').exists())
+            self.assertFalse((app / 'tauri.build.gradle.kts').exists())
+            self.assertFalse((app.parent / 'tauri.settings.gradle').exists())
+            self.assertEqual(list(temp.glob('ponlet-signed-validation-*')), [])
+            self.assertEqual(global_env.read_text(), 'UNCHANGED=1\n')
+            for token in ('PRIVATE_', 'TEST_ONLY_INPUT', 'AMBIENT_PLAY_SENTINEL'):
+                self.assertNotIn(token, captured.getvalue() + diagnostics.getvalue())
+            validation.cleanup_owned(root, temp)
+            self.assertEqual(list(temp.iterdir()), [])
+
+    def test_bundle_audit_and_digest_failures_never_publish_summary_or_export(self):
+        for payload, digest in ((b'TEST_ONLY_INPUT', None), (b'harmless', '0' * 64)):
+            with self.subTest(digest=digest), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                app, env, _, temp = self.fixture(root, payload, digest)
+                captured, diagnostics = io.StringIO(), io.StringIO()
+                with patch.object(subprocess, 'check_output', return_value=SHA), contextlib.redirect_stdout(captured), contextlib.redirect_stderr(diagnostics), self.assertRaises(validation.ValidationError):
+                    validation.validate(root, SHA, env)
+                self.assertEqual(captured.getvalue(), '')
+                self.assertIn('"bundle_export_error": "audit-or-digest-rejected"', diagnostics.getvalue())
+                for token in ('PRIVATE_', 'TEST_ONLY_INPUT', '0' * 64, 'bundle_export_audit'):
+                    self.assertNotIn(token, diagnostics.getvalue())
+                self.assertFalse((app / 'google-services.json').exists())
+                self.assertEqual(list(temp.iterdir()), [])
+
+    def test_missing_or_ambiguous_built_aab_stops_before_verifier(self):
+        for suffix in ('rm apps/tauri/gen/android/app/build/outputs/bundle/universalRelease/app.aab\n',
+                       'cp apps/tauri/gen/android/app/build/outputs/bundle/universalRelease/app.aab apps/tauri/gen/android/app/build/outputs/bundle/universalRelease/second.aab\n'):
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                app, env, _, temp = self.fixture(root)
+                builder = root / 'scripts/build_tauri_mobile.sh'
+                builder.write_text(builder.read_text() + 'if [ "$PONLET_ANDROID_ARTIFACT" = apk ]; then\n' + suffix + 'fi\n')
+                captured = io.StringIO()
+                with patch.object(subprocess, 'check_output', return_value=SHA), contextlib.redirect_stdout(captured), contextlib.redirect_stderr(captured), self.assertRaises(validation.ValidationError):
+                    validation.validate(root, SHA, env)
+                self.assertNotIn('artifact-verification', captured.getvalue())
+                self.assertNotIn('PRIVATE_', captured.getvalue())
+                self.assertFalse((app / 'google-services.json').exists())
+                self.assertEqual(list(temp.iterdir()), [])
+
+    def test_existing_bundle_export_stops_before_signing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            app, env, _, temp = self.fixture(root)
+            export = temp / 'ponlet-bundle-export'
+            export.mkdir()
+            original = export / 'original'
+            original.write_text('UNOWNED')
+            with patch.object(subprocess, 'check_output', return_value=SHA), self.assertRaises(validation.ValidationError):
+                validation.validate(root, SHA, env)
+            self.assertEqual(original.read_text(), 'UNOWNED')
+            self.assertFalse((app / 'google-services.json').exists())
+            self.assertFalse((app / 'build').exists())
+
+    def test_summary_write_failure_removes_completed_bundle_export(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            app, env, _, temp = self.fixture(root)
+            env['GITHUB_STEP_SUMMARY'] = str(root)
+            with patch.object(subprocess, 'check_output', return_value=SHA), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()), self.assertRaises(OSError):
+                validation.validate(root, SHA, env)
+            self.assertFalse((app / 'google-services.json').exists())
+            self.assertEqual(list(temp.iterdir()), [])
+
+
 class RuntimeAuditTests(unittest.TestCase):
     def fixture(self, root):
         key = root / 'fixture.keystore'
@@ -605,6 +714,108 @@ class RuntimeAuditTests(unittest.TestCase):
                     z.writestr('renamed.bin', data)
                 with self.assertRaises(validation.ValidationError):
                     validation.audit_runtime_apk(apk, incoming, signing, firebase)
+
+
+class BundleExportTests(unittest.TestCase):
+    def fixture(self, root):
+        signing, firebase, incoming = RuntimeAuditTests().fixture(root)
+        aab = root / 'app.aab'
+        with zipfile.ZipFile(aab, 'w', zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('base/resources.pb', b'compiled public Firebase configuration')
+            archive.writestr('META-INF/CERT.RSA', b'PUBLIC_CERTIFICATE')
+        report = {'verified': True, 'artifacts': [
+            {'type': 'aab', 'verified': True, 'sha256': hashlib.sha256(aab.read_bytes()).hexdigest()},
+            {'type': 'apk', 'verified': True, 'sha256': '1' * 64}]}
+        return signing, firebase, incoming, aab, report
+
+    def test_missing_duplicate_wrong_type_unverified_and_invalid_aab_reports_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            signing, firebase, incoming, aab, report = self.fixture(root)
+            entry = report['artifacts'][0]
+            invalid = [None, [], {}, dict(report, verified=False), dict(report, verified=1)]
+            invalid.extend(dict(report, artifacts=artifacts) for artifacts in
+                           (None, {}, [], [report['artifacts'][1]], [entry, entry],
+                            [dict(entry, type='AAB')], [dict(entry, verified=False)],
+                            [dict(entry, verified=1)], [dict(entry, sha256='PRIVATE_DIGEST')],
+                            [dict(entry, sha256='a' * 63)], [dict(entry, sha256='A' * 64)],
+                            [dict(entry, sha256='a' * 64 + '\n')]))
+            for bad in invalid:
+                captured = io.StringIO()
+                with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(captured), self.assertRaises(validation.ValidationError):
+                    validation.export_bundle_aab(root, root, aab, bad, incoming, signing, firebase)
+                self.assertEqual(captured.getvalue(), '')
+                self.assertFalse((root / 'ponlet-bundle-export').exists())
+
+    def test_audit_uses_copied_digest_bound_aab_and_exports_no_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            signing, firebase, incoming, aab, report = self.fixture(root)
+            with patch.object(validation, 'audit_runtime_apk', wraps=validation.audit_runtime_apk) as audit:
+                validation.export_bundle_aab(root, root, aab, report, incoming, signing, firebase)
+            audit.assert_called_once_with(root / 'ponlet-bundle-export/export.tmp', incoming, signing, firebase)
+            directory = root / 'ponlet-bundle-export'
+            self.assertEqual({p.name for p in directory.iterdir()}, {'ponlet-release.aab', 'ownership.json'})
+            self.assertEqual((directory / 'ponlet-release.aab').read_bytes(), aab.read_bytes())
+            validation.cleanup_export(root, root, 'bundle')
+            self.assertFalse(directory.exists())
+
+    def test_failed_marker_and_cancelled_copy_remove_only_owned_export(self):
+        for stage in ('marker', 'copy'):
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                signing, firebase, incoming, aab, report = self.fixture(root)
+                unrelated = root / 'ponlet-bundle-export-unrelated'
+                unrelated.mkdir()
+                (unrelated / 'original').write_text('UNOWNED')
+                original_write = Path.write_text
+                original_open = Path.open
+
+                def interrupted_write(path, content, *args, **kwargs):
+                    if path.name == 'ownership.json':
+                        original_write(path, '{')
+                        raise KeyboardInterrupt()
+                    return original_write(path, content, *args, **kwargs)
+
+                def interrupted_open(path, *args, **kwargs):
+                    if path.name == 'export.tmp':
+                        raise KeyboardInterrupt()
+                    return original_open(path, *args, **kwargs)
+
+                target, replacement = ('write_text', interrupted_write) if stage == 'marker' else ('open', interrupted_open)
+                with patch.object(Path, target, replacement), self.assertRaises(KeyboardInterrupt):
+                    validation.export_bundle_aab(root, root, aab, report, incoming, signing, firebase)
+                self.assertFalse((root / 'ponlet-bundle-export').exists())
+                self.assertEqual((unrelated / 'original').read_text(), 'UNOWNED')
+
+    def test_bundle_cleanup_preserves_unowned_files_and_cleans_other_owned_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            signing, firebase, incoming, aab, report = self.fixture(root)
+            unowned = root / 'ponlet-runtime-export'
+            unowned.mkdir()
+            (unowned / 'original').write_text('UNOWNED')
+            validation.export_bundle_aab(root, root, aab, report, incoming, signing, firebase)
+            validation.cleanup_owned(root, root)
+            self.assertFalse((root / 'ponlet-bundle-export').exists())
+            self.assertEqual((unowned / 'original').read_text(), 'UNOWNED')
+
+            app = root / 'apps/tauri/gen/android/app'
+            app.mkdir(parents=True)
+            config = app / 'google-services.json'
+            config.write_text('PRIVATE_CONFIG_FIXTURE')
+            private = root / 'ponlet-signed-validation-fixture'
+            private.mkdir()
+            validation.record_ownership(private, root, [config])
+            export = root / 'ponlet-bundle-export'
+            export.mkdir()
+            (export / 'ownership.json').write_text('malformed')
+            with self.assertRaises(validation.ValidationError):
+                validation.cleanup_owned(root, root)
+            self.assertFalse(config.exists())
+            self.assertFalse(private.exists())
+            self.assertTrue(export.exists())
+            self.assertEqual((unowned / 'original').read_text(), 'UNOWNED')
 
 
 if __name__ == '__main__':

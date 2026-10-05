@@ -21,6 +21,7 @@ VERSION_CODE = '2030000102'
 SIGNING_KEYS = ('ANDROID_KEYSTORE_BASE64', 'ANDROID_KEYSTORE_PASSWORD',
                 'ANDROID_KEY_ALIAS', 'ANDROID_KEY_PASSWORD')
 INPUT_KEYS = (*SIGNING_KEYS, 'GOOGLE_SERVICES_JSON_BASE64')
+EXPORT_ARTIFACTS = {'runtime': 'apk', 'bundle': 'aab'}
 DERIVED_KEYS = {'PONLET_ANDROID_KEYSTORE', 'ANDROID_KEYSTORE_PASSWORD',
                 'ANDROID_KEY_ALIAS', 'ANDROID_KEY_PASSWORD'}
 MARKER = b'PONLET_SIGNED_VALIDATION_GRAPH_OK'
@@ -54,9 +55,9 @@ def source_guard(repo, expected, incoming):
 
 
 def request(mode, source, confirm):
-    if mode not in ('verify', 'runtime', 'deploy'):
+    if mode not in ('verify', 'runtime', 'bundle', 'deploy'):
         raise ValidationError('unsupported mode')
-    if mode in ('verify', 'runtime') and not re.fullmatch(r'[0-9a-f]{40}', source):
+    if mode in ('verify', 'runtime', 'bundle') and not re.fullmatch(r'[0-9a-f]{40}', source):
         raise ValidationError('verify requires a complete lowercase source SHA')
     if mode == 'deploy' and confirm != 'true':
         raise ValidationError('deploy requires explicit confirmation')
@@ -285,8 +286,10 @@ def record_ownership(work, repo, paths):
     temporary.replace(marker)
 
 
-def cleanup_export(repo, runner_temp):
-    directory = Path(runner_temp) / 'ponlet-runtime-export'
+def cleanup_export(repo, runner_temp, mode='runtime'):
+    if mode not in EXPORT_ARTIFACTS:
+        raise ValidationError('unsupported export cleanup mode')
+    directory = Path(runner_temp) / ('ponlet-' + mode + '-export')
     if not directory.exists() or directory.is_symlink():
         return
     marker = directory / 'ownership.json'
@@ -294,20 +297,24 @@ def cleanup_export(repo, runner_temp):
         return  # A caller-owned directory is never removed.
     try:
         record = json.loads(marker.read_text())
-        info = directory.stat()
-        if record != {'repo': str(repo.resolve()), 'device': info.st_dev, 'inode': info.st_ino}:
-            raise ValidationError('runtime export ownership mismatch')
-        if any(p.name not in ('ownership.json', 'ponlet-release.apk', 'export.tmp') or p.is_symlink()
-               or not p.is_file() for p in directory.iterdir()):
-            raise ValidationError('runtime export contains unowned files')
-        shutil.rmtree(directory)
+        remove_owned_export(repo, directory, record, mode)
     except (OSError, ValueError, TypeError):
-        raise ValidationError('runtime export cleanup failed') from None
+        raise ValidationError(mode + ' export cleanup failed') from None
+
+
+def remove_owned_export(repo, directory, record, mode):
+    info = directory.stat()
+    if directory.is_symlink() or record != {'repo': str(repo.resolve()), 'device': info.st_dev, 'inode': info.st_ino}:
+        raise ValidationError(mode + ' export ownership mismatch')
+    if any(p.name not in ('ownership.json', 'ponlet-release.' + EXPORT_ARTIFACTS[mode], 'export.tmp')
+           or p.is_symlink() or not p.is_file() for p in directory.iterdir()):
+        raise ValidationError(mode + ' export contains unowned files')
+    shutil.rmtree(directory)
 
 
 def audit_runtime_apk(apk, incoming, signing, firebase):
-    # This checks specified representations of known private CI inputs. Compiled
-    # Firebase strings and the public APK signing certificate remain permitted.
+    # Shared APK/AAB archive audit of specified representations of private CI
+    # inputs. Compiled Firebase strings and public signing certificates are allowed.
     needles = [Path(signing['PONLET_ANDROID_KEYSTORE']).read_bytes(), firebase]
     for key in ('ANDROID_KEYSTORE_BASE64', 'GOOGLE_SERVICES_JSON_BASE64'):
         needles.extend((incoming[key].encode(), re.sub(r'[ \t\r\n]', '', incoming[key]).encode()))
@@ -397,37 +404,60 @@ def audit_runtime_apk(apk, incoming, signing, firebase):
 
 
 def export_runtime_apk(repo, runner_temp, apk, report, incoming, signing, firebase):
-    entries = [a for a in report.get('artifacts', []) if isinstance(a, dict) and a.get('type') == 'apk']
+    return export_verified_artifact(repo, runner_temp, apk, report, incoming, signing, firebase, 'runtime')
+
+
+def export_bundle_aab(repo, runner_temp, aab, report, incoming, signing, firebase):
+    if not isinstance(report, dict) or report.get('verified') is not True:
+        raise ValidationError('bundle verifier did not confirm success')
+    return export_verified_artifact(repo, runner_temp, aab, report, incoming, signing, firebase, 'bundle')
+
+
+def export_verified_artifact(repo, runner_temp, artifact, report, incoming, signing, firebase, mode):
+    extension = EXPORT_ARTIFACTS[mode]
+    artifacts = report.get('artifacts', [])
+    if not isinstance(artifacts, list):
+        raise ValidationError(mode + ' verified artifact report missing')
+    entries = [a for a in artifacts if isinstance(a, dict) and a.get('type') == extension]
     if (len(entries) != 1 or not isinstance(entries[0].get('sha256'), str)
-            or not re.fullmatch(r'[0-9a-f]{64}', entries[0]['sha256'])):
-        raise ValidationError('runtime verified APK digest missing')
-    audit = audit_runtime_apk(apk, incoming, signing, firebase)
-    directory = Path(runner_temp) / 'ponlet-runtime-export'
+            or not re.fullmatch(r'[0-9a-f]{64}', entries[0]['sha256'])
+            or (mode == 'bundle' and entries[0].get('verified') is not True)):
+        raise ValidationError(mode + ' verified ' + extension.upper() + ' digest missing')
+    if mode == 'runtime':
+        audit = audit_runtime_apk(artifact, incoming, signing, firebase)
+    elif artifact.is_symlink() or not artifact.is_file():
+        raise ValidationError('bundle AAB input is not a regular file')
+    directory = Path(runner_temp) / ('ponlet-' + mode + '-export')
     directory.mkdir(mode=0o700)  # Exclusive; never overwrite a pre-existing export.
     info = directory.stat()
-    (directory / 'ownership.json').write_text(json.dumps(
-        {'repo': str(repo.resolve()), 'device': info.st_dev, 'inode': info.st_ino}))
+    ownership = {'repo': str(repo.resolve()), 'device': info.st_dev, 'inode': info.st_ino}
     try:
+        (directory / 'ownership.json').write_text(json.dumps(ownership))
         digest = hashlib.sha256()
-        with apk.open('rb') as source, (directory / 'export.tmp').open('xb') as destination:
+        with artifact.open('rb') as source, (directory / 'export.tmp').open('xb') as destination:
             while chunk := source.read(65536):
                 digest.update(chunk)
                 destination.write(chunk)
         if digest.hexdigest() != entries[0]['sha256']:
-            raise ValidationError('runtime APK differs from verified digest')
-        (directory / 'export.tmp').replace(directory / 'ponlet-release.apk')
+            raise ValidationError(mode + ' ' + extension.upper() + ' differs from verified digest')
+        if mode == 'bundle':
+            # Audit the exact, digest-bound bytes that will be exported.
+            audit = audit_runtime_apk(directory / 'export.tmp', incoming, signing, firebase)
+        (directory / 'export.tmp').replace(directory / ('ponlet-release.' + extension))
         return audit
     except BaseException:
-        cleanup_export(repo, runner_temp)
+        # This process owns the inode even when marker writing was interrupted.
+        remove_owned_export(repo, directory, ownership, mode)
         raise
 
 
 def cleanup_owned(repo, runner_temp):
     export_error = False
-    try:
-        cleanup_export(repo, runner_temp)
-    except (ValidationError, OSError, ValueError, TypeError):
-        export_error = True  # Private-input fallback must still run independently.
+    for mode in EXPORT_ARTIFACTS:
+        try:
+            cleanup_export(repo, runner_temp, mode)
+        except (ValidationError, OSError, ValueError, TypeError):
+            export_error = True  # Other exports and private-input fallback still run.
     allowed = {repo / 'apps/tauri/gen/android/app/google-services.json',
                repo / 'apps/tauri/gen/android/tauri.settings.gradle',
                repo / 'apps/tauri/gen/android/app/tauri.build.gradle.kts'}
@@ -456,16 +486,18 @@ def cleanup_owned(repo, runner_temp):
             # Never remove an original file or print an untrusted marker on uncertainty.
             raise ValidationError('owned cleanup could not be established')
     if export_error:
-        raise ValidationError('runtime export cleanup failed')
+        raise ValidationError('owned export cleanup failed')
 
 
 def validate(repo, expected, incoming):
     actual = source_guard(repo, expected, incoming)
     mode = incoming.get('VALIDATION_MODE', 'verify')
-    if mode not in ('verify', 'runtime'):
+    if mode not in ('verify', 'runtime', 'bundle'):
         raise ValidationError('unsupported validation mode')
-    if mode == 'runtime' and (Path(incoming['RUNNER_TEMP']) / 'ponlet-runtime-export').exists():
-        raise ValidationError('existing runtime export must remain untouched')
+    if mode in EXPORT_ARTIFACTS:
+        export = Path(incoming['RUNNER_TEMP']) / ('ponlet-' + mode + '-export')
+        if export.exists() or export.is_symlink():
+            raise ValidationError('existing ' + mode + ' export must remain untouched')
     if not all(incoming.get(key) for key in INPUT_KEYS):
         raise ValidationError('required signing or Firebase input missing')
     if incoming.get('PONLET_ANDROID_BUILD_ONLY'):
@@ -572,6 +604,14 @@ def validate(repo, expected, incoming):
                     print(json.dumps({'runtime_export_error': 'audit-or-digest-rejected'}), file=sys.stderr)
                     raise
                 exported = True
+            elif mode == 'bundle':
+                try:
+                    summary['bundle_export_audit'] = export_bundle_aab(
+                        repo, incoming['RUNNER_TEMP'], bundles[0], report, incoming, signing, firebase)
+                except ValidationError:
+                    print(json.dumps({'bundle_export_error': 'audit-or-digest-rejected'}), file=sys.stderr)
+                    raise
+                exported = True
             rendered = json.dumps(summary, sort_keys=True, indent=2)
             print(rendered)
             if base_env.get('GITHUB_STEP_SUMMARY'):
@@ -585,7 +625,7 @@ def validate(repo, expected, incoming):
         try:
             if exported and not completed:
                 try:
-                    cleanup_export(repo, incoming['RUNNER_TEMP'])
+                    cleanup_export(repo, incoming['RUNNER_TEMP'], mode)
                 except (ValidationError, OSError, ValueError, TypeError):
                     cleanup_failed = True
             paths = ([config] if created_config else []) + (
