@@ -163,6 +163,7 @@ class PrivacyStore(private val context: Context) {
     private val preferences = context.getSharedPreferences("ponlet_privacy_state", Context.MODE_PRIVATE)
     private val legacy = context.getSharedPreferences("telemetry_prefs", Context.MODE_PRIVATE)
     fun load(): PrivacyState = try {
+        if (!PrivacySettingPersistence.PROCESS.isCertain()) throw PrivacyFault("telemetry_setting_persistence_uncertain")
         if (PrivacyStartupGate.restoreDetected(context)) throw PrivacyFault("restore_recovery_required")
         var serialized = preferences.getString("privacy_state_v1", null)
         // Only supports the unpublished prototype layout; no shipped release used this key.
@@ -170,11 +171,11 @@ class PrivacyStore(private val context: Context) {
             legacy.getString("privacy_state_v1", null)?.let { old ->
                 val migrated = PrivacyState.read(JSONObject(old))
                 writePrimary(migrated)
-                if (!legacy.edit().remove("privacy_state_v1").commit()) throw PrivacyFault("migration_cleanup_failed")
+                if (!PrivacySettingPersistence.PROCESS.commit { legacy.edit().remove("privacy_state_v1").commit() }) throw PrivacyFault("migration_cleanup_failed")
                 serialized = old
             }
         } else if (legacy.contains("privacy_state_v1")) {
-            if (!legacy.edit().remove("privacy_state_v1").commit()) throw PrivacyFault("migration_cleanup_failed")
+            if (!PrivacySettingPersistence.PROCESS.commit { legacy.edit().remove("privacy_state_v1").commit() }) throw PrivacyFault("migration_cleanup_failed")
         }
         val enabled = legacy.getBoolean("telemetry_enabled", true)
         if (serialized == null) PrivacyState(enabled) else {
@@ -182,7 +183,7 @@ class PrivacyStore(private val context: Context) {
             val effective = PrivacySafetyPolicy.effectiveDesired(true, saved.desiredEnabled, enabled)
             if (PrivacySafetyPolicy.needsLegacyStopMirror(true, saved.desiredEnabled, enabled)) {
                 // Recover a crash between primary stop-intent commit and opt-out mirror commit, before SDK init.
-                if (!legacy.edit().putBoolean("telemetry_enabled", false).commit()) throw PrivacyFault("storage_mirror_failed")
+                if (!PrivacySettingPersistence.PROCESS.commit { legacy.edit().putBoolean("telemetry_enabled", false).commit() }) throw PrivacyFault("storage_mirror_failed")
             }
             val recovered = saved.copy(desiredEnabled = effective)
             if (recovered != saved) writePrimary(recovered)
@@ -191,14 +192,17 @@ class PrivacyStore(private val context: Context) {
     } catch (error: PrivacyFault) { throw error }
       catch (_: Exception) { throw PrivacyFault("storage_corrupt") }
     private fun writePrimary(state: PrivacyState) {
-        val ok = try { preferences.edit().putBoolean("telemetry_enabled", state.desiredEnabled)
-            .putString("privacy_state_v1", state.json().toString()).commit() } catch (_: Exception) { false }
+        val ok = PrivacySettingPersistence.PROCESS.commit {
+            preferences.edit().putBoolean("telemetry_enabled", state.desiredEnabled)
+                .putString("privacy_state_v1", state.json().toString()).commit()
+        }
         if (!ok) throw PrivacyFault("storage_commit_failed")
     }
     fun commit(state: PrivacyState) {
         writePrimary(state) // Atomic stop intent + stable request + old epoch/IDs, before any SDK reset.
-        val mirrored = try { legacy.edit().putBoolean("telemetry_enabled", state.desiredEnabled).commit() }
-            catch (_: Exception) { false }
+        val mirrored = PrivacySettingPersistence.PROCESS.commit {
+            legacy.edit().putBoolean("telemetry_enabled", state.desiredEnabled).commit()
+        }
         if (!mirrored) throw PrivacyFault("storage_mirror_failed")
     }
 }

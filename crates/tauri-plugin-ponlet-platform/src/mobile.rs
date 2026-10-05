@@ -73,9 +73,18 @@ impl<R: Runtime> PonletPlatform<R> {
         Ok(result.intent)
     }
     #[cfg(target_os = "android")]
+    pub fn get_telemetry_enabled_checked(&self) -> Result<bool, String> {
+        #[derive(Deserialize)]
+        struct Setting { enabled: bool }
+        let result: Setting = self.0.run_mobile_plugin("telemetryGetEnabled", serde_json::json!({}))
+            .map_err(|_| "telemetry_setting_read_failed".to_string())?;
+        Ok(result.enabled)
+    }
+    #[cfg(target_os = "android")]
     pub fn set_telemetry_checked(&self, enabled: bool, intent: String) -> Result<(), String> {
         self.0.run_mobile_plugin("telemetrySetEnabled", serde_json::json!({"enabled": enabled, "intent": intent}))
-            .map_err(|_| "telemetry_setting_not_persisted".to_string())
+            // A rejected operation may already have persisted the choice before an SDK failure.
+            .map_err(|_| "telemetry_setting_operation_failed".to_string())
     }
     pub fn open_received(&self, path: &str) -> Result<(), String> {
         self.0

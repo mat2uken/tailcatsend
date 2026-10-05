@@ -62,8 +62,9 @@ pub fn set_enabled(enabled: bool) {
     }
 }
 
-/// Reflects an already acknowledged native setting without sending it a second time.
-/// Platform callers must first wait for durable persistence and native operation success.
+/// Reflects an authoritative native preference without sending it a second time.
+/// Call only after a successful native setting read or a successful native setting operation.
+/// The desired preference does not assert SDK collection is active or an operation succeeded.
 /// This is not a replacement for `set_enabled` in ordinary callers.
 pub fn reflect_native_enabled(enabled: bool) {
     ENABLED.store(enabled, Ordering::SeqCst);

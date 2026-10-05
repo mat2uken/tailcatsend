@@ -30,6 +30,7 @@ export function createSettingsDialog(options: SettingsDialogOptions = {}): Setti
     id: "settings-telemetry-toggle",
     type: "checkbox",
     disabled: true,
+    indeterminate: true,
     "aria-describedby": "settings-telemetry-description",
   });
   const telemetryNotice = p(
@@ -69,31 +70,40 @@ export function createSettingsDialog(options: SettingsDialogOptions = {}): Setti
       (options.canConfigureTelemetry?.() ?? true),
     );
   }
+  async function readTelemetryPreference(): Promise<void> {
+    telemetryAvailable = false;
+    telemetryToggle.indeterminate = true;
+    try {
+      telemetryToggle.checked = await options.getTelemetryEnabled!();
+      telemetryToggle.indeterminate = false;
+      telemetryAvailable = true;
+      telemetryNotice.hidden = true;
+    } catch (error) {
+      // An unreadable preference is unknown, not evidence for either ON or OFF.
+      telemetryNotice.hidden = false;
+      options.onError?.(error);
+    }
+  }
   async function refreshSettings(): Promise<void> {
     if (telemetryBusy || diagnosticsBusy) {
       return;
     }
     const available = canConfigureTelemetry();
     telemetryAvailable = false;
+    telemetryToggle.indeterminate = true;
     telemetryToggle.disabled = true;
-    telemetryNotice.hidden = available;
     if (!available) {
+      telemetryNotice.hidden = false;
       await diagnostics.refresh();
       return;
     }
     telemetryBusy = true;
     diagnostics.syncControls();
     try {
-      telemetryToggle.checked = await options.getTelemetryEnabled!();
-      telemetryAvailable = true;
-      telemetryToggle.disabled = diagnosticsBusy;
-    } catch (error) {
-      // A native preference read can fail while the rest of the app is usable.
-      // Keep the control safe to retry and tell the user why it is unavailable.
-      telemetryNotice.hidden = false;
-      options.onError?.(error);
+      await readTelemetryPreference();
     } finally {
       telemetryBusy = false;
+      telemetryToggle.disabled = diagnosticsBusy || !telemetryAvailable || !canConfigureTelemetry();
       diagnostics.syncControls();
     }
     await diagnostics.refresh();
@@ -152,7 +162,7 @@ export function createSettingsDialog(options: SettingsDialogOptions = {}): Setti
     }
   });
   telemetryToggle.addEventListener("change", () => {
-    if (telemetryBusy || diagnosticsBusy || !canConfigureTelemetry()) {
+    if (telemetryBusy || diagnosticsBusy || !telemetryAvailable || !canConfigureTelemetry()) {
       return;
     }
     const enabled = telemetryToggle.checked;
@@ -161,13 +171,16 @@ export function createSettingsDialog(options: SettingsDialogOptions = {}): Setti
     telemetryToggle.disabled = true;
     void Promise.resolve()
       .then(() => options.setTelemetryEnabled!(enabled))
-      .catch((error: unknown) => {
-        telemetryToggle.checked = !enabled;
+      .catch(async (error: unknown) => {
+        // Native saving may commit before an SDK operation fails. Only a fresh
+        // preference read can tell us which value was persisted.
         options.onError?.(error);
+        await readTelemetryPreference();
       })
       .finally(() => {
         telemetryBusy = false;
-        telemetryToggle.disabled = diagnosticsBusy || !canConfigureTelemetry();
+        telemetryToggle.disabled =
+          diagnosticsBusy || !telemetryAvailable || !canConfigureTelemetry();
         diagnostics.syncControls();
       });
   });

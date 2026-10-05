@@ -46,7 +46,7 @@ object TelemetryBridge {
         privacyConfig = PrivacyBuildConfiguration.read(context).copy(startupGateVerified = startupAuthorizedThisProcess)
         if (privacyConfig.featureEnabled) PrivacyStartupGate.prepare(context)
         val preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        if (optOut && !preferences.edit().putBoolean(KEY_ENABLED, false).commit())
+        if (optOut && !PrivacySettingPersistence.PROCESS.commit { preferences.edit().putBoolean(KEY_ENABLED, false).commit() })
             throw PrivacyFault("storage_commit_failed")
         bootstrap(context)
         if (privacyConfig.featureEnabled) {
@@ -99,12 +99,31 @@ object TelemetryBridge {
         if (!ready || !applicationEventsAllowed || !enableGuard.mayEnable()) return
         try { analytics?.setUserProperty(name, value) } catch (_: Exception) { }
     }
+    /** Read the durable choice only; never bootstrap SDKs, keys, enrollment or collection here.
+     *  PrivacyStore.load retains fail-closed restore/corruption checks and interrupted-write repair.
+     *  Use build configuration rather than the cached initialization state, even before telemetryInit.
+     */
+    fun getEnabled(context: Context): Boolean {
+        requireCertainSetting()
+        val enabled = if (PrivacyBuildConfiguration.read(context).featureEnabled)
+            PrivacyStore(context).load().desiredEnabled
+            else context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(KEY_ENABLED, true)
+        requireCertainSetting()
+        return enabled
+    }
+    private fun requireCertainSetting() {
+        if (!PrivacySettingPersistence.PROCESS.isCertain()) throw PrivacyFault("telemetry_setting_persistence_uncertain")
+    }
+
     fun setEnabled(enabled: Boolean) {
         applicationEventsAllowed = false
+        requireCertainSetting()
         val context = appContext ?: throw PrivacyFault("native_not_initialized")
         if (privacyConfig.featureEnabled) { privacy(context).setDesiredEnabled(enabled); return }
         // Existing default ON and persisted OFF semantics stay the same; failed writes are now reported.
-        if (!context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, enabled).commit()) {
+        if (!PrivacySettingPersistence.PROCESS.commit {
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean(KEY_ENABLED, enabled).commit()
+        }) {
             applyCollectionEnabled(false)
             throw PrivacyFault("storage_commit_failed")
         }

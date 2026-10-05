@@ -205,9 +205,21 @@ pub async fn ponlet_open_external(app: AppHandle, url: String) -> Result<(), Str
 #[tauri::command]
 pub async fn ponlet_get_telemetry_enabled(app: AppHandle) -> Result<bool, String> {
     #[cfg(target_os = "android")]
-    let _settings = crate::telemetry::SETTINGS_SERIAL.lock().await;
-    crate::telemetry::initialize(app, false).await?;
-    Ok(tailsend_telemetry::is_enabled())
+    {
+        use tauri_plugin_ponlet_platform::PonletPlatformExt;
+        let _settings = crate::telemetry::SETTINGS_SERIAL.lock().await;
+        // Native persistence is authoritative even when a setter failed after committing it.
+        // Reading settings must not initialize SDKs or enroll an identity.
+        let enabled = tokio::task::spawn_blocking(move || app.ponlet_platform().get_telemetry_enabled_checked())
+            .await.map_err(|_| "native_setting_unavailable".to_string())??;
+        tailsend_telemetry::reflect_native_enabled(enabled);
+        Ok(enabled)
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        crate::telemetry::initialize(app, false).await?;
+        Ok(tailsend_telemetry::is_enabled())
+    }
 }
 
 #[tauri::command]

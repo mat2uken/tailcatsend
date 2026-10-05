@@ -91,6 +91,11 @@ class PonletPlatformPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     @Command
+    fun telemetryGetEnabled(invoke: Invoke) = privacyReply(invoke) {
+        org.json.JSONObject().put("enabled", TelemetryBridge.getEnabled(activity))
+    }
+
+    @Command
     fun telemetryBeginIntent(invoke: Invoke) {
         // No context, SDK, storage or serial wait: preempts an in-flight registration at IPC receipt.
         val result = JSObject()
