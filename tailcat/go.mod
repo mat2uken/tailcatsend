@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/tailscale/tailcat v0.7.1-0.20260921162859-c03c52432ca9
-	tailscale.com v1.103.0-pre.0.20260925230348-6b3a45f14ef6
+	tailscale.com v1.103.0-pre.0.20260929142145-a0e471a35b8f
 )
 
 replace (

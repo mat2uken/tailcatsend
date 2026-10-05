@@ -1,6 +1,6 @@
 # Pinned upstream Tailcat dependency
 repository=https://github.com/tailscale/tailcat
-commit=a59f8011dd8aa5ab9f2445d66c4d4dd94eeaf7f8
+commit=b4dc28e8aa8936f0a90a41ad8293a64e3d6b645f
 tailscale_commit=a2263542f260e73260e821a2d1b81475c35b0766
 go_version=1.27.1
 derp_map_url=https://tailcat.dev/derpmap.json
