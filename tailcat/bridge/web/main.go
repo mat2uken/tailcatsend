@@ -36,7 +36,7 @@ const (
 
 func main() {
 	bridge := js.ValueOf(map[string]any{
-		"bridgeVersion": "1.0.0-tailcat-b4dc28e",
+		"bridgeVersion": "1.0.0-tailcat-52fbad3",
 		"listen":        js.FuncOf(tailcatListen),
 		"dial":          js.FuncOf(tailcatDial),
 	})
