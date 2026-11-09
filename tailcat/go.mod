@@ -1,10 +1,10 @@
 module github.com/tailsend/tailcat-bridge
 
-go 1.27.1
+go 1.27.2
 
 require (
 	github.com/tailscale/tailcat v0.7.1-0.20260921162859-c03c52432ca9
-	tailscale.com v1.103.0-pre.0.20260929142145-a0e471a35b8f
+	tailscale.com v1.105.0-pre.0.20261013225543-fb79793d99f5
 )
 
 replace (
@@ -60,7 +60,7 @@ require (
 	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f // indirect
 	github.com/tailscale/peercred v0.0.0-20250107143737-35a0c7bd7edc // indirect
 	github.com/tailscale/web-client-prebuilt v0.0.0-20260917222731-e0ed2d0d0fea // indirect
-	github.com/tailscale/wireguard-go v0.0.0-20260924224943-0a83b87f7908 // indirect
+	github.com/tailscale/wireguard-go v0.0.0-20260928213353-e61b6b78110b // indirect
 	github.com/u-root/u-root v0.16.0 // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
@@ -68,7 +68,7 @@ require (
 	go4.org/netipx v0.0.0-20260823151212-3075585bcbeb // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba // indirect
-	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/term v0.46.0 // indirect
